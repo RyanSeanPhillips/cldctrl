@@ -1,1 +1,4 @@
 config.json
+debug.log
+seen-issues.json
+node_modules/

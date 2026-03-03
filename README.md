@@ -1,21 +1,21 @@
-# ClaudeDock
+# CLD CTRL
 
 <p align="center">
-  <img src="docs/variant_c.png" alt="ClaudeDock icon" width="64">
+  <img src="docs/variant_c.png" alt="CLD CTRL icon" width="64">
+  <br>
+  <strong>Mission control for Claude Code</strong>
 </p>
 
-<p align="center"><strong>Get back to your projects faster.</strong></p>
-
-A lightweight Windows system tray app for managing and launching [Claude Code](https://docs.anthropic.com/en/docs/claude-code) projects with one click.
-
-Click the tray icon to see your projects. Select one to open **File Explorer**, **VS Code**, and a **terminal with Claude Code** all at once. Resume previous conversations or start fresh.
+A project launcher and management tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Available as a **Windows system tray app** (PowerShell) and a **cross-platform CLI/TUI** (Node.js).
 
 ## Screenshots
 
+### PowerShell Tray App (Windows)
+
 <p align="center">
-  <img src="docs/screenshot_tray.png" alt="ClaudeDock in the system tray" width="320">
+  <img src="docs/screenshot_tray.png" alt="CLD CTRL in the system tray" width="320">
   <br>
-  <em>ClaudeDock lives in your system tray</em>
+  <em>CLD CTRL in the system tray</em>
 </p>
 
 <p align="center">
@@ -23,26 +23,46 @@ Click the tray icon to see your projects. Select one to open **File Explorer**, 
   &nbsp;&nbsp;
   <img src="docs/screenshot_submenu.png" alt="Project submenu with sessions" width="320">
   <br>
-  <em>Git status at a glance, session history per project</em>
+  <em>Git status at a glance · session history per project</em>
 </p>
+
+### CLI (cross-platform)
+
+```
+┌─ CLD CTRL ──────────────────────┬───────────────────────────────┐  v0.1.0
+│ Projects /search                │ ML Pipeline                   │
+│   Weather Dashboard  master     │ ~/projects/ml-pipeline        │
+│ › ML Pipeline        dev ●3     │ dev ↑2 ●3 | ⚠ 5 issues       │
+│   React Frontend     main       │                               │
+│   API Server         main ●1    │ [n] New session  [c] Continue │
+│                                 │ [i] Issues (5)                │
+│                                 │                               │
+│                                 │ Recent sessions:              │
+│                                 │ › 2h ago  "Train classifier"  │
+│                                 │   1d ago  "Fix data pipeline" │
+│                                 │   3d ago  "Add batch process" │
+└─────────────────────────────────┴───────────────────────────────┘
+ Focus: projects | ? help · / filter · q quit
+```
 
 ## Features
 
-- System tray icon, always one click away
-- One-click launch: Explorer + VS Code + Claude Code terminal
-- Git status per project (branch, uncommitted changes, unpushed commits)
-- Session resume: continue your last conversation or pick from recent sessions
-- Simple JSON configuration
-- Toggle which apps to launch (Explorer, VS Code, Claude)
-- No dependencies beyond PowerShell (ships with Windows)
-- Auto-start on login with included install script
-- Pin to taskbar for quick access
+- **Project launcher** — open Explorer, VS Code, and a Claude Code terminal in one click/command
+- **Git status** — branch, uncommitted changes, unpushed commits per project
+- **Session management** — resume your last conversation or pick from recent sessions
+- **GitHub issues** — see open issue counts per project (CLI, requires `gh`)
+- **Usage stats** — daily token and message counts (CLI)
+- **Background daemon** — desktop notifications for issues and usage (CLI)
+- **System tray** — always one click away, auto-start on login (PowerShell)
+- **Simple config** — shared JSON format between both versions
 
 ## Quick Start
 
+### PowerShell (Windows system tray)
+
 1. Clone the repo:
    ```
-   git clone https://github.com/RyanSeanPhillips/ClaudeDock.git
+   git clone https://github.com/RyanSeanPhillips/cldctrl.git
    ```
 
 2. Copy the example config and add your projects:
@@ -50,68 +70,49 @@ Click the tray icon to see your projects. Select one to open **File Explorer**, 
    cp config.example.json config.json
    ```
 
-3. Edit `config.json` with your project paths:
-   ```json
-   {
-       "projects": [
-           {
-               "name": "My Project",
-               "path": "C:\\Users\\you\\projects\\my-project"
-           }
-       ],
-       "launch": {
-           "explorer": true,
-           "vscode": true,
-           "claude": true
-       },
-       "icon_color": "#DA8F4E"
-   }
+3. Run it:
+   ```
+   .\cldctrl.ps1
+   ```
+   Or double-click `install.bat` to add it to Windows startup.
+
+4. Press **Ctrl+Up** to open the launcher from anywhere.
+
+### CLI (any platform)
+
+1. Install:
+   ```
+   cd packages/cli && npm install && npm link
    ```
 
-4. Run `ClaudeDock.ps1` or double-click `install.bat` to add it to Windows startup.
+2. Run:
+   ```
+   cldctrl
+   ```
 
-## Usage
-
-Left-click or right-click the tray icon to see your projects. Click a project to open:
-
-- **File Explorer** at the project directory
-- **VS Code** with the project folder
-- **A terminal** with Claude Code already running
-
-## Pin to Taskbar
-
-Run `create-shortcut.ps1` to generate a desktop shortcut, then right-click it and select **Pin to taskbar**.
+CLI commands: `cldctrl list`, `cldctrl launch <name>`, `cldctrl stats`, `cldctrl issues`, `cldctrl add <path>`, `cldctrl config show`.
 
 ## Configuration
+
+Both versions share the same `config.json` schema:
 
 | Field | Description |
 |---|---|
 | `projects[].name` | Display name in the menu |
 | `projects[].path` | Absolute path to the project directory |
+| `projects[].hotkey` | Optional keyboard shortcut (CLI) |
 | `launch.explorer` | Open File Explorer at project path |
 | `launch.vscode` | Open VS Code at project path |
 | `launch.claude` | Open a terminal and start Claude Code |
-| `icon_color` | Hex color for the tray icon (default: `#DA8F4E`) |
-
-## Install / Uninstall
-
-- **`install.bat`** — Adds ClaudeDock to Windows startup so it runs on login.
-- **`uninstall.bat`** — Removes it from startup.
+| `icon_color` | Hex color for the tray icon (default: `#e87632`) |
 
 ## Requirements
 
-- Windows 10/11
-- PowerShell 5.1+ (included with Windows)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and available in your PATH
-- VS Code (optional, disable with `"vscode": false` in config)
-
-## Roadmap
-
-- [x] Session resume (pick from recent conversations per project)
-- [x] Git status indicators per project
-- [ ] Usage monitoring (tokens per project, parsed from local session files)
-- [ ] Session history and stats
+- **PowerShell version**: Windows 10/11, PowerShell 5.1+
+- **CLI version**: Node.js 18+, any OS
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and available in PATH
+- VS Code (optional — disable with `"vscode": false` in config)
 
 ## License
 
-MIT
+AGPL-3.0

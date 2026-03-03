@@ -1,18 +1,22 @@
 {
+    "config_version": 2,
     "projects": [
         {
             "name": "My Project",
-            "path": "C:\\Users\\you\\projects\\my-project"
+            "path": "C:\\Users\\you\\projects\\my-project",
+            "hotkey": "M"
         },
         {
             "name": "Another Project",
             "path": "C:\\Users\\you\\projects\\another"
         }
     ],
+    "hidden_projects": [],
     "launch": {
         "explorer": true,
         "vscode": true,
         "claude": true
     },
-    "icon_color": "#DA8F4E"
+    "icon_color": "#DA8F4E",
+    "global_hotkey": { "modifiers": "Ctrl", "key": "Up" }
 }
