@@ -33,7 +33,7 @@ function Write-DockLog {
 Write-DockLog "startup" @{ version = $script:CONFIG_VERSION }
 
 # --- Single-instance guard using a named mutex ---
-$script:singleInstanceMutex = New-Object System.Threading.Mutex($false, "Global\ClaudeDock_SingleInstance")
+$script:singleInstanceMutex = New-Object System.Threading.Mutex($false, "Global\CldCtrl_SingleInstance")
 if (-not $script:singleInstanceMutex.WaitOne(0, $false)) {
     Write-DockLog "startup_aborted" @{ reason = "Another instance is already running" }
     $script:singleInstanceMutex.Dispose()
@@ -340,7 +340,7 @@ if ($script:config.PSObject.Properties['hidden_projects']) {
 }
 
 # --- Load icon ---
-$icoPath = Join-Path $script:scriptDir "ClaudeDock.ico"
+$icoPath = Join-Path $script:scriptDir "cldctrl.ico"
 if (Test-Path $icoPath) {
     $script:icon = New-Object System.Drawing.Icon($icoPath)
 } else {
@@ -1320,7 +1320,7 @@ function Get-AcceleratorMap {
 # ============================================================
 $script:updateAvailable = $false
 $script:updateVersion = ""
-$script:updateCacheFile = Join-Path $env:TEMP "ClaudeDock_update_cache.json"
+$script:updateCacheFile = Join-Path $env:TEMP "cldctrl_update_cache.json"
 
 function Check-ForUpdate {
     if (-not $script:ghAvailable) { return }
@@ -1344,7 +1344,7 @@ function Check-ForUpdate {
     # Background job to check
     Start-Job -ScriptBlock {
         try {
-            $result = & gh release view --repo rphil2/ClaudeDock --json tagName 2>$null
+            $result = & gh release view --repo RyanSeanPhillips/cldctrl --json tagName 2>$null
             if ($result) { return $result }
         } catch { }
         return $null
@@ -2526,7 +2526,7 @@ function Initialize-LauncherForm {
 
             # Feature 9: U key for update
             if ($script:currentPhase -eq 1 -and $ch -eq 'U' -and $script:filterText.Length -eq 0 -and $script:updateAvailable) {
-                Start-Process "https://github.com/rphil2/ClaudeDock/releases"
+                Start-Process "https://github.com/RyanSeanPhillips/cldctrl/releases"
                 $e.Handled = $true
                 return
             }

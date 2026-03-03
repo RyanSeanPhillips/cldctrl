@@ -1,4 +1,4 @@
-$icoPath = Join-Path $PSScriptRoot "ClaudeDock.ico"
+$icoPath = Join-Path $PSScriptRoot "cldctrl.ico"
 $bytes = [System.IO.File]::ReadAllBytes($icoPath)
 Write-Host "File size: $($bytes.Length) bytes"
 

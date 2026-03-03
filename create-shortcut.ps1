@@ -1,9 +1,9 @@
 # Creates a .lnk shortcut that can be pinned to the Windows taskbar.
-# Run this script once to generate ClaudeDock.lnk on your Desktop.
+# Run this script once to generate cldctrl.lnk on your Desktop.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ps1Path = Join-Path $scriptDir "ClaudeDock.ps1"
-$iconPath = Join-Path $scriptDir "ClaudeDock.ico"
+$ps1Path = Join-Path $scriptDir "cldctrl.ps1"
+$iconPath = Join-Path $scriptDir "cldctrl.ico"
 
 # --- Generate .ico file if it doesn't exist ---
 if (-not (Test-Path $iconPath)) {
@@ -14,7 +14,7 @@ if (-not (Test-Path $iconPath)) {
     $gfx.TextRenderingHint = "AntiAliasGridFit"
     $gfx.Clear([System.Drawing.Color]::Transparent)
 
-    $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(218, 143, 78))
+    $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(232, 118, 50))
     $gfx.FillEllipse($bgBrush, 2, 2, 60, 60)
 
     $font = New-Object System.Drawing.Font("Consolas", 20, [System.Drawing.FontStyle]::Bold)
@@ -59,12 +59,12 @@ if (-not (Test-Path $iconPath)) {
     $writer.Close()
     $icoStream.Close()
 
-    Write-Host "Generated ClaudeDock.ico"
+    Write-Host "Generated cldctrl.ico"
 }
 
 # --- Create shortcut ---
 $desktopPath = [System.Environment]::GetFolderPath("Desktop")
-$shortcutPath = Join-Path $desktopPath "ClaudeDock.lnk"
+$shortcutPath = Join-Path $desktopPath "CLD CTRL.lnk"
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -72,14 +72,14 @@ $shortcut.TargetPath = "powershell.exe"
 $shortcut.Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1Path`""
 $shortcut.WorkingDirectory = $scriptDir
 $shortcut.IconLocation = $iconPath
-$shortcut.Description = "ClaudeDock - Claude Code Project Launcher"
+$shortcut.Description = "CLD CTRL - Mission control for Claude Code"
 $shortcut.Save()
 
 Write-Host ""
 Write-Host "Shortcut created at: $shortcutPath"
 Write-Host ""
 Write-Host "To pin to taskbar:"
-Write-Host "  1. Right-click 'ClaudeDock' on your Desktop"
+Write-Host "  1. Right-click 'CLD CTRL' on your Desktop"
 Write-Host "  2. Select 'Show more options' (Win 11)"
 Write-Host "  3. Select 'Pin to taskbar'"
 Write-Host ""

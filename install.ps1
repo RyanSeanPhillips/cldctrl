@@ -1,23 +1,23 @@
-# ClaudeDock Installer
-# Usage: irm https://raw.githubusercontent.com/RyanSeanPhillips/ClaudeDock/main/install.ps1 | iex
+# CLD CTRL Installer
+# Usage: irm https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/main/install.ps1 | iex
 #
 # What it does:
-#   1. Downloads ClaudeDock to %LOCALAPPDATA%\ClaudeDock
+#   1. Downloads CLD CTRL to %LOCALAPPDATA%\cldctrl
 #   2. Optionally adds to Windows startup
-#   3. Launches ClaudeDock immediately
+#   3. Launches CLD CTRL immediately
 
 $ErrorActionPreference = "Stop"
 
-$installDir = Join-Path $env:LOCALAPPDATA "ClaudeDock"
-$repo = "RyanSeanPhillips/ClaudeDock"
+$installDir = Join-Path $env:LOCALAPPDATA "cldctrl"
+$repo = "RyanSeanPhillips/cldctrl"
 $branch = "main"
 $baseUrl = "https://raw.githubusercontent.com/$repo/$branch"
 
-# Files needed to run ClaudeDock
+# Files needed to run CLD CTRL
 $files = @(
-    "ClaudeDock.ps1",
-    "ClaudeDock.vbs",
-    "ClaudeDock.ico",
+    "cldctrl.ps1",
+    "cldctrl.vbs",
+    "cldctrl.ico",
     "restart.ps1",
     "config.example.json",
     "install.bat",
@@ -25,7 +25,7 @@ $files = @(
 )
 
 Write-Host ""
-Write-Host "  ClaudeDock Installer" -ForegroundColor Cyan
+Write-Host "  CLD CTRL Installer" -ForegroundColor Cyan
 Write-Host "  ====================" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -36,8 +36,8 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 }
 
 # Check if already installed
-if (Test-Path (Join-Path $installDir "ClaudeDock.ps1")) {
-    Write-Host "  ClaudeDock is already installed at:" -ForegroundColor Yellow
+if (Test-Path (Join-Path $installDir "cldctrl.ps1")) {
+    Write-Host "  CLD CTRL is already installed at:" -ForegroundColor Yellow
     Write-Host "  $installDir" -ForegroundColor Yellow
     Write-Host ""
     $choice = Read-Host "  Reinstall/update? (y/N)"
@@ -81,22 +81,22 @@ if ($downloadCount -lt 1) {
 # Preserve existing config if it exists
 $configPath = Join-Path $installDir "config.json"
 if (-not (Test-Path $configPath)) {
-    Write-Host "  No config.json found - ClaudeDock will auto-detect your projects on first run." -ForegroundColor DarkGray
+    Write-Host "  No config.json found - CLD CTRL will auto-detect your projects on first run." -ForegroundColor DarkGray
 }
 
 Write-Host "  Downloaded $downloadCount files." -ForegroundColor Green
 Write-Host ""
 
 # Offer to add to startup
-$addStartup = Read-Host "  Start ClaudeDock automatically on login? (Y/n)"
+$addStartup = Read-Host "  Start CLD CTRL automatically on login? (Y/n)"
 if ($addStartup -ne 'n' -and $addStartup -ne 'N') {
     $startupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
-    $ps1Path = Join-Path $installDir "ClaudeDock.ps1"
+    $ps1Path = Join-Path $installDir "cldctrl.ps1"
     $vbsLines = @(
         'Set WshShell = CreateObject("WScript.Shell")',
         ('WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File ""' + $ps1Path + '""", 0, False')
     )
-    [System.IO.File]::WriteAllText((Join-Path $startupDir "ClaudeDock.vbs"), ($vbsLines -join "`r`n"))
+    [System.IO.File]::WriteAllText((Join-Path $startupDir "cldctrl.vbs"), ($vbsLines -join "`r`n"))
     Write-Host "  Added to Windows startup." -ForegroundColor Green
 } else {
     Write-Host "  Skipped. Run install.bat later to add to startup." -ForegroundColor DarkGray
@@ -105,15 +105,15 @@ if ($addStartup -ne 'n' -and $addStartup -ne 'N') {
 Write-Host ""
 
 # Launch now
-$launchNow = Read-Host "  Launch ClaudeDock now? (Y/n)"
+$launchNow = Read-Host "  Launch CLD CTRL now? (Y/n)"
 if ($launchNow -ne 'n' -and $launchNow -ne 'N') {
-    $vbsPath = Join-Path $installDir "ClaudeDock.vbs"
+    $vbsPath = Join-Path $installDir "cldctrl.vbs"
     if (Test-Path $vbsPath) {
         Start-Process wscript.exe -ArgumentList "`"$vbsPath`""
     } else {
-        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installDir\ClaudeDock.ps1`""
+        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$installDir\cldctrl.ps1`""
     }
-    Write-Host "  ClaudeDock is running! Look for it in your system tray." -ForegroundColor Green
+    Write-Host "  CLD CTRL is running! Look for it in your system tray." -ForegroundColor Green
 }
 
 Write-Host ""
