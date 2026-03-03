@@ -9,7 +9,7 @@ import { log } from './logger.js';
 
 // ── Atomic write helper ─────────────────────────────────────
 
-function atomicWriteFile(filePath: string, content: string): void {
+export function atomicWriteFile(filePath: string, content: string): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   const tmpPath = filePath + '.tmp';
@@ -36,7 +36,7 @@ function getSeenIssuesPath(): string {
  * Build a unique key for an issue. Uses repo path + issue number
  * to avoid cross-repository collisions (issue #42 in project A ≠ #42 in B).
  */
-function issueKey(repoPath: string, issueNumber: number): string {
+export function issueKey(repoPath: string, issueNumber: number): string {
   return `${repoPath}#${issueNumber}`;
 }
 

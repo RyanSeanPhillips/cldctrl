@@ -6,7 +6,7 @@ import { useInput, useApp } from 'ink';
 import { launchClaude } from '../../core/launcher.js';
 import { openInExplorer } from '../../core/platform.js';
 import { openVSCode } from '../../core/launcher.js';
-import type { AppState, Project, Session } from '../../types.js';
+import type { AppState, Project, Session, Issue } from '../../types.js';
 import type { AppDispatch } from './useAppState.js';
 
 interface UseKeyboardOptions {
@@ -16,11 +16,12 @@ interface UseKeyboardOptions {
   filteredProjects: Project[];
   selectedProject: Project | undefined;
   recentSessions: Session[];
+  issues: Issue[];
   onLaunchFeedback?: (msg: string) => void;
 }
 
 export function useKeyboard(opts: UseKeyboardOptions): void {
-  const { state, dispatch, viewportHeight, filteredProjects, selectedProject, recentSessions, onLaunchFeedback } = opts;
+  const { state, dispatch, viewportHeight, filteredProjects, selectedProject, recentSessions, issues, onLaunchFeedback } = opts;
   const { exit } = useApp();
 
   useInput((input, key) => {
@@ -93,7 +94,71 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
-    // Navigation
+    // Details pane navigation (must come before generic navigation)
+    if (state.focusPane === 'details') {
+      const sessionCount = recentSessions.length;
+      const issueCount = issues.length;
+
+      if (input === 'j' || key.downArrow) {
+        if (state.detailSection === 'sessions') {
+          if (state.detailIndex < sessionCount - 1) {
+            dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: sessionCount - 1 });
+          } else if (issueCount > 0) {
+            // Past last session → switch to issues
+            dispatch({ type: 'DETAIL_SECTION', section: 'issues' });
+          }
+        } else {
+          dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: issueCount - 1 });
+        }
+        return;
+      }
+      if (input === 'k' || key.upArrow) {
+        if (state.detailSection === 'issues') {
+          if (state.detailIndex > 0) {
+            dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: issueCount - 1 });
+          } else if (sessionCount > 0) {
+            // Past first issue → switch to sessions, select last
+            dispatch({ type: 'DETAIL_SECTION', section: 'sessions', index: sessionCount - 1 });
+          }
+        } else {
+          dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: sessionCount - 1 });
+        }
+        return;
+      }
+      if (key.return) {
+        if (state.detailSection === 'sessions' && recentSessions[state.detailIndex]) {
+          const session = recentSessions[state.detailIndex];
+          onLaunchFeedback?.(`Resuming session: ${session.summary.slice(0, 30)}...`);
+          launchClaude({
+            projectPath: selectedProject!.path,
+            sessionId: session.id,
+          });
+        } else if (state.detailSection === 'issues' && issues[state.detailIndex]) {
+          const issue = issues[state.detailIndex];
+          onLaunchFeedback?.(`Fixing issue #${issue.number}...`);
+          launchClaude({
+            projectPath: selectedProject!.path,
+            prompt: `Please investigate and fix GitHub issue #${issue.number}: ${issue.title}. Use gh issue view ${issue.number} to read the full details.`,
+          });
+        }
+        return;
+      }
+      // Quick-jump between sections
+      if (input === 'i' && issueCount > 0) {
+        dispatch({ type: 'DETAIL_SECTION', section: 'issues' });
+        return;
+      }
+      if (input === 's' && sessionCount > 0) {
+        dispatch({ type: 'DETAIL_SECTION', section: 'sessions' });
+        return;
+      }
+      if (key.escape || key.leftArrow || key.tab) {
+        dispatch({ type: 'SET_FOCUS', pane: 'projects' });
+        return;
+      }
+    }
+
+    // Navigation (projects pane)
     if (input === 'j' || key.downArrow) {
       dispatch({ type: 'NAVIGATE', delta: 1 });
       return;
@@ -121,51 +186,20 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
-    // Details pane navigation
-    if (state.focusPane === 'details') {
-      if (input === 'j' || key.downArrow) {
-        dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: recentSessions.length - 1 });
-        return;
-      }
-      if (input === 'k' || key.upArrow) {
-        dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: recentSessions.length - 1 });
-        return;
-      }
-      if (key.return && recentSessions[state.detailIndex]) {
-        const session = recentSessions[state.detailIndex];
-        onLaunchFeedback?.(`Resuming session: ${session.summary.slice(0, 30)}...`);
-        launchClaude({
-          projectPath: selectedProject!.path,
-          sessionId: session.id,
-        });
-        return;
-      }
-      if (key.escape) {
-        dispatch({ type: 'SET_FOCUS', pane: 'projects' });
-        return;
-      }
-    }
-
     // Focus management
-    if (key.tab || key.return) {
-      if (state.focusPane === 'projects') {
-        if (key.return && selectedProject) {
-          // Smart launch: continue if recent, else new
-          const hasRecent = recentSessions.length > 0;
-          onLaunchFeedback?.(`Launching ${selectedProject.name}...`);
-          launchClaude({
-            projectPath: selectedProject.path,
-            isNew: !hasRecent,
-          });
-        } else {
-          dispatch({ type: 'SET_FOCUS', pane: 'details' });
-        }
-      }
+    if (key.rightArrow || key.tab) {
+      dispatch({ type: 'SET_FOCUS', pane: 'details' });
       return;
     }
-    if (key.escape) {
-      if (state.focusPane === 'details') {
-        dispatch({ type: 'SET_FOCUS', pane: 'projects' });
+    if (key.return) {
+      if (state.focusPane === 'projects' && selectedProject) {
+        // Smart launch: continue if recent, else new
+        const hasRecent = recentSessions.length > 0;
+        onLaunchFeedback?.(`Launching ${selectedProject.name}...`);
+        launchClaude({
+          projectPath: selectedProject.path,
+          isNew: !hasRecent,
+        });
       }
       return;
     }

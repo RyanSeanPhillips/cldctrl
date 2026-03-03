@@ -38,7 +38,7 @@ function validateLaunchInputs(opts: LaunchOptions): string | null {
  * Build a clean environment that clears CLAUDE* vars to avoid nesting detection.
  * Preserves CLAUDE_CODE_GIT_BASH_PATH (needed for git-bash on Windows).
  */
-function getCleanEnv(): NodeJS.ProcessEnv {
+export function getCleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     // Case-insensitive check for Windows compatibility

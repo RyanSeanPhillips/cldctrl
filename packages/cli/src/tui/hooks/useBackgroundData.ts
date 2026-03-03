@@ -8,6 +8,8 @@ import pLimit from 'p-limit';
 import { getGitStatus } from '../../core/git.js';
 import { getIssues } from '../../core/github.js';
 import { getDailyUsageStats } from '../../core/sessions.js';
+import { loadIssueSummaryCache } from '../../core/summaries.js';
+import { issueKey } from '../../core/background.js';
 import { getClaudeProjectsDir } from '../../core/platform.js';
 import { log } from '../../core/logger.js';
 import { DEFAULTS } from '../../constants.js';
@@ -145,7 +147,21 @@ export function useIssues(projectPath: string | null): Issue[] | undefined {
   return usePolling(
     async () => {
       if (!projectPath) return [];
-      return getIssues(projectPath);
+      const issues = await getIssues(projectPath);
+
+      // Populate richSummary from cached issue summaries
+      try {
+        const cache = loadIssueSummaryCache();
+        for (const issue of issues) {
+          const key = issueKey(projectPath, issue.number);
+          const cached = cache[key];
+          if (cached) {
+            issue.richSummary = cached.summary;
+          }
+        }
+      } catch { /* ignore cache errors */ }
+
+      return issues;
     },
     DEFAULTS.issuePollIntervalMs,
     [projectPath]

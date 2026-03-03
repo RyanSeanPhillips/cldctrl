@@ -33,7 +33,8 @@ type Action =
   | { type: 'TOGGLE_PIN'; index: number }
   | { type: 'HIDE_PROJECT'; index: number }
   | { type: 'REFRESH_PROJECTS' }
-  | { type: 'DETAIL_NAVIGATE'; delta: number; maxIndex: number };
+  | { type: 'DETAIL_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'DETAIL_SECTION'; section: 'sessions' | 'issues'; index?: number };
 
 // Track pending config saves (side-effect-free reducer)
 let pendingConfigSave: Config | null = null;
@@ -50,7 +51,7 @@ function reducer(state: AppState, action: Action): AppState {
       const maxIdx = state.projects.length - 1;
       const newIdx = Math.max(0, Math.min(maxIdx, state.selectedIndex + action.delta));
       if (newIdx === state.selectedIndex) return state; // No change — skip re-render
-      return { ...state, selectedIndex: newIdx, detailIndex: 0 };
+      return { ...state, selectedIndex: newIdx, detailIndex: 0, detailSection: 'sessions' };
     }
 
     case 'JUMP_TOP':
@@ -72,7 +73,12 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_FOCUS':
       if (state.focusPane === action.pane) return state;
-      return { ...state, focusPane: action.pane, detailIndex: action.pane === 'details' ? 0 : state.detailIndex };
+      return {
+        ...state,
+        focusPane: action.pane,
+        detailIndex: action.pane === 'details' ? 0 : state.detailIndex,
+        detailSection: action.pane === 'details' ? 'sessions' : state.detailSection,
+      };
 
     case 'SET_MODE':
       return {
@@ -140,6 +146,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, detailIndex: newIdx };
     }
 
+    case 'DETAIL_SECTION':
+      if (state.detailSection === action.section) return state;
+      return { ...state, detailSection: action.section, detailIndex: action.index ?? 0 };
+
     default: {
       const _exhaustive: never = action;
       return state;
@@ -161,6 +171,7 @@ function initState(): AppState {
     filterText: '',
     scrollOffset: 0,
     detailIndex: 0,
+    detailSection: 'sessions',
   };
 }
 

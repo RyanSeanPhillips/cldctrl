@@ -304,6 +304,86 @@ export function createCli(): Command {
       console.log(getConfigDir());
     });
 
+  // ── summarize ──────────────────────────────────────────
+
+  program
+    .command('summarize')
+    .description('Generate AI summaries for all session transcripts')
+    .option('--concurrency <n>', 'Max parallel Claude calls', '2')
+    .action(async (opts) => {
+      const { generateMissingSummaries, generateMissingIssueSummaries } = await import('./core/summaries.js');
+      const { config } = loadConfig();
+      const projects = buildProjectList(config);
+
+      if (projects.length === 0) {
+        console.log('No projects found.');
+        return;
+      }
+
+      let totalGenerated = 0;
+      const concurrency = parseInt(opts.concurrency, 10) || 2;
+
+      // Session summaries
+      for (const p of projects) {
+        if (!program.opts().quiet) {
+          process.stdout.write(`${CHARS.pointer} ${p.name} sessions...`);
+        }
+
+        try {
+          const count = await generateMissingSummaries(p.path, concurrency, (sessionId, _summary) => {
+            if (!program.opts().quiet) {
+              process.stdout.write(` ${CHARS.check}`);
+            }
+          });
+          totalGenerated += count;
+
+          if (!program.opts().quiet) {
+            console.log(count > 0 ? ` (${count} generated)` : ' (up to date)');
+          }
+        } catch (err) {
+          if (!program.opts().quiet) {
+            console.log(` ${CHARS.cross} error`);
+          }
+        }
+      }
+
+      // Issue summaries
+      let totalIssueSummaries = 0;
+      if (isGhAvailable()) {
+        for (const p of projects) {
+          if (!program.opts().quiet) {
+            process.stdout.write(`${CHARS.pointer} ${p.name} issues...`);
+          }
+
+          try {
+            const issues = await getIssues(p.path);
+            if (issues.length === 0) {
+              if (!program.opts().quiet) console.log(' (no issues)');
+              continue;
+            }
+            const count = await generateMissingIssueSummaries(p.path, issues, concurrency, (_num, _summary) => {
+              if (!program.opts().quiet) {
+                process.stdout.write(` ${CHARS.check}`);
+              }
+            });
+            totalIssueSummaries += count;
+
+            if (!program.opts().quiet) {
+              console.log(count > 0 ? ` (${count} generated)` : ' (up to date)');
+            }
+          } catch (err) {
+            if (!program.opts().quiet) {
+              console.log(` ${CHARS.cross} error`);
+            }
+          }
+        }
+      }
+
+      if (!program.opts().quiet) {
+        console.log(`\n${CHARS.check} Done. Generated ${totalGenerated} session + ${totalIssueSummaries} issue summaries.`);
+      }
+    });
+
   // ── daemon ──────────────────────────────────────────────
 
   program

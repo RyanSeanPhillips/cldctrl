@@ -12,6 +12,7 @@ import { buildProjectList } from './core/projects.js';
 import { getGitStatus } from './core/git.js';
 import { getIssues, isGhAvailable } from './core/github.js';
 import { getDailyUsageStats } from './core/sessions.js';
+import { generateMissingSummaries, generateMissingIssueSummaries } from './core/summaries.js';
 import { loadSeenIssues, markIssueSeen, isIssueSeen, writeDaemonCache } from './core/background.js';
 import { getClaudeProjectsDir } from './core/platform.js';
 import { initLogger, log } from './core/logger.js';
@@ -134,6 +135,16 @@ async function pollOnce(): Promise<void> {
 
   // Fetch usage stats
   const usageStats = await getDailyUsageStats(getClaudeProjectsDir());
+
+  // Generate rich session summaries for recent sessions
+  for (const project of projects.slice(0, 10)) {
+    try { await generateMissingSummaries(project.path); } catch {}
+  }
+
+  // Generate AI issue summaries for fetched issues
+  for (const [projPath, issues] of Object.entries(allIssues)) {
+    try { await generateMissingIssueSummaries(projPath, issues); } catch {}
+  }
 
   // Write cache
   const cache: DaemonCache = {

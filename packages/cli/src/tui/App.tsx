@@ -88,7 +88,7 @@ function App() {
       return;
     }
     let cancelled = false;
-    getRecentSessions(selectedProject.path, 6).then((s) => {
+    getRecentSessions(selectedProject.path, 30).then((s) => {
       if (!cancelled) setSessions(s);
     });
     return () => { cancelled = true; };
@@ -108,6 +108,7 @@ function App() {
     filteredProjects,
     selectedProject,
     recentSessions: sessions,
+    issues: issues ?? [],
     onLaunchFeedback,
   });
 
@@ -141,7 +142,7 @@ function App() {
     <Box flexDirection="column" width={dims.cols} height={dims.rows}>
       {/* Header */}
       <Box width={dims.cols} paddingX={1} justifyContent="space-between">
-        <Text><Text bold color={INK_COLORS.accent}>CLD</Text><Text bold color={INK_COLORS.accentLight}> CTRL</Text></Text>
+        <Text><Text color={INK_COLORS.accent}>▄</Text><Text color="#e6963c">█</Text><Text color={INK_COLORS.blue}>●</Text><Text color="#e6963c">█</Text><Text color={INK_COLORS.accent}>▄</Text>  <Text bold color={INK_COLORS.accent}>CLD</Text><Text bold color={INK_COLORS.accentLight}> CTRL</Text></Text>
         <Text color={INK_COLORS.textDim}>v{VERSION}</Text>
       </Box>
 
@@ -165,7 +166,9 @@ function App() {
           sessions={sessions}
           issues={issues ?? []}
           focused={state.focusPane === 'details'}
-          selectedSessionIndex={state.detailIndex}
+          selectedSessionIndex={state.detailSection === 'sessions' ? state.detailIndex : undefined}
+          detailSection={state.detailSection}
+          selectedIssueIndex={state.detailSection === 'issues' ? state.detailIndex : undefined}
         />
       </Box>
 

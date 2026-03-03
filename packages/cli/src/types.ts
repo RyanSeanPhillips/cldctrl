@@ -70,6 +70,8 @@ export interface Session {
   filePath: string;
   modified: Date;
   summary: string;
+  firstPrompt?: string;
+  richSummary?: string;
   dateLabel: string;
   stats?: SessionStats;
 }
@@ -88,11 +90,13 @@ export interface UsageStats {
 export interface Issue {
   number: number;
   title: string;
+  body?: string;
   state: string;
   url: string;
   createdAt: string;
   labels: string[];
   repository?: string;
+  richSummary?: string;
 }
 
 // ── Daemon cache ────────────────────────────────────────────
@@ -117,5 +121,6 @@ export interface AppState {
   mode: AppMode;
   filterText: string;
   scrollOffset: number;
-  detailIndex: number;  // selected session index in detail pane
+  detailIndex: number;  // selected item index in detail pane
+  detailSection: 'sessions' | 'issues';  // which list is active in detail pane
 }

@@ -60,7 +60,7 @@ export async function getIssues(projectPath: string): Promise<Issue[]> {
       [
         'issue', 'list',
         '--state', 'open',
-        '--json', 'number,title,state,url,createdAt,labels',
+        '--json', 'number,title,body,state,url,createdAt,labels',
         '--limit', '20',
       ],
       projectPath
@@ -72,6 +72,7 @@ export async function getIssues(projectPath: string): Promise<Issue[]> {
     return raw.map((issue: Record<string, unknown>) => ({
       number: issue.number as number,
       title: issue.title as string,
+      body: (issue.body as string) ?? '',
       state: issue.state as string,
       url: issue.url as string,
       createdAt: issue.createdAt as string,

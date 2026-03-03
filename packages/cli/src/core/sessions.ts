@@ -9,6 +9,7 @@ import readline from 'node:readline';
 import { DEFAULTS } from '../constants.js';
 import { getSessionDir } from './projects.js';
 import { log } from './logger.js';
+import { loadSummaryCache } from './summaries.js';
 import type { Session, SessionStats, UsageStats } from '../types.js';
 
 // ── Pre-compiled regexes (avoid allocation in hot loops) ────
@@ -22,7 +23,7 @@ const TOKEN_REGEXES = [
 
 const USER_TYPE_RE = /"type"\s*:\s*"user"/;
 const USER_ROLE_RE = /"role"\s*:\s*"user"/;
-const CONTENT_RE = /"content"\s*:\s*"([^"]{1,80})/;
+const CONTENT_RE = /"content"\s*:\s*"([^"]{1,200})/;
 
 // ── Stats cache with LRU eviction ───────────────────────────
 
@@ -159,7 +160,7 @@ function extractSummaryFromJSONL(filePath: string): string {
           let summary = match[1]
             .replace(/\\n/g, ' ')
             .replace(/\\t/g, ' ');
-          if (summary.length > 50) summary = summary.substring(0, 47) + '...';
+          if (summary.length > 200) summary = summary.substring(0, 197) + '...';
           return summary;
         }
       }
@@ -190,6 +191,9 @@ export async function getRecentSessions(
   try {
     // Load Claude's sessions-index.json for rich summaries
     const index = loadSessionIndex(sessionDir);
+
+    // Load AI-generated rich summaries cache
+    const richSummaries = loadSummaryCache(sessionDir);
 
     const files = fs.readdirSync(sessionDir)
       .filter((f) => f.endsWith('.jsonl'))
@@ -228,11 +232,19 @@ export async function getRecentSessions(
         day: 'numeric',
       });
 
+      // Look up rich summary (validate mtime matches)
+      const richEntry = richSummaries[sessionId];
+      const richSummary = (richEntry && richEntry.mtimeMs === file.stat.mtimeMs)
+        ? richEntry.summary
+        : undefined;
+
       sessions.push({
         id: sessionId,
         filePath: file.path,
         modified,
         summary,
+        firstPrompt: indexEntry?.firstPrompt || undefined,
+        richSummary,
         dateLabel,
         // Prefer full stats (has tokens), but use index messageCount as fallback
         stats: fullStats ?? stats ?? undefined,
@@ -267,10 +279,10 @@ export async function getSessionPreview(
       for await (const line of rl) {
         if (previews.length >= maxMessages) break;
         if (USER_TYPE_RE.test(line) && USER_ROLE_RE.test(line)) {
-          const match = line.match(/"content"\s*:\s*"([^"]{1,120})/);
+          const match = line.match(/"content"\s*:\s*"([^"]{1,300})/);
           if (match) {
             let msg = match[1].replace(/\\n/g, ' ').replace(/\\t/g, ' ');
-            if (msg.length > 70) msg = msg.substring(0, 67) + '...';
+            if (msg.length > 200) msg = msg.substring(0, 197) + '...';
             previews.push(msg);
           }
         }
