@@ -4,20 +4,20 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $docsDir = Join-Path $scriptDir "docs"
 if (-not (Test-Path $docsDir)) { New-Item -ItemType Directory -Path $docsDir | Out-Null }
 
-# Colors matching the dark theme
-$bgColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
-$subBgColor = [System.Drawing.Color]::FromArgb(40, 40, 43)
+# Colors matching the CLD CTRL palette
+$bgColor = [System.Drawing.Color]::FromArgb(6, 8, 13)          # #06080d
+$subBgColor = [System.Drawing.Color]::FromArgb(14, 17, 24)
 $textColor = [System.Drawing.Color]::White
-$dimColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
-$sepColor = [System.Drawing.Color]::FromArgb(60, 60, 60)
-$quitColor = [System.Drawing.Color]::FromArgb(180, 80, 80)
-$hoverColor = [System.Drawing.Color]::FromArgb(55, 55, 58)
-$accentColor = [System.Drawing.Color]::FromArgb(217, 119, 6)
-$greenColor = [System.Drawing.Color]::FromArgb(120, 210, 120)
-$yellowColor = [System.Drawing.Color]::FromArgb(240, 190, 60)
-$blueColor = [System.Drawing.Color]::FromArgb(140, 200, 255)
-$statusColor = [System.Drawing.Color]::FromArgb(100, 200, 100)
-$sessionDimColor = [System.Drawing.Color]::FromArgb(160, 160, 160)
+$dimColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
+$sepColor = [System.Drawing.Color]::FromArgb(40, 44, 55)
+$quitColor = [System.Drawing.Color]::FromArgb(220, 80, 80)
+$hoverColor = [System.Drawing.Color]::FromArgb(24, 28, 38)
+$accentColor = [System.Drawing.Color]::FromArgb(232, 118, 50)   # #e87632 orange
+$greenColor = [System.Drawing.Color]::FromArgb(45, 212, 191)    # #2dd4bf teal
+$yellowColor = [System.Drawing.Color]::FromArgb(245, 158, 11)   # #f59e0b amber
+$blueColor = [System.Drawing.Color]::FromArgb(56, 140, 255)     # #388cff blue
+$statusColor = [System.Drawing.Color]::FromArgb(45, 212, 191)   # teal
+$sessionDimColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
 
 $menuFont = New-Object System.Drawing.Font("Segoe UI", 12)
 $headerFont = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Italic)
@@ -111,7 +111,7 @@ $gfx.Clear([System.Drawing.Color]::Transparent)
 $gfx.TextRenderingHint = "ClearTypeGridFit"
 
 $mainItems = @(
-    @{ text = "ClaudeDock"; type = "header" },
+    @{ text = "CLD CTRL"; type = "header" },
     @{ text = ""; type = "separator" },
     @{ text = "Weather Dashboard"; type = "item"; color = $greenColor; arrow = $true },
     @{ text = "ML Pipeline"; type = "item"; color = $yellowColor; arrow = $true; hover = $true },
@@ -165,9 +165,9 @@ $trayW = 320
 $trayH = 44
 $trayBmp = New-Object System.Drawing.Bitmap($trayW, $trayH)
 $gfx = [System.Drawing.Graphics]::FromImage($trayBmp)
-$gfx.Clear([System.Drawing.Color]::FromArgb(28, 28, 28))
+$gfx.Clear([System.Drawing.Color]::FromArgb(6, 8, 13))
 
-$linePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(50, 50, 50), 1)
+$linePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(40, 44, 55), 1)
 $gfx.DrawLine($linePen, 0, 0, $trayW, 0)
 
 $trayFont = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -176,7 +176,7 @@ $gfx.DrawString("^", $trayFont, $trayBrush, 8, 12)
 $gfx.DrawString("Wi-Fi", $smallFont, $trayBrush, 40, 14)
 $gfx.DrawString("Vol", $smallFont, $trayBrush, 90, 14)
 
-# ClaudeDock rocket icon
+# CLD CTRL tray icon
 $rocketPath = Join-Path $docsDir "variant_c.png"
 if (Test-Path $rocketPath) {
     $rocketImg = [System.Drawing.Image]::FromFile($rocketPath)
