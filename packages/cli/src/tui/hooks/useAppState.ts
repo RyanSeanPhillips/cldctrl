@@ -7,7 +7,7 @@
 import { useReducer, useEffect, useRef, useCallback } from 'react';
 import os from 'node:os';
 import { loadConfig, saveConfig } from '../../config.js';
-import { buildProjectList } from '../../core/projects.js';
+import { buildProjectList, buildProjectListFast } from '../../core/projects.js';
 import type { Config, Project, FocusPane, AppMode, AppState } from '../../types.js';
 
 // Case-insensitive path comparison only on Windows
@@ -136,7 +136,7 @@ function reducer(state: AppState, action: Action): AppState {
 
       // Schedule async save (no side effects in reducer)
       pendingConfigSave = config;
-      const projects = buildProjectList(config);
+      const projects = buildProjectListFast(config);
       return { ...state, config, projects };
     }
 
@@ -149,13 +149,13 @@ function reducer(state: AppState, action: Action): AppState {
 
       // Schedule async save
       pendingConfigSave = config;
-      const projects = buildProjectList(config);
+      const projects = buildProjectListFast(config);
       const newIdx = Math.min(state.selectedIndex, projects.length - 1);
       return { ...state, config, projects, selectedIndex: Math.max(0, newIdx) };
     }
 
     case 'REFRESH_PROJECTS': {
-      const projects = buildProjectList(state.config);
+      const projects = buildProjectListFast(state.config);
       return { ...state, projects };
     }
 

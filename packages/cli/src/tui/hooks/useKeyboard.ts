@@ -4,9 +4,8 @@
 
 import { useInput, useApp, useStdin } from 'ink';
 import { useRef, useEffect } from 'react';
-import { launchClaude } from '../../core/launcher.js';
+import { launchClaude, openVSCode, buildIssueFixPrompt } from '../../core/launcher.js';
 import { openInExplorer } from '../../core/platform.js';
-import { openVSCode } from '../../core/launcher.js';
 import { trackSession } from '../../core/tracker.js';
 import { getHelpItemCount } from '../helpItems.js';
 import type { SkillsData } from '../helpItems.js';
@@ -292,7 +291,7 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
           onLaunchFeedback?.(`Fixing issue #${issue.number}...`);
           const issueResult = launchClaude({
             projectPath: selectedProject!.path,
-            prompt: `Please investigate and fix GitHub issue #${issue.number}: ${issue.title}. Use gh issue view ${issue.number} to read the full details.`,
+            prompt: buildIssueFixPrompt(issue),
           });
           if (issueResult.success && issueResult.pid) {
             trackSession(issueResult.pid, selectedProject!.path);

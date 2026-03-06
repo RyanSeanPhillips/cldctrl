@@ -8,9 +8,7 @@
  * Results are merged and deduplicated by projectPath.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { getSessionDir } from './projects.js';
+import { getNewestSessionFile } from './projects.js';
 import { log } from './logger.js';
 import { getTrackedSessions, isProcessRunning } from './tracker.js';
 import type { ActiveSession, SessionActivity } from '../types.js';
@@ -30,43 +28,6 @@ const EMPTY_ACTIVITY: SessionActivity = {
   duration: 0,
   hourlyActivity: new Array(24).fill(0),
 };
-
-/**
- * Find the newest .jsonl in a project's session dir.
- * Returns { path, mtimeMs, sessionId } or null.
- */
-function getNewestSession(projectPath: string): {
-  filePath: string;
-  mtimeMs: number;
-  sessionId: string;
-} | null {
-  try {
-    const sessionDir = getSessionDir(projectPath);
-    if (!fs.existsSync(sessionDir)) return null;
-
-    let newest: { filePath: string; mtimeMs: number; sessionId: string } | null = null;
-
-    const files = fs.readdirSync(sessionDir);
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue;
-      const fullPath = path.join(sessionDir, f);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (!newest || stat.mtimeMs > newest.mtimeMs) {
-          newest = {
-            filePath: fullPath,
-            mtimeMs: stat.mtimeMs,
-            sessionId: path.basename(f, '.jsonl'),
-          };
-        }
-      } catch { /* skip unreadable files */ }
-    }
-
-    return newest;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Detect active Claude sessions by combining PID tracking and JSONL mtime.
@@ -91,7 +52,7 @@ export async function getActiveClaudeProcesses(
       const normalizedPath = t.projectPath.toLowerCase();
       seenPaths.add(normalizedPath);
 
-      const newest = getNewestSession(t.projectPath);
+      const newest = getNewestSessionFile(t.projectPath);
       const isRecentJsonl = newest && (now - newest.mtimeMs) < ACTIVE_THRESHOLD_MS;
 
       sessions.push({
@@ -115,7 +76,7 @@ export async function getActiveClaudeProcesses(
       const normalizedPath = projPath.toLowerCase();
       if (seenPaths.has(normalizedPath)) continue; // already tracked
 
-      const newest = getNewestSession(projPath);
+      const newest = getNewestSessionFile(projPath);
       if (!newest) continue;
 
       const age = now - newest.mtimeMs;

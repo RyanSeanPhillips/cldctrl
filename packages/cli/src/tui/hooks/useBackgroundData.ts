@@ -64,13 +64,17 @@ function shallowEqual(a: unknown, b: unknown): boolean {
     return true;
   }
 
-  // Plain objects: compare JSON (works for simple value objects)
+  // Plain objects: shallow key comparison
   if (typeof a === 'object' && typeof b === 'object') {
-    try {
-      return JSON.stringify(a) === JSON.stringify(b);
-    } catch {
-      return false;
+    const aObj = a as Record<string, unknown>;
+    const bObj = b as Record<string, unknown>;
+    const aKeys = Object.keys(aObj);
+    const bKeys = Object.keys(bObj);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const key of aKeys) {
+      if (aObj[key] !== bObj[key]) return false;
     }
+    return true;
   }
 
   return false;
@@ -206,6 +210,7 @@ export function useGitStatuses(
 
   // Debounced re-fetch when visible range changes (for newly scrolled-to projects)
   useEffect(() => {
+    let cancelled = false;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       if (busyRef.current) return;
@@ -225,19 +230,22 @@ export function useGitStatuses(
           )
         );
 
-        setStatuses((prev) => {
-          const next = new Map(prev);
-          for (const { path, status } of results) {
-            if (status) next.set(path, status);
-          }
-          return next;
-        });
+        if (!cancelled) {
+          setStatuses((prev) => {
+            const next = new Map(prev);
+            for (const { path, status } of results) {
+              if (status) next.set(path, status);
+            }
+            return next;
+          });
+        }
       } finally {
         busyRef.current = false;
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [visibleStart, visibleEnd]);
@@ -450,45 +458,6 @@ export function useLiveSession(
   }, [projectPath, isActive]);
 
   return tailState;
-}
-
-// ── Batched initial load ─────────────────────────────────────
-// Fetches multiple data sources in parallel, sets all state in one batch.
-
-interface InitialLoadResult {
-  usageStats: UsageStats | null;
-  usageHistory: Record<string, DailyUsage[]>;
-}
-
-export function useInitialLoad(): InitialLoadResult {
-  const [result, setResult] = useState<InitialLoadResult>({
-    usageStats: null,
-    usageHistory: {},
-  });
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-
-    let cancelled = false;
-
-    Promise.all([
-      getRollingUsageStats(getClaudeProjectsDir()).catch(() => null),
-      getDailyUsageByProject(28).catch(() => ({})),
-    ]).then(([usageStats, usageHistory]) => {
-      if (!cancelled) {
-        setResult({
-          usageStats: usageStats ?? null,
-          usageHistory: usageHistory ?? {},
-        });
-      }
-    });
-
-    return () => { cancelled = true; };
-  }, []);
-
-  return result;
 }
 
 // ── Auto-summarize (background) ──────────────────────────────

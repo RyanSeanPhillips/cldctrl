@@ -68,8 +68,9 @@ function App() {
   }, [stdout]);
 
 
-  // Skills/commands discovery (sync FS reads, fast)
-  const skillsData = useMemo(() => getSkillsSummary(), []);
+  // Skills/commands discovery (lazy — avoid sync FS reads during first render)
+  const [skillsData, setSkillsData] = useState({ commands: [] as any[], skills: [] as any[] });
+  useEffect(() => { setSkillsData(getSkillsSummary()); }, []);
 
   // Filter projects
   const filteredProjects = useMemo(() => {
@@ -174,7 +175,7 @@ function App() {
   }, []);
 
   // Auto-summarize: sweep all projects at startup, issues on selection
-  const summaryRevision = useAutoSummarize(filteredProjects, settledPath, issues);
+  const summaryRevision = useAutoSummarize(state.projects, settledPath, issues);
 
   // Recent sessions for settled project (re-fetches when summaries are generated)
   const [sessions, setSessions] = useState<Session[]>([]);

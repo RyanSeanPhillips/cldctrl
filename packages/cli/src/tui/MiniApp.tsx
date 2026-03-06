@@ -17,7 +17,8 @@ import { PromptBar } from './components/PromptBar.js';
 import { INK_COLORS, CHARS, APP_NAME, VERSION } from '../constants.js';
 import type { Session } from '../types.js';
 
-const READY_SIGNAL_PATH = path.join(os.tmpdir(), 'cldctrl-ready');
+const popupId = process.env.CLDCTRL_POPUP_ID ?? 'default';
+const READY_SIGNAL_PATH = path.join(os.tmpdir(), `cldctrl-ready-${popupId}`);
 
 // Performance timing (injected by mini-entry.ts)
 const mark: ((label: string) => void) = (globalThis as any).__cldctrl_mark ?? (() => {});

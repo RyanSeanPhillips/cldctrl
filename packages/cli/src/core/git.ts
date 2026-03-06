@@ -45,52 +45,41 @@ function runGit(args: string[], cwd: string): Promise<string> {
  */
 export async function getGitStatus(projectPath: string): Promise<GitStatus | null> {
   try {
-    // Get branch name
+    const [branchResult, statusResult, revListResult] = await Promise.allSettled([
+      runGit(['-C', projectPath, 'symbolic-ref', '--short', 'HEAD'], projectPath),
+      runGit(['-C', projectPath, 'status', '--porcelain'], projectPath),
+      runGit(['-C', projectPath, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], projectPath),
+    ]);
+
+    // Branch
     let branch = '';
-    try {
-      const ref = await runGit(
-        ['-C', projectPath, 'symbolic-ref', '--short', 'HEAD'],
-        projectPath
-      );
-      branch = ref.trim();
-    } catch {
-      // Detached HEAD or not a repo
+    if (branchResult.status === 'fulfilled') {
+      branch = branchResult.value.trim();
+    } else {
+      // Detached HEAD fallback
       try {
-        const hash = await runGit(
-          ['-C', projectPath, 'rev-parse', '--short', 'HEAD'],
-          projectPath
-        );
+        const hash = await runGit(['-C', projectPath, 'rev-parse', '--short', 'HEAD'], projectPath);
         branch = hash.trim();
       } catch {
         return null; // Not a git repo
       }
     }
 
-    // Get porcelain status (dirty file count)
+    // Dirty count
     let dirty = 0;
-    try {
-      const status = await runGit(
-        ['-C', projectPath, 'status', '--porcelain'],
-        projectPath
-      );
-      dirty = status.trim().split('\n').filter((l) => l.trim()).length;
-    } catch { /* ignore */ }
+    if (statusResult.status === 'fulfilled') {
+      dirty = statusResult.value.trim().split('\n').filter((l) => l.trim()).length;
+    }
 
-    // Get ahead/behind counts
+    // Ahead/behind
     let ahead = 0;
     let behind = 0;
-    try {
-      const revList = await runGit(
-        ['-C', projectPath, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'],
-        projectPath
-      );
-      const parts = revList.trim().split(/\s+/);
+    if (revListResult.status === 'fulfilled') {
+      const parts = revListResult.value.trim().split(/\s+/);
       if (parts.length === 2) {
         ahead = parseInt(parts[0], 10) || 0;
         behind = parseInt(parts[1], 10) || 0;
       }
-    } catch {
-      // No upstream configured — that's fine
     }
 
     return { branch, dirty, ahead, behind, available: true };
@@ -106,7 +95,7 @@ export async function getGitStatus(projectPath: string): Promise<GitStatus | nul
 export async function getRecentCommits(projectPath: string, count: number = 10): Promise<GitCommit[]> {
   try {
     const output = await runGit(
-      ['-C', projectPath, 'log', `-${count}`, '--format=%H|%s|%aI', '--shortstat'],
+      ['-C', projectPath, 'log', `-${count}`, '--format=%H%x00%s%x00%aI', '--shortstat'],
       projectPath
     );
 
@@ -117,13 +106,13 @@ export async function getRecentCommits(projectPath: string, count: number = 10):
       const line = lines[i].trim();
       if (!line) continue;
 
-      // Format line: hash|subject|date
-      const parts = line.split('|');
-      if (parts.length >= 3 && parts[0].length >= 7) {
+      // Format line: hash\0subject\0date
+      const parts = line.split('\0');
+      if (parts.length === 3 && parts[0].length >= 7) {
         const commit: GitCommit = {
           hash: parts[0],
-          subject: parts.slice(1, -1).join('|'),  // subject may contain |
-          date: parts[parts.length - 1],
+          subject: parts[1],
+          date: parts[2],
           additions: 0,
           deletions: 0,
         };

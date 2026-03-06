@@ -6,7 +6,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { INK_COLORS, CHARS } from '../../constants.js';
-import type { Session, Issue } from '../../types.js';
+import type { Session } from '../../types.js';
 
 export interface ActionItem {
   id: string;
@@ -127,55 +127,3 @@ export const MiniSessionList = React.memo(function MiniSessionList({
   );
 });
 
-// ── Issue list for Phase 3 ───────────────────────────────────
-
-interface MiniIssueListProps {
-  projectName: string;
-  issues: Issue[];
-  selectedIndex: number;
-  width: number;
-}
-
-export const MiniIssueList = React.memo(function MiniIssueList({
-  projectName,
-  issues,
-  selectedIndex,
-  width,
-}: MiniIssueListProps) {
-  const innerW = Math.max(10, width - 4);
-
-  return (
-    <Box flexDirection="column" width={width}>
-      <Box paddingX={1}>
-        <Text bold color={INK_COLORS.accent}>{projectName}</Text>
-        <Text color={INK_COLORS.textDim}> {CHARS.pointer} Issues</Text>
-      </Box>
-
-      {issues.length === 0 && (
-        <Box paddingX={1}>
-          <Text color={INK_COLORS.textDim}>No issues</Text>
-        </Box>
-      )}
-
-      {issues.map((issue, i) => {
-        const isSelected = i === selectedIndex;
-        const num = `#${issue.number}`;
-        const maxTitle = innerW - num.length - 4;
-
-        return (
-          <Box key={issue.number} paddingX={1}>
-            <Text
-              color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
-              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
-              bold={isSelected}
-            >
-              {isSelected ? CHARS.pointer : ' '}{' '}
-              <Text color={INK_COLORS.yellow}>{num}</Text>
-              {' '}{issue.title.slice(0, maxTitle)}
-            </Text>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-});

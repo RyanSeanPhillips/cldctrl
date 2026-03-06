@@ -4,17 +4,11 @@
  */
 
 import { useInput, useApp } from 'ink';
-import { launchClaude, openVSCode } from '../../core/launcher.js';
+import { launchClaude, openVSCode, launchAndTrack, buildIssueFixPrompt } from '../../core/launcher.js';
 import { openInExplorer } from '../../core/platform.js';
-import { trackSession } from '../../core/tracker.js';
 import type { Project, Session, Issue } from '../../types.js';
 import type { MiniState, MiniDispatch, MiniPhase } from './useMiniState.js';
-
-interface ActionItem {
-  id: string;
-  label: string;
-  drillable?: boolean;
-}
+import type { ActionItem } from '../components/MiniActionMenu.js';
 
 interface UseMiniKeyboardOptions {
   state: MiniState;
@@ -212,19 +206,12 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
         if (issue && selectedProject) {
           launchAndTrack({
             projectPath: selectedProject.path,
-            prompt: `Please investigate and fix GitHub issue #${issue.number}: ${issue.title}. Use gh issue view ${issue.number} to read the full details.`,
+            prompt: buildIssueFixPrompt(issue),
           });
           exit();
         }
         break;
       }
     }
-  }
-}
-
-function launchAndTrack(opts: Parameters<typeof launchClaude>[0]): void {
-  const result = launchClaude(opts);
-  if (result.success && result.pid) {
-    trackSession(result.pid, opts.projectPath);
   }
 }

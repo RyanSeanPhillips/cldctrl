@@ -7,12 +7,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import spawn from 'cross-spawn';
 import pLimit from 'p-limit';
 import { getSessionDir } from './projects.js';
 import { getConfigDir } from '../config.js';
 import { atomicWriteFile, issueKey } from './background.js';
-import { getCleanEnv } from './launcher.js';
+import { runClaudePrint } from './claude-cli.js';
 import { log } from './logger.js';
 import { DEFAULTS } from '../constants.js';
 import type { Issue } from '../types.js';
@@ -27,48 +26,6 @@ interface SummaryCacheEntry {
 
 interface SummaryCache {
   [sessionId: string]: SummaryCacheEntry;
-}
-
-// ── Run Claude CLI ───────────────────────────────────────────
-
-/**
- * Spawn `claude --print` with Haiku model and return trimmed output.
- * Uses array args (no shell) — same pattern as git.ts:runGit.
- */
-function runClaude(prompt: string, timeout = 60_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('claude', [
-      '--print',
-      '-p', prompt,
-      '--no-session-persistence',
-      '--model', 'haiku',
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: getCleanEnv(),
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-    child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(`claude --print failed (code ${code}): ${stderr}`));
-    });
-
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('claude --print timed out'));
-    }, timeout);
-  });
 }
 
 // ── Transcript extraction ────────────────────────────────────
@@ -171,7 +128,7 @@ export async function generateSessionSummary(sessionFilePath: string): Promise<s
   if (!transcript) return '';
 
   const prompt = SUMMARY_PROMPT_PREFIX + transcript;
-  return runClaude(prompt);
+  return runClaudePrint(prompt);
 }
 
 // ── Cache management ─────────────────────────────────────────
@@ -317,7 +274,7 @@ export async function generateIssueSummary(issue: Issue, _projectPath: string): 
   const labels = issue.labels.length > 0 ? `Labels: ${issue.labels.join(', ')}.\n` : '';
   const body = issue.body ? issue.body.slice(0, 2000) : '(no description)';
   const prompt = `${ISSUE_SUMMARY_PROMPT_PREFIX}Issue #${issue.number}: ${issue.title}\n${labels}\n${body}`;
-  return runClaude(prompt);
+  return runClaudePrint(prompt);
 }
 
 /**

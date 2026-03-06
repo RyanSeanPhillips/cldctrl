@@ -391,3 +391,38 @@ function discoverProjectsFast(
 
   return discovered;
 }
+
+/**
+ * Find the newest .jsonl file in a project's session directory.
+ * Shared by processes.ts and tailer.ts.
+ */
+export function getNewestSessionFile(projectPath: string): {
+  filePath: string;
+  mtimeMs: number;
+  sessionId: string;
+} | null {
+  try {
+    const sessionDir = getSessionDir(projectPath);
+    if (!fs.existsSync(sessionDir)) return null;
+
+    let newest: { filePath: string; mtimeMs: number; sessionId: string } | null = null;
+    const files = fs.readdirSync(sessionDir);
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue;
+      const fullPath = path.join(sessionDir, f);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!newest || stat.mtimeMs > newest.mtimeMs) {
+          newest = {
+            filePath: fullPath,
+            mtimeMs: stat.mtimeMs,
+            sessionId: path.basename(f, '.jsonl'),
+          };
+        }
+      } catch { /* skip unreadable files */ }
+    }
+    return newest;
+  } catch {
+    return null;
+  }
+}

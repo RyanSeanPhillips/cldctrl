@@ -7,10 +7,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import spawn from 'cross-spawn';
 import { getSessionDir, getProjectSlug } from './projects.js';
 import { extractTranscript } from './summaries.js';
-import { getCleanEnv } from './launcher.js';
+import { runClaudePrint } from './claude-cli.js';
 import { log } from './logger.js';
 
 // ── Types ────────────────────────────────────────────────────
@@ -32,44 +31,6 @@ export interface MemorySuggestion {
 export interface AnalysisResult {
   skills: SkillSuggestion[];
   memories: MemorySuggestion[];
-}
-
-// ── AI call ──────────────────────────────────────────────────
-
-function runClaude(prompt: string, timeout = 120_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('claude', [
-      '--print',
-      '-p', prompt,
-      '--no-session-persistence',
-      '--model', 'haiku',
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: getCleanEnv(),
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-    child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(`claude --print failed (code ${code}): ${stderr}`));
-    });
-
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('claude --print timed out'));
-    }, timeout);
-  });
 }
 
 // ── Transcript collection ────────────────────────────────────
@@ -196,7 +157,7 @@ export async function analyzeProject(
   }
 
   const prompt = ANALYSIS_PROMPT(projectName, combined);
-  const response = await runClaude(prompt);
+  const response = await runClaudePrint(prompt, 120_000);
   const parsed = parseAnalysisResponse(response);
 
   return {
@@ -217,14 +178,17 @@ export function saveSkill(skill: SkillSuggestion): string {
   const commandsDir = path.join(os.homedir(), '.claude', 'commands');
   fs.mkdirSync(commandsDir, { recursive: true });
 
-  const filePath = path.join(commandsDir, `${skill.name}.md`);
-  const content = `---
-description: ${skill.description}
----
+  // Sanitize: strip path separators and traversal sequences
+  const safeName = skill.name.replace(/[/\\]/g, '-').replace(/\.\./g, '');
+  if (!safeName) throw new Error('Invalid skill name');
 
-${skill.promptDraft}
-`;
+  const filePath = path.join(commandsDir, `${safeName}.md`);
+  // Verify resolved path stays within commandsDir
+  if (!path.resolve(filePath).startsWith(path.resolve(commandsDir))) {
+    throw new Error('Invalid skill name');
+  }
 
+  const content = `---\ndescription: ${skill.description}\n---\n\n${skill.promptDraft}\n`;
   fs.writeFileSync(filePath, content, 'utf-8');
   return filePath;
 }

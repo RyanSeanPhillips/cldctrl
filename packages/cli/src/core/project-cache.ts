@@ -5,13 +5,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { getConfigDir } from '../config.js';
 
-const CACHE_DIR = path.join(
-  process.env.APPDATA || path.join(os.homedir(), '.config'),
-  'cldctrl',
-);
-const CACHE_PATH = path.join(CACHE_DIR, 'project-names.json');
+const CACHE_PATH_FILENAME = 'project-names.json';
 
 interface ProjectNameCache {
   [projectPath: string]: string;
@@ -19,8 +15,9 @@ interface ProjectNameCache {
 
 export function readProjectNameCache(): ProjectNameCache {
   try {
-    if (!fs.existsSync(CACHE_PATH)) return {};
-    return JSON.parse(fs.readFileSync(CACHE_PATH, 'utf-8'));
+    const cachePath = path.join(getConfigDir(), CACHE_PATH_FILENAME);
+    if (!fs.existsSync(cachePath)) return {};
+    return JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
   } catch {
     return {};
   }
@@ -28,7 +25,8 @@ export function readProjectNameCache(): ProjectNameCache {
 
 export function writeProjectNameCache(cache: ProjectNameCache): void {
   try {
-    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(CACHE_PATH, JSON.stringify(cache));
-  } catch {}
+    const cachePath = path.join(getConfigDir(), CACHE_PATH_FILENAME);
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify(cache));
+  } catch { /* non-critical */ }
 }

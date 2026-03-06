@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getSessionDir } from './projects.js';
+import { getSessionDir, getNewestSessionFile } from './projects.js';
 import { log } from './logger.js';
 import type { SessionActivity } from '../types.js';
 
@@ -51,29 +51,7 @@ export function classifyToolUse(
  * Returns null if no session files exist.
  */
 export function getActiveSessionFile(projectPath: string): string | null {
-  try {
-    const sessionDir = getSessionDir(projectPath);
-    if (!fs.existsSync(sessionDir)) return null;
-
-    const files = fs.readdirSync(sessionDir)
-      .filter(f => f.endsWith('.jsonl'))
-      .map(f => {
-        const fullPath = path.join(sessionDir, f);
-        try {
-          const stat = fs.statSync(fullPath);
-          return { path: fullPath, mtimeMs: stat.mtimeMs };
-        } catch {
-          return null;
-        }
-      })
-      .filter((f): f is { path: string; mtimeMs: number } => f !== null)
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-    return files[0]?.path ?? null;
-  } catch (err) {
-    log('error', { function: 'getActiveSessionFile', message: String(err) });
-    return null;
-  }
+  return getNewestSessionFile(projectPath)?.filePath ?? null;
 }
 
 // ── Incremental JSONL tailer ─────────────────────────────────
@@ -200,6 +178,13 @@ function readNewBytes(state: TailerInternal): boolean {
     // No new data
     if (fileSize <= state.byteOffset) return false;
 
+    // Cap initial read to last 1MB to avoid OOM on large session files
+    const MAX_INITIAL_BYTES = 1_048_576;
+    if (state.byteOffset === 0 && fileSize > MAX_INITIAL_BYTES) {
+      state.byteOffset = fileSize - MAX_INITIAL_BYTES;
+      state.partialLine = '';
+    }
+
     const bytesToRead = fileSize - state.byteOffset;
     const buf = Buffer.alloc(bytesToRead);
 
@@ -270,6 +255,7 @@ export function tailSessionFile(
         activity: { ...state.activity },
         currentAction: state.currentAction,
         sessionId: state.sessionId,
+        filePath: state.filePath,
       });
     }
   };

@@ -206,18 +206,3 @@ export function getCachedUsage(): CommandUsageCounts {
   return loadCache().totals;
 }
 
-/**
- * Record a single command invocation (for forward tracking).
- */
-export function recordUsage(commandName: string): void {
-  const cache = loadCache();
-  // Store forward-tracked usage under a synthetic "live" key
-  const liveKey = '__live_tracking__';
-  if (!cache.sessions[liveKey]) {
-    cache.sessions[liveKey] = { mtimeMs: 0, commands: {} };
-  }
-  cache.sessions[liveKey].commands[commandName] =
-    (cache.sessions[liveKey].commands[commandName] || 0) + 1;
-  cache.totals[commandName] = (cache.totals[commandName] || 0) + 1;
-  saveCache(cache);
-}

@@ -9,6 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import spawn from 'cross-spawn';
 import { getPlatform, isCommandAvailable, isInTmux, detectLinuxTerminal, pathIsSafe } from './platform.js';
+import { trackSession } from './tracker.js';
 import { log } from './logger.js';
 
 // ── Input validation ────────────────────────────────────────
@@ -109,7 +110,7 @@ function writeTempScript(projectPath: string, claudeArgs: string[]): string {
     const scriptPath = path.join(tmpDir, `cldctrl-launch-${process.pid}.sh`);
     const lines = [
       '#!/bin/sh',
-      `cd "${projectPath}"`,
+      `cd '${projectPath.replace(/'/g, "'\\''")}'`,
       // Shell-escape each arg properly
       `exec claude ${claudeArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`,
     ];
@@ -274,4 +275,22 @@ export function openVSCode(projectPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Build the prompt for fixing a GitHub issue.
+ */
+export function buildIssueFixPrompt(issue: { number: number; title: string }): string {
+  return `Please investigate and fix GitHub issue #${issue.number}: ${issue.title}. Use gh issue view ${issue.number} to read the full details.`;
+}
+
+/**
+ * Launch Claude and track the session PID.
+ */
+export function launchAndTrack(opts: LaunchOptions): LaunchResult {
+  const result = launchClaude(opts);
+  if (result.success && result.pid) {
+    trackSession(result.pid, opts.projectPath);
+  }
+  return result;
 }

@@ -196,22 +196,20 @@ if (-not [System.IO.Directory]::Exists($script:appDir)) {
     [System.IO.Directory]::CreateDirectory($script:appDir) | Out-Null
 }
 $script:qeExe = [System.IO.Path]::Combine($script:appDir, "qe-off.exe")
-if (-not [System.IO.File]::Exists($script:qeExe)) {
-    try {
-        $csSrc = [System.IO.Path]::Combine($script:appDir, "qe-off.cs")
-        $csCode = 'using System;using System.Runtime.InteropServices;' +
-            'class P{[DllImport("kernel32.dll")]static extern IntPtr GetStdHandle(int h);' +
-            '[DllImport("kernel32.dll")]static extern bool GetConsoleMode(IntPtr h,out uint m);' +
-            '[DllImport("kernel32.dll")]static extern bool SetConsoleMode(IntPtr h,uint m);' +
-            'static void Main(){var h=GetStdHandle(-10);uint m;GetConsoleMode(h,out m);SetConsoleMode(h,m&~0x0040u);}}'
-        [System.IO.File]::WriteAllText($csSrc, $csCode)
-        $csc = [System.IO.Path]::Combine(
-            [System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory(), "csc.exe")
-        if ([System.IO.File]::Exists($csc)) {
-            & $csc /nologo /optimize "/out:$($script:qeExe)" "$csSrc" 2>$null | Out-Null
-        }
-    } catch { }
-}
+try {
+    $csSrc = [System.IO.Path]::Combine($script:appDir, "qe-off.cs")
+    $csCode = 'using System;using System.Runtime.InteropServices;' +
+        'class P{[DllImport("kernel32.dll")]static extern IntPtr GetStdHandle(int h);' +
+        '[DllImport("kernel32.dll")]static extern bool GetConsoleMode(IntPtr h,out uint m);' +
+        '[DllImport("kernel32.dll")]static extern bool SetConsoleMode(IntPtr h,uint m);' +
+        'static void Main(){var h=GetStdHandle(-10);uint m;GetConsoleMode(h,out m);SetConsoleMode(h,m&~0x0040u);}}'
+    [System.IO.File]::WriteAllText($csSrc, $csCode)
+    $csc = [System.IO.Path]::Combine(
+        [System.Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory(), "csc.exe")
+    if ([System.IO.File]::Exists($csc)) {
+        & $csc /nologo /optimize "/out:$($script:qeExe)" "$csSrc" 2>$null | Out-Null
+    }
+} catch { }
 
 # ── Resolve node.exe + mini-entry.js paths for direct invocation ──
 $script:nodeExe = "node"
@@ -288,13 +286,15 @@ $script:waitCount   = 0
 $script:dragHold    = 0
 $script:popupId     = ""
 $script:prewarm     = $false   # true = go to Phase 4 (hidden) after ready, not Phase 3
+$script:warmStartTime = $null
 
 # ── Spawn helper (used at startup for pre-warm and on hotkey) ──
 function Start-MiniPopup {
     $script:popupId = "CLDCTRL_" + [guid]::NewGuid().ToString("N").Substring(0, 8)
 
-    # Delete stale ready signal
-    $readyPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "cldctrl-ready")
+    # Delete stale ready signal (per-instance)
+    $readyPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "cldctrl-ready-$($script:popupId)")
+    $script:readyPath = $readyPath
     if ([System.IO.File]::Exists($readyPath)) {
         try { [System.IO.File]::Delete($readyPath) } catch { }
     }
@@ -362,7 +362,7 @@ $script:popupTimer.add_Tick({
         # ── Phase 2: Wait for ready signal (no minimum wait) ──
         elseif ($script:popupPhase -eq 2) {
             $script:waitCount++
-            $readyFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "cldctrl-ready")
+            $readyFile = $script:readyPath
             $isReady = [System.IO.File]::Exists($readyFile)
             # Show as soon as ready, timeout at 100 ticks (2s)
             if ($isReady -or $script:waitCount -ge 100) {
@@ -370,6 +370,7 @@ $script:popupTimer.add_Tick({
                     # Pre-warm: stay hidden, go straight to Phase 4
                     $script:prewarm = $false
                     $script:popupPhase = 4
+                    $script:warmStartTime = [DateTime]::UtcNow
                     $script:popupTimer.Stop()
                 } else {
                     # Normal: show at saved position or centered on mouse's monitor
@@ -416,6 +417,7 @@ $script:popupTimer.add_Tick({
                     Save-PopupPos
                     [PopupHelper]::ShowWindow($script:popupHwnd, [PopupHelper]::SW_HIDE)
                     $script:popupPhase = 4
+                    $script:warmStartTime = [DateTime]::UtcNow
                     $script:popupTimer.Stop()
                 }
             } else {
@@ -444,6 +446,14 @@ $wnd.add_HotkeyPressed({
     try {
         # Phase 4 (hidden warm process): instant re-show!
         if ($script:popupPhase -eq 4 -and $null -ne $script:popupProc -and -not $script:popupProc.HasExited) {
+            # Watchdog: kill and respawn if warm process has been hidden > 5 minutes
+            if ($null -ne $script:warmStartTime -and ([DateTime]::UtcNow - $script:warmStartTime).TotalMinutes -gt 5) {
+                try { $script:popupProc.Kill() } catch { }
+                $script:popupPhase = 0
+                $script:prewarm = $false
+                Start-MiniPopup
+                return
+            }
             # Reposition at saved pos or center, show, focus
             $saved = Get-SavedPos
             $placed = $false
@@ -468,6 +478,7 @@ $wnd.add_HotkeyPressed({
             Save-PopupPos
             [PopupHelper]::ShowWindow($script:popupHwnd, [PopupHelper]::SW_HIDE)
             $script:popupPhase = 4
+            $script:warmStartTime = [DateTime]::UtcNow
             $script:popupTimer.Stop()
             return
         }

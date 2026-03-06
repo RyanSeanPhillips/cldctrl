@@ -70,7 +70,9 @@ function saveStatsCache(): void {
       obj[entries[i][0]] = entries[i][1];
     }
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(cachePath, JSON.stringify(obj));
+    const tmpPath = cachePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(obj));
+    fs.renameSync(tmpPath, cachePath);
     statsCacheDirty = false;
     log('stats_cache_saved', { entries: Object.keys(obj).length });
   } catch (err) {
@@ -83,10 +85,16 @@ function scheduleCacheFlush(): void {
   statsCacheFlushTimer = setTimeout(() => {
     if (statsCacheDirty) saveStatsCache();
   }, STATS_CACHE_FLUSH_DELAY);
+  statsCacheFlushTimer.unref();
 }
 
-// Hydrate from disk on module load
-loadStatsCache();
+// Lazy hydration — avoid disk I/O at import time
+let statsCacheLoaded = false;
+function ensureStatsCacheLoaded(): void {
+  if (statsCacheLoaded) return;
+  statsCacheLoaded = true;
+  loadStatsCache();
+}
 
 function getCacheKey(filePath: string, stat: fs.Stats): string {
   return `${filePath}|${stat.mtimeMs}|${stat.size}`;
@@ -129,6 +137,7 @@ function readFirstLines(filePath: string, maxLines: number): string[] {
 // ── Session stats (streaming, pre-compiled regex) ───────────
 
 export async function getSessionStats(sessionFilePath: string): Promise<SessionStats | null> {
+  ensureStatsCacheLoaded();
   try {
     const stat = fs.statSync(sessionFilePath);
     if (stat.size > DEFAULTS.maxSessionFileSize) return null;
@@ -371,6 +380,7 @@ async function getSessionStatsSince(
   sessionFilePath: string,
   cutoffMs: number,
 ): Promise<SessionStats | null> {
+  ensureStatsCacheLoaded();
   try {
     const stat = fs.statSync(sessionFilePath);
     if (stat.size > DEFAULTS.maxSessionFileSize) return null;
