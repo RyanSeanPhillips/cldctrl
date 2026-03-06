@@ -2,12 +2,18 @@
  * Vim-style keyboard input handling via Ink useInput.
  */
 
-import { useInput, useApp } from 'ink';
+import { useInput, useApp, useStdin } from 'ink';
+import { useRef, useEffect } from 'react';
 import { launchClaude } from '../../core/launcher.js';
 import { openInExplorer } from '../../core/platform.js';
 import { openVSCode } from '../../core/launcher.js';
-import type { AppState, Project, Session, Issue } from '../../types.js';
+import { trackSession } from '../../core/tracker.js';
+import { getHelpItemCount } from '../helpItems.js';
+import type { SkillsData } from '../helpItems.js';
+import type { AppState, Project, Session, Issue, GitCommit } from '../../types.js';
 import type { AppDispatch } from './useAppState.js';
+
+const KONAMI = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right'];
 
 interface UseKeyboardOptions {
   state: AppState;
@@ -17,14 +23,94 @@ interface UseKeyboardOptions {
   selectedProject: Project | undefined;
   recentSessions: Session[];
   issues: Issue[];
+  commits: GitCommit[];
   onLaunchFeedback?: (msg: string) => void;
+  skillsData?: SkillsData;
 }
 
 export function useKeyboard(opts: UseKeyboardOptions): void {
-  const { state, dispatch, viewportHeight, filteredProjects, selectedProject, recentSessions, issues, onLaunchFeedback } = opts;
+  const { state, dispatch, viewportHeight, filteredProjects, selectedProject, recentSessions, issues, commits, onLaunchFeedback } = opts;
   const { exit } = useApp();
 
+  // Konami code tracker
+  const konamiRef = useRef<string[]>([]);
+  const konamiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Raw stdin buffer for colon commands (:b, :t)
+  // useInput can miss multi-char sequences, so we listen to raw stdin directly
+  const inputBufRef = useRef('');
+  const inputBufTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameTriggeredRef = useRef(false);
+  const { stdin } = useStdin();
+
+  useEffect(() => {
+    if (!stdin) return;
+    const onData = (data: Buffer) => {
+      if (state.mode !== 'normal') return;
+      const str = data.toString();
+      inputBufRef.current += str;
+      if (inputBufTimerRef.current) clearTimeout(inputBufTimerRef.current);
+      inputBufTimerRef.current = setTimeout(() => { inputBufRef.current = ''; }, 1000);
+
+      const buf = inputBufRef.current;
+      if (buf.endsWith(':b')) {
+        inputBufRef.current = '';
+        gameTriggeredRef.current = true;
+        dispatch({ type: 'SET_GAME', game: 'breakout' });
+      } else if (buf.endsWith(':t')) {
+        inputBufRef.current = '';
+        gameTriggeredRef.current = true;
+        dispatch({ type: 'SET_GAME', game: 'tetris' });
+      }
+    };
+    stdin.on('data', onData);
+    return () => { stdin.off('data', onData); };
+  }, [stdin, state.mode, dispatch]);
+
   useInput((input, key) => {
+    // ── Game mode (games handle their own input) ─────
+    if (state.mode === 'game') return;
+
+    // Skip if a game was just triggered by the raw stdin handler
+    if (gameTriggeredRef.current) {
+      gameTriggeredRef.current = false;
+      return;
+    }
+    // ── Prompt mode ─────────────────────────────────────
+    if (state.mode === 'prompt') {
+      if (key.escape) {
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.return) {
+        if (selectedProject) {
+          const prompt = state.promptText.trim();
+          onLaunchFeedback?.(prompt
+            ? `Launching: ${prompt.slice(0, 40)}...`
+            : `New session: ${selectedProject.name}...`);
+          const promptResult = launchClaude({
+            projectPath: selectedProject.path,
+            isNew: true,
+            prompt: prompt || undefined,
+          });
+          if (promptResult.success && promptResult.pid) {
+            trackSession(promptResult.pid, selectedProject.path);
+          }
+        }
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.backspace || key.delete) {
+        dispatch({ type: 'SET_PROMPT', text: state.promptText.slice(0, -1) });
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) {
+        dispatch({ type: 'SET_PROMPT', text: state.promptText + input });
+        return;
+      }
+      return;
+    }
+
     // ── Filter mode ──────────────────────────────────────
     if (state.mode === 'filter') {
       if (key.escape) {
@@ -62,6 +148,33 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     if (state.mode === 'help') {
       if (key.escape || input === '?' || input === 'q') {
         dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      const maxHelp = Math.max(0, getHelpItemCount(opts.skillsData) - 1);
+      // Navigation within help list
+      if (input === 'j' || key.downArrow) {
+        dispatch({ type: 'HELP_NAVIGATE', delta: 1, maxIndex: maxHelp });
+        return;
+      }
+      if (input === 'k' || key.upArrow) {
+        dispatch({ type: 'HELP_NAVIGATE', delta: -1, maxIndex: maxHelp });
+        return;
+      }
+      if (input === 'g') {
+        dispatch({ type: 'HELP_NAVIGATE', delta: -999, maxIndex: maxHelp });
+        return;
+      }
+      if (input === 'G') {
+        dispatch({ type: 'HELP_NAVIGATE', delta: 999, maxIndex: maxHelp });
+        return;
+      }
+      if (key.ctrl && input === 'd') {
+        dispatch({ type: 'HELP_NAVIGATE', delta: Math.floor(viewportHeight / 2), maxIndex: maxHelp });
+        return;
+      }
+      if (key.ctrl && input === 'u') {
+        dispatch({ type: 'HELP_NAVIGATE', delta: -Math.floor(viewportHeight / 2), maxIndex: maxHelp });
+        return;
       }
       return;
     }
@@ -75,6 +188,36 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     }
 
     // ── Normal mode ──────────────────────────────────────
+
+    // ── Easter egg game triggers ──────────────────────
+    // Konami code: ↑↑↓↓←→←→ → Snake
+    if (key.upArrow || key.downArrow || key.leftArrow || key.rightArrow) {
+      const dir = key.upArrow ? 'up' : key.downArrow ? 'down' : key.leftArrow ? 'left' : 'right';
+      konamiRef.current.push(dir);
+      if (konamiTimerRef.current) clearTimeout(konamiTimerRef.current);
+      konamiTimerRef.current = setTimeout(() => { konamiRef.current = []; }, 2000);
+
+      // Check if last N entries match konami
+      const seq = konamiRef.current;
+      if (seq.length >= KONAMI.length) {
+        const tail = seq.slice(-KONAMI.length);
+        if (tail.every((v, i) => v === KONAMI[i])) {
+          konamiRef.current = [];
+          dispatch({ type: 'SET_GAME', game: 'snake' });
+          return;
+        }
+      }
+    }
+
+    // Colon commands (:b, :t) handled by raw stdin listener above
+    // Swallow the colon keystroke so it doesn't trigger other handlers
+    if (input === ':') return;
+
+    // ~ → Game of Life
+    if (input === '~') {
+      dispatch({ type: 'SET_GAME', game: 'life' });
+      return;
+    }
 
     // Quit (from any pane)
     if (input === 'q') {
@@ -98,30 +241,38 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     if (state.focusPane === 'details') {
       const sessionCount = recentSessions.length;
       const issueCount = issues.length;
+      const commitCount = commits.length;
 
+      // Up/down: navigate within the active section
       if (input === 'j' || key.downArrow) {
-        if (state.detailSection === 'sessions') {
-          if (state.detailIndex < sessionCount - 1) {
-            dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: sessionCount - 1 });
-          } else if (issueCount > 0) {
-            // Past last session → switch to issues
-            dispatch({ type: 'DETAIL_SECTION', section: 'issues' });
-          }
-        } else {
-          dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: issueCount - 1 });
-        }
+        const max = state.detailSection === 'sessions' ? sessionCount - 1
+          : state.detailSection === 'commits' ? commitCount - 1
+          : issueCount - 1;
+        dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: max });
         return;
       }
       if (input === 'k' || key.upArrow) {
-        if (state.detailSection === 'issues') {
-          if (state.detailIndex > 0) {
-            dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: issueCount - 1 });
-          } else if (sessionCount > 0) {
-            // Past first issue → switch to sessions, select last
-            dispatch({ type: 'DETAIL_SECTION', section: 'sessions', index: sessionCount - 1 });
-          }
+        const max = state.detailSection === 'sessions' ? sessionCount - 1
+          : state.detailSection === 'commits' ? commitCount - 1
+          : issueCount - 1;
+        dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: max });
+        return;
+      }
+      // Left/right: cycle through 3 tabs (sessions → commits → issues)
+      const tabOrder: Array<'sessions' | 'commits' | 'issues'> = ['sessions', 'commits', 'issues'];
+      if (key.leftArrow) {
+        const currentIdx = tabOrder.indexOf(state.detailSection);
+        if (currentIdx <= 0) {
+          dispatch({ type: 'SET_FOCUS', pane: 'projects' });
         } else {
-          dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: sessionCount - 1 });
+          dispatch({ type: 'DETAIL_SECTION', section: tabOrder[currentIdx - 1] });
+        }
+        return;
+      }
+      if (key.rightArrow) {
+        const currentIdx = tabOrder.indexOf(state.detailSection);
+        if (currentIdx < tabOrder.length - 1) {
+          dispatch({ type: 'DETAIL_SECTION', section: tabOrder[currentIdx + 1] });
         }
         return;
       }
@@ -129,17 +280,23 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         if (state.detailSection === 'sessions' && recentSessions[state.detailIndex]) {
           const session = recentSessions[state.detailIndex];
           onLaunchFeedback?.(`Resuming session: ${session.summary.slice(0, 30)}...`);
-          launchClaude({
+          const resumeResult = launchClaude({
             projectPath: selectedProject!.path,
             sessionId: session.id,
           });
+          if (resumeResult.success && resumeResult.pid) {
+            trackSession(resumeResult.pid, selectedProject!.path);
+          }
         } else if (state.detailSection === 'issues' && issues[state.detailIndex]) {
           const issue = issues[state.detailIndex];
           onLaunchFeedback?.(`Fixing issue #${issue.number}...`);
-          launchClaude({
+          const issueResult = launchClaude({
             projectPath: selectedProject!.path,
             prompt: `Please investigate and fix GitHub issue #${issue.number}: ${issue.title}. Use gh issue view ${issue.number} to read the full details.`,
           });
+          if (issueResult.success && issueResult.pid) {
+            trackSession(issueResult.pid, selectedProject!.path);
+          }
         }
         return;
       }
@@ -152,7 +309,11 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         dispatch({ type: 'DETAIL_SECTION', section: 'sessions' });
         return;
       }
-      if (key.escape || key.leftArrow || key.tab) {
+      if (input === 'c' && commitCount > 0) {
+        dispatch({ type: 'DETAIL_SECTION', section: 'commits' });
+        return;
+      }
+      if (key.escape || key.tab) {
         dispatch({ type: 'SET_FOCUS', pane: 'projects' });
         return;
       }
@@ -196,10 +357,13 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         // Smart launch: continue if recent, else new
         const hasRecent = recentSessions.length > 0;
         onLaunchFeedback?.(`Launching ${selectedProject.name}...`);
-        launchClaude({
+        const enterResult = launchClaude({
           projectPath: selectedProject.path,
           isNew: !hasRecent,
         });
+        if (enterResult.success && enterResult.pid) {
+          trackSession(enterResult.pid, selectedProject.path);
+        }
       }
       return;
     }
@@ -207,13 +371,15 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     // Actions (normal mode, projects pane)
     if (state.focusPane === 'projects' && selectedProject) {
       if (input === 'n') {
-        onLaunchFeedback?.(`New session: ${selectedProject.name}...`);
-        launchClaude({ projectPath: selectedProject.path, isNew: true });
+        dispatch({ type: 'SET_MODE', mode: 'prompt' });
         return;
       }
       if (input === 'c') {
         onLaunchFeedback?.(`Continuing: ${selectedProject.name}...`);
-        launchClaude({ projectPath: selectedProject.path });
+        const contResult = launchClaude({ projectPath: selectedProject.path });
+        if (contResult.success && contResult.pid) {
+          trackSession(contResult.pid, selectedProject.path);
+        }
         return;
       }
       if (input === 'i') {
@@ -233,7 +399,8 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         return;
       }
       if (input === 'o') {
-        openInExplorer(selectedProject.path);
+        const opened = openInExplorer(selectedProject.path);
+        onLaunchFeedback?.(opened ? `Opened: ${selectedProject.name}` : `Path not found: ${selectedProject.path}`);
         return;
       }
       if (input === 'a') {

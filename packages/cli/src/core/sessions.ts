@@ -8,6 +8,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { DEFAULTS } from '../constants.js';
 import { getSessionDir } from './projects.js';
+import { getConfigDir } from '../config.js';
 import { log } from './logger.js';
 import { loadSummaryCache } from './summaries.js';
 import type { Session, SessionStats, UsageStats } from '../types.js';
@@ -25,10 +26,67 @@ const USER_TYPE_RE = /"type"\s*:\s*"user"/;
 const USER_ROLE_RE = /"role"\s*:\s*"user"/;
 const CONTENT_RE = /"content"\s*:\s*"([^"]{1,200})/;
 
-// ── Stats cache with LRU eviction ───────────────────────────
+// ── Stats cache with LRU eviction + disk persistence ────────
 
-const MAX_CACHE_SIZE = 200;
+const MAX_CACHE_SIZE = 500;
 const statsCache = new Map<string, SessionStats>();
+let statsCacheDirty = false;
+let statsCacheFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const STATS_CACHE_FLUSH_DELAY = 5000; // 5s debounce
+
+function getStatsCachePath(): string {
+  return path.join(getConfigDir(), 'stats-cache.json');
+}
+
+function loadStatsCache(): void {
+  try {
+    const cachePath = getStatsCachePath();
+    if (!fs.existsSync(cachePath)) return;
+    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    if (typeof raw !== 'object' || raw === null) return;
+    let count = 0;
+    for (const [key, value] of Object.entries(raw)) {
+      if (count >= MAX_CACHE_SIZE) break;
+      const v = value as Record<string, unknown>;
+      if (typeof v.messages === 'number' && typeof v.tokens === 'number') {
+        statsCache.set(key, { messages: v.messages, tokens: v.tokens });
+        count++;
+      }
+    }
+    log('stats_cache_loaded', { entries: count });
+  } catch (err) {
+    log('stats_cache_load_error', { message: String(err) });
+  }
+}
+
+function saveStatsCache(): void {
+  try {
+    const cachePath = getStatsCachePath();
+    const obj: Record<string, SessionStats> = {};
+    // Keep only most recent MAX_CACHE_SIZE entries (Map preserves insertion order)
+    const entries = [...statsCache.entries()];
+    const start = Math.max(0, entries.length - MAX_CACHE_SIZE);
+    for (let i = start; i < entries.length; i++) {
+      obj[entries[i][0]] = entries[i][1];
+    }
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify(obj));
+    statsCacheDirty = false;
+    log('stats_cache_saved', { entries: Object.keys(obj).length });
+  } catch (err) {
+    log('stats_cache_save_error', { message: String(err) });
+  }
+}
+
+function scheduleCacheFlush(): void {
+  if (statsCacheFlushTimer) clearTimeout(statsCacheFlushTimer);
+  statsCacheFlushTimer = setTimeout(() => {
+    if (statsCacheDirty) saveStatsCache();
+  }, STATS_CACHE_FLUSH_DELAY);
+}
+
+// Hydrate from disk on module load
+loadStatsCache();
 
 function getCacheKey(filePath: string, stat: fs.Stats): string {
   return `${filePath}|${stat.mtimeMs}|${stat.size}`;
@@ -41,6 +99,8 @@ function cacheSet(key: string, value: SessionStats): void {
     if (firstKey) statsCache.delete(firstKey);
   }
   statsCache.set(key, value);
+  statsCacheDirty = true;
+  scheduleCacheFlush();
 }
 
 // ── Token formatting ────────────────────────────────────────
@@ -298,16 +358,73 @@ export async function getSessionPreview(
   }
 }
 
-// ── Daily usage stats ───────────────────────────────────────
+// ── Rolling usage stats (5-hour window) ─────────────────────
 
-export async function getDailyUsageStats(claudeProjectsDir: string): Promise<UsageStats> {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+const ROLLING_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
+const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
+
+/**
+ * Count tokens/messages only from JSONL lines whose timestamp >= cutoffMs.
+ * Lines without a parseable timestamp inherit the last seen timestamp.
+ */
+async function getSessionStatsSince(
+  sessionFilePath: string,
+  cutoffMs: number,
+): Promise<SessionStats | null> {
+  try {
+    const stat = fs.statSync(sessionFilePath);
+    if (stat.size > DEFAULTS.maxSessionFileSize) return null;
+
+    let messages = 0;
+    let tokens = 0;
+    let lastTs = 0; // track most recent timestamp
+
+    const stream = fs.createReadStream(sessionFilePath, { encoding: 'utf-8' });
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+    try {
+      for await (const line of rl) {
+        // Extract timestamp from this line
+        const tsMatch = TIMESTAMP_RE.exec(line);
+        if (tsMatch) {
+          const ts = new Date(tsMatch[1]).getTime();
+          if (!isNaN(ts)) lastTs = ts;
+        }
+
+        // Skip lines before the cutoff
+        if (lastTs < cutoffMs) continue;
+
+        if (line.includes('"type":"user"') || line.includes('"type": "user"')) {
+          messages++;
+        }
+        for (const re of TOKEN_REGEXES) {
+          re.lastIndex = 0;
+          let match: RegExpExecArray | null;
+          while ((match = re.exec(line)) !== null) {
+            tokens += parseInt(match[1], 10);
+          }
+        }
+      }
+    } finally {
+      rl.close();
+      stream.destroy();
+    }
+
+    return { messages, tokens };
+  } catch (err) {
+    log('error', { function: 'getSessionStatsSince', message: String(err) });
+    return null;
+  }
+}
+
+export async function getRollingUsageStats(claudeProjectsDir: string): Promise<UsageStats> {
+  const now = Date.now();
+  const cutoff = now - ROLLING_WINDOW_MS;
   let totalTokens = 0;
   let totalMessages = 0;
 
   if (!fs.existsSync(claudeProjectsDir)) {
-    return { tokens: 0, messages: 0, date: todayStr };
+    return { tokens: 0, messages: 0, date: new Date().toISOString() };
   }
 
   try {
@@ -325,10 +442,10 @@ export async function getDailyUsageStats(claudeProjectsDir: string): Promise<Usa
           const filePath = path.join(slugPath, f);
           try {
             const stat = fs.statSync(filePath);
-            if (stat.mtime.toISOString().slice(0, 10) !== todayStr) continue;
+            if (stat.mtimeMs < cutoff) continue;
             if (stat.size > DEFAULTS.maxSessionFileSize) continue;
 
-            const stats = await getSessionStats(filePath);
+            const stats = await getSessionStatsSince(filePath, cutoff);
             if (stats) {
               totalTokens += stats.tokens;
               totalMessages += stats.messages;
@@ -338,8 +455,8 @@ export async function getDailyUsageStats(claudeProjectsDir: string): Promise<Usa
       } catch { /* skip */ }
     }
   } catch (err) {
-    log('error', { function: 'getDailyUsageStats', message: String(err) });
+    log('error', { function: 'getRollingUsageStats', message: String(err) });
   }
 
-  return { tokens: totalTokens, messages: totalMessages, date: todayStr };
+  return { tokens: totalTokens, messages: totalMessages, date: new Date().toISOString() };
 }

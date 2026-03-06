@@ -9,10 +9,11 @@ import path from 'node:path';
 import { VERSION, APP_NAME, CHARS } from './constants.js';
 import { loadConfig, saveConfig, getConfigDir, getConfigPath } from './config.js';
 import { buildProjectList, getProjectSlug } from './core/projects.js';
-import { getRecentSessions, formatTokenCount, getDailyUsageStats } from './core/sessions.js';
+import { getRecentSessions, formatTokenCount, getRollingUsageStats } from './core/sessions.js';
 import { getGitStatus, formatGitStatus } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl, sanitizeIssueTitle } from './core/github.js';
 import { launchClaude } from './core/launcher.js';
+import { trackSession } from './core/tracker.js';
 import { initLogger, setVerbose, log } from './core/logger.js';
 import { getClaudeProjectsDir, pathIsSafe, isTTY } from './core/platform.js';
 import type { Config, Project } from './types.js';
@@ -89,7 +90,7 @@ export function createCli(): Command {
     .command('launch <name>')
     .description('Launch a project in Claude Code')
     .option('--new', 'Start a new session')
-    .option('--session <id>', 'Resume a specific session')
+    .option('--resume <id>', 'Resume a specific session')
     .action(async (name: string, opts) => {
       const { config } = loadConfig();
       const projects = buildProjectList(config);
@@ -105,10 +106,13 @@ export function createCli(): Command {
       const result = launchClaude({
         projectPath: project.path,
         isNew: opts.new,
-        sessionId: opts.session,
+        sessionId: opts.resume,
       });
 
       if (result.success) {
+        if (result.pid) {
+          trackSession(result.pid, project.path);
+        }
         if (!program.opts().quiet) {
           console.log(`${CHARS.check} ${result.message}: ${project.name}`);
         }
@@ -126,7 +130,7 @@ export function createCli(): Command {
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
       const claudeDir = getClaudeProjectsDir();
-      const stats = await getDailyUsageStats(claudeDir);
+      const stats = await getRollingUsageStats(claudeDir);
 
       if (opts.json) {
         process.stdout.write(JSON.stringify(stats, null, 2) + '\n');
@@ -381,6 +385,178 @@ export function createCli(): Command {
 
       if (!program.opts().quiet) {
         console.log(`\n${CHARS.check} Done. Generated ${totalGenerated} session + ${totalIssueSummaries} issue summaries.`);
+      }
+    });
+
+  // ── skills ──────────────────────────────────────────────
+
+  program
+    .command('skills')
+    .description('List available Claude Code commands and skills')
+    .option('--json', 'Output as JSON')
+    .action(async (opts) => {
+      const { getSkillsSummary } = await import('./core/skills.js');
+      const { commands, skills } = getSkillsSummary();
+
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ commands, skills }, null, 2) + '\n');
+        return;
+      }
+
+      const userCmds = commands.filter(c => c.source === 'user');
+      const pluginCmds = commands.filter(c => c.source === 'plugin');
+
+      if (userCmds.length > 0) {
+        console.log(`\n  ${CHARS.pointer} User Commands`);
+        for (const cmd of userCmds) {
+          console.log(`    /${cmd.name.padEnd(22)} ${cmd.description}`);
+        }
+      }
+
+      if (pluginCmds.length > 0) {
+        console.log(`\n  ${CHARS.pointer} Plugin Commands`);
+        for (const cmd of pluginCmds) {
+          const src = cmd.pluginName ? ` (${cmd.pluginName})` : '';
+          console.log(`    /${cmd.name.padEnd(22)} ${cmd.description}${src}`);
+        }
+      }
+
+      if (skills.length > 0) {
+        console.log(`\n  ${CHARS.pointer} Skills (auto-triggered)`);
+        for (const skill of skills) {
+          const src = skill.pluginName ? ` (${skill.pluginName})` : '';
+          console.log(`    ${skill.name.padEnd(24)} ${skill.description.slice(0, 60)}${src}`);
+        }
+      }
+
+      const total = commands.length + skills.length;
+      if (total === 0) {
+        console.log('No commands or skills found.');
+        console.log('Create custom commands in ~/.claude/commands/ as .md files.');
+      } else {
+        console.log(`\n  ${total} total (${commands.length} commands, ${skills.length} skills)`);
+      }
+    });
+
+  // ── analyze ─────────────────────────────────────────────
+
+  program
+    .command('analyze [project]')
+    .description('Analyze sessions to suggest skills and project memories')
+    .option('--sessions <n>', 'Recent sessions to scan per project', '10')
+    .option('--json', 'Raw JSON output')
+    .action(async (projectName: string | undefined, opts) => {
+      const { analyzeProject, saveSkill, saveMemory } = await import('./core/analyzer.js');
+      const { config } = loadConfig();
+      const projects = buildProjectList(config);
+
+      const targetProjects = projectName
+        ? projects.filter(p => p.name.toLowerCase() === projectName.toLowerCase())
+        : projects;
+
+      if (targetProjects.length === 0) {
+        console.log(projectName ? `Project "${projectName}" not found.` : 'No projects found.');
+        return;
+      }
+
+      const sessionCount = parseInt(opts.sessions, 10) || 10;
+      const allResults: { skills: import('./core/analyzer.js').SkillSuggestion[]; memories: import('./core/analyzer.js').MemorySuggestion[] } = { skills: [], memories: [] };
+
+      if (!opts.json) {
+        console.log(`Analyzing ${targetProjects.length} project${targetProjects.length > 1 ? 's' : ''} (${sessionCount} sessions each)...\n`);
+      }
+
+      for (const p of targetProjects) {
+        if (!opts.json) {
+          process.stdout.write(`${CHARS.pointer} ${p.name}...`);
+        }
+
+        try {
+          const result = await analyzeProject(p.path, p.name, sessionCount);
+          allResults.skills.push(...result.skills);
+          allResults.memories.push(...result.memories);
+
+          if (!opts.json) {
+            console.log(` ${CHARS.check} ${result.skills.length} skills, ${result.memories.length} memories`);
+          }
+        } catch (err) {
+          if (!opts.json) {
+            console.log(` ${CHARS.cross} error: ${String(err)}`);
+          }
+        }
+      }
+
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(allResults, null, 2) + '\n');
+        return;
+      }
+
+      if (allResults.skills.length === 0 && allResults.memories.length === 0) {
+        console.log('\nNo suggestions found. Try with more sessions or different projects.');
+        return;
+      }
+
+      console.log('');
+
+      // Interactive: present each suggestion
+      const rl = await import('node:readline');
+      const prompt = rl.createInterface({ input: process.stdin, output: process.stdout });
+      const ask = (q: string): Promise<string> => new Promise(r => prompt.question(q, r));
+
+      for (const skill of allResults.skills) {
+        console.log(`${CHARS.check} Skill suggestion: /${skill.name}`);
+        console.log(`  ${skill.description}`);
+        if (skill.evidence.length > 0) {
+          console.log(`  Evidence: ${skill.evidence[0].slice(0, 100)}`);
+        }
+        const answer = await ask('  Save? [y/n] ');
+        if (answer.trim().toLowerCase() === 'y') {
+          const saved = saveSkill(skill);
+          console.log(`  ${CHARS.check} Saved to ${saved}\n`);
+        } else {
+          console.log(`  Skipped.\n`);
+        }
+      }
+
+      for (const memory of allResults.memories) {
+        console.log(`${CHARS.check} Memory suggestion: ${memory.project}`);
+        console.log(`  [${memory.category}] ${memory.content}`);
+        if (memory.evidence.length > 0) {
+          console.log(`  Evidence: ${memory.evidence[0].slice(0, 100)}`);
+        }
+        // Find the project path for saving
+        const targetProject = targetProjects.find(p => p.name === memory.project);
+        if (targetProject) {
+          const answer = await ask('  Save to CLAUDE.md? [y/n] ');
+          if (answer.trim().toLowerCase() === 'y') {
+            const saved = saveMemory(memory, targetProject.path);
+            console.log(`  ${CHARS.check} Appended to ${saved}\n`);
+          } else {
+            console.log(`  Skipped.\n`);
+          }
+        }
+      }
+
+      prompt.close();
+      console.log(`${CHARS.check} Done.`);
+    });
+
+  // ── setup ───────────────────────────────────────────────
+
+  program
+    .command('setup')
+    .description('Install Ctrl+Up hotkey listener to Windows startup')
+    .option('--uninstall', 'Remove the hotkey listener from startup')
+    .action(async (opts) => {
+      const { setupHotkey, removeHotkey } = await import('./core/setup.js');
+      if (opts.uninstall) {
+        const result = removeHotkey();
+        console.log(result.message);
+        process.exit(result.success ? 0 : 1);
+      } else {
+        const result = setupHotkey();
+        console.log(result.message);
+        process.exit(result.success ? 0 : 1);
       }
     });
 

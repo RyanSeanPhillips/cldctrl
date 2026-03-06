@@ -61,7 +61,7 @@ function buildClaudeArgs(opts: {
   if (opts.isNew) {
     // No --continue flag = new session
   } else if (opts.sessionId) {
-    args.push('--session', opts.sessionId);
+    args.push('--resume', opts.sessionId);
   } else {
     args.push('--continue');
   }
@@ -79,6 +79,19 @@ function buildClaudeArgs(opts: {
  * Write a temporary shell script and return its path.
  * This avoids shell string interpolation entirely.
  */
+/**
+ * Escape a string for safe use as a batch file argument.
+ * Wraps in double quotes. Inside quotes, batch still interprets
+ * %, !, and " — so we escape those specifically.
+ */
+function escapeBatArg(arg: string): string {
+  const escaped = arg
+    .replace(/%/g, '%%')   // percent must be doubled (caret doesn't work)
+    .replace(/"/g, '""')   // double quotes doubled inside quoted string
+    .replace(/!/g, '^^!'); // exclamation (delayed expansion) needs ^^
+  return `"${escaped}"`;
+}
+
 function writeTempScript(projectPath: string, claudeArgs: string[]): string {
   const platform = getPlatform();
   const tmpDir = os.tmpdir();
@@ -87,8 +100,8 @@ function writeTempScript(projectPath: string, claudeArgs: string[]): string {
     const scriptPath = path.join(tmpDir, `cldctrl-launch-${process.pid}.bat`);
     const lines = [
       '@echo off',
-      `cd /d "${projectPath}"`,
-      `claude ${claudeArgs.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`,
+      `cd /d ${escapeBatArg(projectPath)}`,
+      `claude ${claudeArgs.map(escapeBatArg).join(' ')}`,
     ];
     fs.writeFileSync(scriptPath, lines.join('\r\n') + '\r\n');
     return scriptPath;
@@ -124,6 +137,7 @@ export interface LaunchOptions {
 export interface LaunchResult {
   success: boolean;
   message: string;
+  pid?: number;
 }
 
 /**
@@ -154,43 +168,49 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
 
     // tmux takes priority if detected
     if (isInTmux()) {
-      spawn.spawn('tmux', ['split-window', '-h', scriptPath], {
+      const child = spawn.spawn('tmux', ['split-window', '-h', scriptPath], {
         detached: true,
         stdio: 'ignore',
         env,
-      }).unref();
+      });
+      const pid = child.pid;
+      child.unref();
       cleanupTempScript(scriptPath);
 
       log('launch', { method: 'tmux', path: opts.projectPath });
-      return { success: true, message: 'Launched in tmux split' };
+      return { success: true, message: 'Launched in tmux split', pid };
     }
 
     switch (platform) {
       case 'windows': {
-        spawn.spawn('cmd', ['/k', scriptPath], {
+        const child = spawn.spawn('cmd', ['/k', scriptPath], {
           detached: true,
           stdio: 'ignore',
           env,
-        }).unref();
+        });
+        const pid = child.pid;
+        child.unref();
         cleanupTempScript(scriptPath);
 
         log('launch', { method: 'cmd', path: opts.projectPath });
-        return { success: true, message: 'Launched in new cmd window' };
+        return { success: true, message: 'Launched in new cmd window', pid };
       }
 
       case 'macos': {
         // Use osascript to tell Terminal.app to run the script
         // (open -a Terminal --args doesn't support -e for scripts)
         const osaScript = `tell application "Terminal" to do script "${scriptPath.replace(/"/g, '\\"')}"`;
-        spawn.spawn('osascript', ['-e', osaScript], {
+        const child = spawn.spawn('osascript', ['-e', osaScript], {
           detached: true,
           stdio: 'ignore',
           env,
-        }).unref();
+        });
+        const pid = child.pid;
+        child.unref();
         cleanupTempScript(scriptPath);
 
         log('launch', { method: 'Terminal.app', path: opts.projectPath });
-        return { success: true, message: 'Launched in Terminal.app' };
+        return { success: true, message: 'Launched in Terminal.app', pid };
       }
 
       case 'linux': {
@@ -212,15 +232,17 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
           termArgs = ['-e', `bash ${scriptPath}`];
         }
 
-        spawn.spawn(terminal, termArgs, {
+        const child = spawn.spawn(terminal, termArgs, {
           detached: true,
           stdio: 'ignore',
           env,
-        }).unref();
+        });
+        const pid = child.pid;
+        child.unref();
         cleanupTempScript(scriptPath);
 
         log('launch', { method: terminal, path: opts.projectPath });
-        return { success: true, message: `Launched in ${terminal}` };
+        return { success: true, message: `Launched in ${terminal}`, pid };
       }
 
       default: {

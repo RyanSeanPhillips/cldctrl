@@ -5,7 +5,7 @@
 
 import spawn from 'cross-spawn';
 import { log } from './logger.js';
-import type { GitStatus } from '../types.js';
+import type { GitStatus, GitCommit, DailyUsage } from '../types.js';
 
 /**
  * Run a git command and return stdout.
@@ -97,6 +97,86 @@ export async function getGitStatus(projectPath: string): Promise<GitStatus | nul
   } catch (err) {
     log('error', { function: 'getGitStatus', message: String(err) });
     return null;
+  }
+}
+
+/**
+ * Get recent commits for a project.
+ */
+export async function getRecentCommits(projectPath: string, count: number = 10): Promise<GitCommit[]> {
+  try {
+    const output = await runGit(
+      ['-C', projectPath, 'log', `-${count}`, '--format=%H|%s|%aI', '--shortstat'],
+      projectPath
+    );
+
+    const commits: GitCommit[] = [];
+    const lines = output.split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Format line: hash|subject|date
+      const parts = line.split('|');
+      if (parts.length >= 3 && parts[0].length >= 7) {
+        const commit: GitCommit = {
+          hash: parts[0],
+          subject: parts.slice(1, -1).join('|'),  // subject may contain |
+          date: parts[parts.length - 1],
+          additions: 0,
+          deletions: 0,
+        };
+
+        // Find shortstat line — skip blank lines between format and shortstat
+        for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+          const statLine = lines[j].trim();
+          if (!statLine) continue; // skip blank lines
+          if (statLine.includes('insertion') || statLine.includes('deletion')) {
+            const addMatch = statLine.match(/(\d+) insertion/);
+            const delMatch = statLine.match(/(\d+) deletion/);
+            if (addMatch) commit.additions = parseInt(addMatch[1], 10);
+            if (delMatch) commit.deletions = parseInt(delMatch[1], 10);
+            i = j; // skip past shortstat line
+          }
+          break; // stop after first non-blank line (whether shortstat or next commit)
+        }
+
+        commits.push(commit);
+      }
+    }
+
+    return commits;
+  } catch (err) {
+    log('error', { function: 'getRecentCommits', message: String(err) });
+    return [];
+  }
+}
+
+/**
+ * Get commit daily activity for heatmap display.
+ */
+export async function getCommitDailyActivity(projectPath: string, days: number = 28): Promise<DailyUsage[]> {
+  try {
+    const output = await runGit(
+      ['-C', projectPath, 'log', `--since=${days} days ago`, '--format=%aI'],
+      projectPath
+    );
+
+    const dailyMap = new Map<string, number>();
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const dateStr = trimmed.slice(0, 10);
+      dailyMap.set(dateStr, (dailyMap.get(dateStr) || 0) + 1);
+    }
+
+    return Array.from(dailyMap.entries())
+      .map(([date, commits]) => ({ date, tokens: 0, messages: 0, commits }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (err) {
+    log('error', { function: 'getCommitDailyActivity', message: String(err) });
+    return [];
   }
 }
 

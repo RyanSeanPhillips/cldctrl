@@ -104,20 +104,24 @@ export function getTerminalInfo(): { supportsAnsi: boolean; name: string } {
 /**
  * Open a path in the system file explorer.
  */
-export function openInExplorer(dirPath: string): void {
+export function openInExplorer(dirPath: string): boolean {
   const platform = getPlatform();
+  const resolved = path.resolve(dirPath);
+
+  if (!fs.existsSync(resolved)) return false;
 
   switch (platform) {
     case 'windows':
-      spawn.spawn('explorer', [dirPath], { detached: true, stdio: 'ignore' }).unref();
+      spawn.spawn('explorer', [resolved], { detached: true, stdio: 'ignore' }).unref();
       break;
     case 'macos':
-      spawn.spawn('open', [dirPath], { detached: true, stdio: 'ignore' }).unref();
+      spawn.spawn('open', [resolved], { detached: true, stdio: 'ignore' }).unref();
       break;
     case 'linux':
-      spawn.spawn('xdg-open', [dirPath], { detached: true, stdio: 'ignore' }).unref();
+      spawn.spawn('xdg-open', [resolved], { detached: true, stdio: 'ignore' }).unref();
       break;
   }
+  return true;
 }
 
 /**

@@ -227,13 +227,21 @@ export async function generateMissingSummaries(
 
   if (jsonlFiles.length === 0) return 0;
 
+  // Sort newest first so most relevant sessions get summarized first
+  jsonlFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
   const cache = loadSummaryCache(sessionDir);
   const needsGeneration: typeof jsonlFiles = [];
 
   for (const file of jsonlFiles) {
     const sessionId = path.basename(file.name, '.jsonl');
     const cached = cache[sessionId];
+    // Already cached and file hasn't changed → skip
     if (cached && cached.mtimeMs === file.mtimeMs) continue;
+    // Has a cached summary but file is still being actively written (< 60s ago)?
+    // Skip re-generation — the old summary is good enough until it settles
+    if (cached && (now - file.mtimeMs) < 60_000) continue;
+    // No cache at all, or file has settled since last summary → generate
     needsGeneration.push(file);
   }
 

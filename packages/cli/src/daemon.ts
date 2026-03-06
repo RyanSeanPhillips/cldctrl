@@ -9,16 +9,17 @@ import path from 'node:path';
 import pLimit from 'p-limit';
 import { loadConfig, getConfigDir } from './config.js';
 import { buildProjectList } from './core/projects.js';
-import { getGitStatus } from './core/git.js';
+import { getGitStatus, getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable } from './core/github.js';
-import { getDailyUsageStats } from './core/sessions.js';
 import { generateMissingSummaries, generateMissingIssueSummaries } from './core/summaries.js';
 import { loadSeenIssues, markIssueSeen, isIssueSeen, writeDaemonCache } from './core/background.js';
-import { getClaudeProjectsDir } from './core/platform.js';
 import { initLogger, log } from './core/logger.js';
 import { sanitizeIssueTitle } from './core/github.js';
 import { DEFAULTS } from './constants.js';
-import type { DaemonCache, GitStatus, Issue } from './types.js';
+import { getDailyUsageByProject } from './core/usage.js';
+import { getRollingUsageStats } from './core/sessions.js';
+import { getClaudeProjectsDir } from './core/platform.js';
+import type { DaemonCache, GitStatus, Issue, GitCommit, DailyUsage } from './types.js';
 
 const limit = pLimit(DEFAULTS.concurrencyLimit);
 
@@ -133,8 +134,34 @@ async function pollOnce(): Promise<void> {
     }
   }
 
-  // Fetch usage stats
-  const usageStats = await getDailyUsageStats(getClaudeProjectsDir());
+  // Fetch recent commits and commit activity for all projects
+  const recentCommits: Record<string, GitCommit[]> = {};
+  const commitActivity: Record<string, DailyUsage[]> = {};
+
+  const commitResults = await Promise.allSettled(
+    projects.map((p) =>
+      limit(async () => {
+        const commits = await getRecentCommits(p.path, 10);
+        const activity = await getCommitDailyActivity(p.path, 28);
+        return { path: p.path, commits, activity };
+      })
+    )
+  );
+
+  for (const result of commitResults) {
+    if (result.status === 'fulfilled') {
+      if (result.value.commits.length > 0) {
+        recentCommits[result.value.path] = result.value.commits;
+      }
+      if (result.value.activity.length > 0) {
+        commitActivity[result.value.path] = result.value.activity;
+      }
+    }
+  }
+
+  // Fetch rolling 5-hour usage stats (matches Claude's rate limit window)
+  const usageByProject = await getDailyUsageByProject(28);
+  const usageStats = await getRollingUsageStats(getClaudeProjectsDir());
 
   // Generate rich session summaries for recent sessions
   for (const project of projects.slice(0, 10)) {
@@ -152,6 +179,9 @@ async function pollOnce(): Promise<void> {
     gitStatuses,
     issues: allIssues,
     usageStats,
+    usageByProject,
+    recentCommits,
+    commitActivity,
   };
   writeDaemonCache(cache as unknown as Record<string, unknown>);
 

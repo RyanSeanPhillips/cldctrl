@@ -17,6 +17,7 @@ const ProjectConfigSchema = z.object({
   name: z.string().min(1),
   path: z.string().min(1),
   hotkey: z.string().optional(),
+  alias: z.string().optional(),
 });
 
 const ConfigSchema = z.object({
@@ -36,6 +37,7 @@ const ConfigSchema = z.object({
   project_manager: z.object({
     enabled: z.boolean().default(true),
   }).default({}),
+  daily_budget_tokens: z.number().optional(),
   notifications: z.object({
     github_issues: z.object({
       enabled: z.boolean().default(true),
