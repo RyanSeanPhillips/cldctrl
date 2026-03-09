@@ -8,6 +8,7 @@ import { useReducer, useEffect, useRef, useCallback } from 'react';
 import os from 'node:os';
 import { loadConfig, saveConfig } from '../../config.js';
 import { buildProjectList, buildProjectListFast } from '../../core/projects.js';
+import { isDemoMode, DEMO_CONFIG, DEMO_PROJECTS } from '../../core/demo-data.js';
 import type { Config, Project, FocusPane, AppMode, AppState } from '../../types.js';
 
 // Case-insensitive path comparison only on Windows
@@ -185,6 +186,22 @@ function reducer(state: AppState, action: Action): AppState {
 // ── Lazy initializer (runs once, not on every render) ───────
 
 function initState(): AppState {
+  if (isDemoMode()) {
+    return {
+      config: DEMO_CONFIG,
+      projects: DEMO_PROJECTS,
+      selectedIndex: 0,
+      focusPane: 'projects',
+      mode: 'normal',
+      filterText: '',
+      promptText: '',
+      scrollOffset: 0,
+      detailIndex: 0,
+      detailSection: 'sessions',
+      activeGame: null,
+      helpIndex: 0,
+    };
+  }
   const { config, isNew } = loadConfig();
   const initialProjects = buildProjectList(config);
   return {

@@ -11,6 +11,7 @@
 import { getNewestSessionFile } from './projects.js';
 import { log } from './logger.js';
 import { getTrackedSessions, isProcessRunning } from './tracker.js';
+import { normalizePathForCompare } from './platform.js';
 import type { ActiveSession, SessionActivity } from '../types.js';
 
 /** How recently a JSONL must have been modified to count as "active" */
@@ -49,7 +50,7 @@ export async function getActiveClaudeProcesses(
     for (const t of tracked) {
       if (!isProcessRunning(t.pid)) continue;
 
-      const normalizedPath = t.projectPath.toLowerCase();
+      const normalizedPath = normalizePathForCompare(t.projectPath);
       seenPaths.add(normalizedPath);
 
       const newest = getNewestSessionFile(t.projectPath);
@@ -73,7 +74,7 @@ export async function getActiveClaudeProcesses(
   // 2. Mtime-based detection (sessions launched outside cc)
   for (const projPath of knownPaths) {
     try {
-      const normalizedPath = projPath.toLowerCase();
+      const normalizedPath = normalizePathForCompare(projPath);
       if (seenPaths.has(normalizedPath)) continue; // already tracked
 
       const newest = getNewestSessionFile(projPath);

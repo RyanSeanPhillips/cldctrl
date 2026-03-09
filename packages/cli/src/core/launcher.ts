@@ -227,10 +227,11 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         let termArgs: string[];
         if (terminal === 'gnome-terminal') {
           termArgs = ['--', 'bash', scriptPath];
-        } else if (terminal === 'konsole') {
-          termArgs = ['-e', 'bash', scriptPath];
+        } else if (terminal === 'kitty') {
+          termArgs = ['bash', scriptPath];
         } else {
-          termArgs = ['-e', `bash ${scriptPath}`];
+          // konsole, alacritty, wezterm, foot, xfce4-terminal, xterm, x-terminal-emulator
+          termArgs = ['-e', 'bash', scriptPath];
         }
 
         const child = spawn.spawn(terminal, termArgs, {
@@ -270,6 +271,7 @@ export function openVSCode(projectPath: string): boolean {
     spawn.spawn('code', [projectPath], {
       detached: true,
       stdio: 'ignore',
+      env: getCleanEnv(),
     }).unref();
     return true;
   } catch {

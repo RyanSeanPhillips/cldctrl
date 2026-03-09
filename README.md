@@ -6,11 +6,57 @@
   <strong>Mission control for Claude Code</strong>
 </p>
 
-A project launcher and management tool for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Available as a **Windows system tray app** (PowerShell) and a **cross-platform CLI/TUI** (Node.js).
+A project launcher and management dashboard for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Instantly switch between projects, resume sessions, and launch new tasks — all from a single hotkey or terminal command.
+
+<p align="center">
+  <img src="docs/demo.gif" alt="CLD CTRL hotkey demo" width="420">
+  <br>
+  <em>Ctrl+Up &rarr; pick project &rarr; launch Claude Code in under 2 seconds</em>
+</p>
+
+## Install
+
+```
+npm i -g cldctrl
+```
+
+Requires Node.js 18+ and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed.
+
+### Enable Ctrl+Up hotkey (Windows)
+
+```
+cldctrl setup
+```
+
+This registers a global hotkey that opens a mini popup for instant project switching. Press **Ctrl+Up** from anywhere to launch.
 
 ## Screenshots
 
-### PowerShell Tray App (Windows)
+### Mini TUI Popup (Ctrl+Up)
+
+The mini popup is a fast 3-phase wizard: pick a project, pick an action, go.
+
+<p align="center">
+  <img src="docs/screenshot_mini.png" alt="Mini TUI project list" width="380">
+  &nbsp;&nbsp;
+  <img src="docs/screenshot_mini_actions.png" alt="Mini TUI action menu" width="380">
+  <br>
+  <em>Project list with git status &nbsp;·&nbsp; Action menu for selected project</em>
+</p>
+
+### Full TUI (`cldctrl`)
+
+The full dashboard with split-pane layout, session history, git status, and issue tracking.
+
+<p align="center">
+  <img src="docs/screenshot_full_tui.png" alt="Full TUI split-pane view" width="640">
+  <br>
+  <em>Split-pane: project list + detail pane with sessions, issues, and git info</em>
+</p>
+
+### PowerShell System Tray (Windows)
+
+Also available as a Windows system tray app with right-click menus.
 
 <p align="center">
   <img src="docs/screenshot_tray.png" alt="CLD CTRL in the system tray" width="320">
@@ -23,96 +69,108 @@ A project launcher and management tool for [Claude Code](https://docs.anthropic.
   &nbsp;&nbsp;
   <img src="docs/screenshot_submenu.png" alt="Project submenu with sessions" width="320">
   <br>
-  <em>Git status at a glance · session history per project</em>
+  <em>Git status at a glance &nbsp;·&nbsp; session history per project</em>
 </p>
-
-### CLI (cross-platform)
-
-```
-┌─ CLD CTRL ──────────────────────┬───────────────────────────────┐  v0.1.0
-│ Projects /search                │ ML Pipeline                   │
-│   Weather Dashboard  master     │ ~/projects/ml-pipeline        │
-│ › ML Pipeline        dev ●3     │ dev ↑2 ●3 | ⚠ 5 issues       │
-│   React Frontend     main       │                               │
-│   API Server         main ●1    │ [n] New session  [c] Continue │
-│                                 │ [i] Issues (5)                │
-│                                 │                               │
-│                                 │ Recent sessions:              │
-│                                 │ › 2h ago  "Train classifier"  │
-│                                 │   1d ago  "Fix data pipeline" │
-│                                 │   3d ago  "Add batch process" │
-└─────────────────────────────────┴───────────────────────────────┘
- Focus: projects | ? help · / filter · q quit
-```
 
 ## Features
 
-- **Project launcher** — open Explorer, VS Code, and a Claude Code terminal in one click/command
-- **Git status** — branch, uncommitted changes, unpushed commits per project
+- **Instant popup** — Ctrl+Up hotkey opens a mini TUI in ~300ms, pre-warmed for instant response
+- **Project launcher** — open Explorer, VS Code, and Claude Code in one action
 - **Session management** — resume your last conversation or pick from recent sessions
-- **GitHub issues** — see open issue counts per project (CLI, requires `gh`)
-- **Usage stats** — daily token and message counts (CLI)
-- **Background daemon** — desktop notifications for issues and usage (CLI)
-- **System tray** — always one click away, auto-start on login (PowerShell)
-- **Simple config** — shared JSON format between both versions
+- **Git status** — branch, uncommitted changes, unpushed commits per project
+- **GitHub issues** — see open issue counts, launch Claude Code with "fix issue" prompts
+- **Auto-discovery** — finds projects from `~/.claude/projects` automatically
+- **Usage stats** — daily token and message counts
+- **Cross-platform TUI** — React/Ink terminal UI, runs on Windows, macOS, Linux
+- **Two modes** — mini popup for quick launches, full dashboard for project management
+- **Filter/search** — type `/` to fuzzy-filter projects in any view
 
-## Quick Start
+## Usage
 
-### PowerShell (Windows system tray)
+```bash
+# Full TUI dashboard
+cldctrl
 
-1. Clone the repo:
-   ```
-   git clone https://github.com/RyanSeanPhillips/cldctrl.git
-   ```
+# Mini popup (same as Ctrl+Up hotkey)
+cldctrl --mini
 
-2. Copy the example config and add your projects:
-   ```
-   cp config.example.json config.json
-   ```
+# CLI commands
+cldctrl list              # List all projects
+cldctrl launch <name>     # Launch Claude Code for a project
+cldctrl stats             # Show usage statistics
+cldctrl issues            # Show GitHub issues across projects
+cldctrl add <path>        # Add a project
+cldctrl config show       # Show current configuration
+cldctrl setup             # Set up Ctrl+Up hotkey (Windows)
+```
 
-3. Run it:
-   ```
-   .\cldctrl.ps1
-   ```
-   Or double-click `install.bat` to add it to Windows startup.
+Aliases: `cld` and `cc` also work (e.g. `cc --mini`).
 
-4. Press **Ctrl+Up** to open the launcher from anywhere.
+## Keyboard Shortcuts
 
-### CLI (any platform)
+### Mini TUI (Ctrl+Up popup)
 
-1. Install:
-   ```
-   cd packages/cli && npm install && npm link
-   ```
+| Key | Action |
+|-----|--------|
+| `Up/Down` or `j/k` | Navigate list |
+| `Right` or `Enter` | Drill in / execute |
+| `Left` or `Esc` | Go back |
+| `/` | Filter projects |
+| `n` | New session with prompt |
+| `f` | Expand to full TUI |
+| `q` | Quit |
 
-2. Run:
-   ```
-   cldctrl
-   ```
+### Full TUI
 
-CLI commands: `cldctrl list`, `cldctrl launch <name>`, `cldctrl stats`, `cldctrl issues`, `cldctrl add <path>`, `cldctrl config show`.
+| Key | Action |
+|-----|--------|
+| `Up/Down` or `j/k` | Navigate project list |
+| `Tab` | Switch focus (projects / detail) |
+| `n` | New Claude Code session |
+| `c` | Continue last session |
+| `i` | View issues |
+| `/` | Filter projects |
+| `?` | Help overlay |
+| `q` | Quit |
 
 ## Configuration
 
-Both versions share the same `config.json` schema:
+CLD CTRL uses a shared `config.json`. Projects are auto-discovered from `~/.claude/projects` but can also be configured manually:
 
-| Field | Description |
-|---|---|
-| `projects[].name` | Display name in the menu |
-| `projects[].path` | Absolute path to the project directory |
-| `projects[].hotkey` | Optional keyboard shortcut (CLI) |
-| `launch.explorer` | Open File Explorer at project path |
-| `launch.vscode` | Open VS Code at project path |
-| `launch.claude` | Open a terminal and start Claude Code |
-| `icon_color` | Hex color for the tray icon (default: `#e87632`) |
+```json
+{
+  "config_version": 4,
+  "projects": [
+    { "name": "My Project", "path": "/path/to/project", "hotkey": "M" }
+  ],
+  "launch": { "explorer": true, "vscode": true, "claude": true },
+  "notifications": {
+    "github_issues": { "enabled": true, "poll_interval_minutes": 5 },
+    "usage_stats": { "enabled": true, "show_tooltip": true }
+  }
+}
+```
 
 ## Requirements
 
-- **PowerShell version**: Windows 10/11, PowerShell 5.1+
-- **CLI version**: Node.js 18+, any OS
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and available in PATH
+- **Node.js** 18+ (for `npm i -g cldctrl`)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and in PATH
+- `gh` CLI (optional — for GitHub issue integration)
 - VS Code (optional — disable with `"vscode": false` in config)
+- **Ctrl+Up hotkey**: Windows 10/11 with Windows Terminal
+
+## How It Works
+
+CLD CTRL reads Claude Code's session data from `~/.claude/projects` to discover your projects and session history. It spawns Claude Code in new terminal windows with the right project path and optional session resume flags.
+
+The mini TUI popup is pre-warmed at hotkey registration time so the first Ctrl+Up press is instant (~300ms). The full TUI runs a background daemon for git status polling, issue notifications, and usage tracking.
+
+## Author
+
+**Ryan Phillips** — [@RyanSeanPhillips](https://github.com/RyanSeanPhillips)
 
 ## License
 
-AGPL-3.0
+[AGPL-3.0](LICENSE) — you can use CLD CTRL freely, but if you modify and distribute it (or run it as a service), you must open-source your changes under the same license.
+
+Copyright 2025-2026 Ryan Phillips. All rights reserved.

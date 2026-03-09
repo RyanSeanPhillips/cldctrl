@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
 import { INK_COLORS } from '../../constants.js';
 import { formatTokenCount } from '../../core/sessions.js';
+import { usePulse, useSpinner } from '../hooks/useAnimations.js';
 import type { ActiveSession } from '../../types.js';
 
 interface ActiveBadgeProps {
@@ -50,7 +51,11 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   const tokenStr = formatTokenCount(session.stats.tokens);
 
   const isIdle = session.tracked && session.idle;
-  const badgeColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
+  const isThinking = !isIdle && !!session.currentAction;
+  const pulse = usePulse(800);
+  const spinner = useSpinner(isThinking, 80);
+
+  const badgeColor = isIdle ? INK_COLORS.yellow : (pulse ? INK_COLORS.green : '#1a7a1a');
   const badgeIcon = isIdle ? '○' : '●';
   const badgeLabel = isIdle ? 'IDLE' : 'ACTIVE';
 
@@ -69,6 +74,7 @@ export const ActiveBadge = React.memo(function ActiveBadge({
     return (
       <Box>
         <Text color={badgeColor}>{badgeIcon} </Text>
+        {isThinking && <Text color={INK_COLORS.green}>{spinner} </Text>}
         <Text color={INK_COLORS.textDim}>
           {label}{suffix}
         </Text>
@@ -92,6 +98,7 @@ export const ActiveBadge = React.memo(function ActiveBadge({
     <Box flexDirection="column">
       <Box>
         <Text color={badgeColor} bold>{badgeIcon} {badgeLabel}</Text>
+        {isThinking && <Text color={INK_COLORS.green}> {spinner}</Text>}
         <Text color={INK_COLORS.text}> {session.sessionId ? session.sessionId.slice(0, 20) : ''}</Text>
       </Box>
       <Box>

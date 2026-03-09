@@ -15,7 +15,7 @@ import { getIssues, isGhAvailable, getGhInstallUrl, sanitizeIssueTitle } from '.
 import { launchClaude } from './core/launcher.js';
 import { trackSession } from './core/tracker.js';
 import { initLogger, setVerbose, log } from './core/logger.js';
-import { getClaudeProjectsDir, pathIsSafe, isTTY } from './core/platform.js';
+import { getClaudeProjectsDir, pathIsSafe, isTTY, normalizePathForCompare } from './core/platform.js';
 import type { Config, Project } from './types.js';
 
 export function createCli(): Command {
@@ -94,8 +94,9 @@ export function createCli(): Command {
     .action(async (name: string, opts) => {
       const { config } = loadConfig();
       const projects = buildProjectList(config);
+      const nameLower = name.toLowerCase();
       const project = projects.find(
-        (p) => p.name.toLowerCase() === name.toLowerCase()
+        (p) => p.name.toLowerCase() === nameLower
       );
 
       if (!project) {
@@ -222,7 +223,7 @@ export function createCli(): Command {
 
       // Check for duplicates
       const exists = config.projects.some(
-        (p) => p.path.toLowerCase() === resolvedPath.toLowerCase()
+        (p) => normalizePathForCompare(p.path) === normalizePathForCompare(resolvedPath)
       );
       if (exists) {
         console.log(`Project already exists: ${name}`);
@@ -545,7 +546,7 @@ export function createCli(): Command {
 
   program
     .command('setup')
-    .description('Install Ctrl+Up hotkey listener to Windows startup')
+    .description('Install Ctrl+Up hotkey listener (cross-platform)')
     .option('--uninstall', 'Remove the hotkey listener from startup')
     .action(async (opts) => {
       const { setupHotkey, removeHotkey } = await import('./core/setup.js');

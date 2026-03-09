@@ -6,6 +6,7 @@
 import { useReducer } from 'react';
 import { loadConfig } from '../../config.js';
 import { buildProjectListFast } from '../../core/projects.js';
+import { isDemoMode, DEMO_CONFIG, DEMO_PROJECTS } from '../../core/demo-data.js';
 import type { Config, Project } from '../../types.js';
 
 export type MiniPhase = 'projects' | 'actions' | 'sessions' | 'issues';
@@ -75,6 +76,17 @@ function reducer(state: MiniState, action: MiniAction): MiniState {
 }
 
 function initState(): MiniState {
+  if (isDemoMode()) {
+    return {
+      config: DEMO_CONFIG,
+      projects: DEMO_PROJECTS,
+      phase: 'projects',
+      mode: 'normal',
+      selectedIndex: 0,
+      filterText: '',
+      promptText: '',
+    };
+  }
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
   return {

@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { getClaudeProjectsDir } from './platform.js';
+import { getClaudeProjectsDir, normalizePathForCompare } from './platform.js';
 import { log } from './logger.js';
 import { readProjectNameCache, writeProjectNameCache } from './project-cache.js';
 import type { Config, Project } from '../types.js';
@@ -228,12 +228,12 @@ function getProjectPathFromSlug(slugDir: string): string | null {
 export function buildProjectList(config: Config): Project[] {
   const projects: Project[] = [];
   const seenPaths = new Set<string>();
-  const hiddenSet = new Set(config.hidden_projects.map((p) => p.toLowerCase()));
+  const hiddenSet = new Set(config.hidden_projects.map((p) => normalizePathForCompare(p)));
   const nameCache: Record<string, string> = {};
 
   // Add configured (pinned) projects
   for (const p of config.projects) {
-    const key = p.path.toLowerCase();
+    const key = normalizePathForCompare(p.path);
     if (hiddenSet.has(key)) continue;
     seenPaths.add(key);
 
@@ -256,7 +256,7 @@ export function buildProjectList(config: Config): Project[] {
   discovered.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
   for (const d of discovered) {
-    const key = d.path.toLowerCase();
+    const key = normalizePathForCompare(d.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
     seenPaths.add(key);
@@ -288,12 +288,12 @@ export function buildProjectListFast(config: Config): Project[] {
   const nameCache = readProjectNameCache();
   const projects: Project[] = [];
   const seenPaths = new Set<string>();
-  const hiddenSet = new Set(config.hidden_projects.map((p) => p.toLowerCase()));
+  const hiddenSet = new Set(config.hidden_projects.map((p) => normalizePathForCompare(p)));
   let cacheUpdated = false;
 
   // Add configured (pinned) projects
   for (const p of config.projects) {
-    const key = p.path.toLowerCase();
+    const key = normalizePathForCompare(p.path);
     if (hiddenSet.has(key)) continue;
     seenPaths.add(key);
 
@@ -316,7 +316,7 @@ export function buildProjectListFast(config: Config): Project[] {
   discovered.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
   for (const d of discovered) {
-    const key = d.path.toLowerCase();
+    const key = normalizePathForCompare(d.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
     seenPaths.add(key);

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { useMiniState } from './hooks/useMiniState.js';
 import { useMiniKeyboard } from './hooks/useMiniKeyboard.js';
 import { getRecentSessions } from '../core/sessions.js';
+import { isDemoMode, DEMO_SESSIONS, DEMO_GIT_STATUSES, DEMO_ISSUE_COUNTS } from '../core/demo-data.js';
 import { MiniProjectList } from './components/MiniProjectList.js';
 import { MiniActionMenu, MiniSessionList, buildActions } from './components/MiniActionMenu.js';
 import { PromptBar } from './components/PromptBar.js';
@@ -93,6 +94,10 @@ function MiniApp() {
   // Sessions for selected project (async, lightweight)
   const [sessions, setSessions] = useState<Session[]>(EMPTY_SESSIONS);
   useEffect(() => {
+    if (isDemoMode()) {
+      setSessions(selectedProject ? (DEMO_SESSIONS[selectedProject.path] ?? EMPTY_SESSIONS) : EMPTY_SESSIONS);
+      return;
+    }
     if (!selectedProject || (state.phase !== 'actions' && state.phase !== 'sessions')) {
       setSessions(EMPTY_SESSIONS);
       return;

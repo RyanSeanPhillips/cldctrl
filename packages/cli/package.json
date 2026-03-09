@@ -4,6 +4,23 @@
   "description": "Mission control for Claude Code — cross-platform TUI project launcher",
   "license": "AGPL-3.0-only",
   "author": "Ryan Phillips",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RyanSeanPhillips/cldctrl.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/RyanSeanPhillips/cldctrl#readme",
+  "bugs": "https://github.com/RyanSeanPhillips/cldctrl/issues",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "tui",
+    "project-launcher",
+    "cli",
+    "developer-tools",
+    "ai",
+    "anthropic"
+  ],
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
@@ -43,6 +60,7 @@
     "@types/node": "^22.0.0",
     "@types/node-notifier": "^8.0.5",
     "@types/react": "^18.3.0",
+    "ansi-to-svg": "^1.4.3",
     "ink-testing-library": "^4.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.7.0",

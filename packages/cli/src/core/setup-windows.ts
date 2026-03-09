@@ -41,6 +41,8 @@ export function setupWindows(): SetupResult {
 
   const vbsPath = path.join(startupDir, STARTUP_FILENAME);
   const vbsContent = [
+    '\'Wait 10 seconds for system startup (PATH, Dropbox sync, etc.)',
+    'WScript.Sleep 10000',
     'Set WshShell = CreateObject("WScript.Shell")',
     `WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${hotkeyScript}""", 0, False`,
   ].join('\r\n');

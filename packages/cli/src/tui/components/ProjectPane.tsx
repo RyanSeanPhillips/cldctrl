@@ -7,6 +7,7 @@ import { Box, Text } from 'ink';
 import { formatGitStatus } from '../../core/git.js';
 import { formatTokenCount } from '../../core/sessions.js';
 import { INK_COLORS, CHARS } from '../../constants.js';
+import { usePulse } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
 
@@ -56,6 +57,7 @@ export const ProjectPane = React.memo(function ProjectPane({
   skillsData,
   commandUsage,
 }: ProjectPaneProps) {
+  const pulse = usePulse(800);
   // Persistent scroll offset — survives re-renders
   const scrollRef = useRef(0);
 
@@ -182,7 +184,7 @@ export const ProjectPane = React.memo(function ProjectPane({
                 {project.name.slice(0, effectiveNameWidth).padEnd(effectiveNameWidth)}{' '}
                 {activeSession && (
                   <>
-                    <Text color={badgeColor}>{'●'}</Text>
+                    <Text color={pulse ? badgeColor : INK_COLORS.textDim}>{'●'}</Text>
                     <Text color={INK_COLORS.textDim}>
                       {' '}{activeBadge.slice(0, Math.max(4, usableWidth - effectiveNameWidth - 6))}{' '}
                     </Text>

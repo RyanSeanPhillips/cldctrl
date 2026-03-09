@@ -5,3 +5,4 @@ node_modules/
 *.tmp.*
 .codeindex.db*
 tsup.config.bundled_*
+.claude/

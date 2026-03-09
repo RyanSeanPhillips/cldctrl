@@ -1,0 +1,394 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="952" height="648">
+<style>text{font-family:Consolas,monospace;font-size:14px;white-space:pre}</style>
+<rect width="100%" height="100%" fill="#0c0c0c"/>
+<text x="12" y="24.9" textLength="927.1" lengthAdjust="spacing">
+<tspan fill="#303030">┌──────────────────────────────────────────┐</tspan>
+<tspan fill="#e87632">┌────────────────────────────────────────────────────────────────┐</tspan>
+</text>
+<text x="12" y="44.5" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#e87632" font-weight="bold">Projects</tspan>
+<tspan fill="#CCCCCC">                                 </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#cccccc" font-weight="bold">WebApp</tspan>
+<tspan fill="#e87632"> *</tspan>
+<tspan fill="#CCCCCC">                                              </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="64.1" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  CLDCTRL                  </tspan>
+<tspan fill="#2dd4bf">master ✓</tspan>
+<tspan fill="#CCCCCC">      </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">Usage — WebApp</tspan>
+<tspan fill="#CCCCCC">                                        </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<rect x="28.9" y="68.8" width="227.6" height="19.6" fill="#235f28"/>
+<rect x="256.4" y="68.8" width="101.1" height="19.6" fill="#235f28"/>
+<rect x="357.5" y="68.8" width="8.4" height="19.6" fill="#235f28"/>
+<text x="12" y="83.7" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#cccccc" font-weight="bold">› WebApp                   </tspan>
+<tspan fill="#f59e0b" font-weight="bold">dev ●true ↑2</tspan>
+<tspan fill="#e87632" font-weight="bold"> </tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">   Mo  Tu  We  Th  Fr  Sa  Su</tspan>
+<tspan fill="#CCCCCC">                         </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<rect x="28.9" y="88.4" width="16.9" height="19.6" fill="#235f28"/>
+<text x="12" y="103.3" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#cccccc" font-weight="bold">⚠3</tspan>
+<tspan fill="#CCCCCC">                                       </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">W1 </tspan>
+<tspan fill="#808080">               </tspan>
+<tspan fill="#2dd4bf">░  ░  </tspan>
+<tspan fill="#CCCCCC">                              </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="122.9" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  API-Server         </tspan>
+<tspan fill="#2dd4bf">●</tspan>
+<tspan fill="#808080"> writing 12m 45k </tspan>
+<tspan fill="#e87632"> </tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">▒  █  ▓  ░  █  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                             </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="142.5" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">⚠1</tspan>
+<tspan fill="#CCCCCC">                                       </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">░  ▓  █  ▓  █  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                             </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="162.1" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">─── Discovered ───</tspan>
+<tspan fill="#CCCCCC">                       </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">░  █  ▓  ▓  ▒  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                             </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="181.7" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  React Frontend           </tspan>
+<tspan fill="#2dd4bf">main ✓</tspan>
+<tspan fill="#CCCCCC">        </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">W5 </tspan>
+<tspan fill="#2dd4bf">▓  ▓  ▒  █  ░  </tspan>
+<tspan fill="#808080">      </tspan>
+<tspan fill="#CCCCCC">                              </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="201.3" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  Design System            </tspan>
+<tspan fill="#f59e0b">main ●true</tspan>
+<tspan fill="#CCCCCC">    </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#2dd4bf">dev ●true ↑2</tspan>
+<tspan fill="#808080"> | </tspan>
+<tspan fill="#e87632">3 open issues</tspan>
+<tspan fill="#CCCCCC">                          </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="220.9" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC">                                          </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">                                                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="240.5" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">─── Commands </tspan>
+<tspan fill="#CCCCCC">                            </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#e87632">[n]</tspan>
+<tspan fill="#cccccc"> New session  </tspan>
+<tspan fill="#e87632">[Enter]</tspan>
+<tspan fill="#cccccc"> Resume</tspan>
+<tspan fill="#CCCCCC">                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="260.1" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">────────────────────────────</tspan>
+<tspan fill="#CCCCCC">             </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">                                                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="279.7" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#e87632"> /commit       </tspan>
+<tspan fill="#808080">Create a git commit</tspan>
+<tspan fill="#cccccc"> 12x</tspan>
+<tspan fill="#CCCCCC">   </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#e87632" font-weight="bold">[s] Sessions (4)</tspan>
+<tspan fill="#808080">  </tspan>
+<tspan fill="#e87632">[c]</tspan>
+<tspan fill="#808080"> Commits (3)  </tspan>
+<tspan fill="#e87632">[i]</tspan>
+<tspan fill="#808080"> Issues (3)</tspan>
+<tspan fill="#CCCCCC">     </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="299.3" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#2dd4bf"> /review-team  </tspan>
+<tspan fill="#808080">Multi-agent code re</tspan>
+<tspan fill="#cccccc"> 5x</tspan>
+<tspan fill="#CCCCCC">    </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#e87632">════════════════                                 </tspan>
+<tspan fill="#CCCCCC">     </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<rect x="399.7" y="304.0" width="505.7" height="19.6" fill="#235f28"/>
+<text x="12" y="318.9" textLength="901.8" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#2dd4bf"> /simplify     </tspan>
+<tspan fill="#808080">Refactor for qualit</tspan>
+<tspan fill="#cccccc"> 3x</tspan>
+<tspan fill="#CCCCCC">    </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#cccccc" font-weight="bold">› 2h ago  &quot;Fix auth middleware bug                  &quot;     1k</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="338.5" textLength="901.8" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#388cff"> /init         </tspan>
+<tspan fill="#808080">Set up CLAUDE.md</tspan>
+<tspan fill="#cccccc"> 1x</tspan>
+<tspan fill="#CCCCCC">       </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  1d ago  &quot;Add rate limiter to API endpoints        &quot;    890</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="358.1" textLength="901.8" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080"> +4 more</tspan>
+<tspan fill="#CCCCCC">                                 </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  2d ago  &quot;Refactor database query layer            &quot;     2k</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="377.7" textLength="901.8" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080"> ?  full list</tspan>
+<tspan fill="#CCCCCC">                            </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">  Mar 1   &quot;Set up CI/CD pipeline with GitHub Actions&quot;    450</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="397.3" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">────────────────────────────────────────</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">                                                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="416.9" textLength="918.7" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">Usage</tspan>
+<tspan fill="#CCCCCC">                                    </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">──────────────────────────────────────────────────────────────</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="436.5" textLength="859.7" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">   Mo  Tu  We  Th  Fr  Sa  Su</tspan>
+<tspan fill="#CCCCCC">            </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc" font-weight="bold">2h ago · 1k tok · 23 msgs · 8w 12r 3bash · 2 agents · </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="456.1" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">W1 </tspan>
+<tspan fill="#808080">               </tspan>
+<tspan fill="#2dd4bf">░  ░  </tspan>
+<tspan fill="#CCCCCC">                 </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc" font-weight="bold">sonnet/opus</tspan>
+<tspan fill="#CCCCCC">                                          </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="475.7" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">▒  █  ▓  ░  █  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#388cff">MCP codeindex: 5 calls — search(3) annotate(2)</tspan>
+<tspan fill="#CCCCCC">       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="495.3" textLength="910.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">░  ▓  █  ▓  █  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc">Fixed authentication middleware that was rejecting valid JWT</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="514.9" textLength="910.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">    </tspan>
+<tspan fill="#2dd4bf">░  █  ▓  ▓  ▒  ░  ░  </tspan>
+<tspan fill="#CCCCCC">                </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc"> tokens after DST time change. Root cause was timezone-naive</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="534.5" textLength="884.9" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">W5 </tspan>
+<tspan fill="#2dd4bf">▓  ▓  ▒  █  ░  </tspan>
+<tspan fill="#808080">      </tspan>
+<tspan fill="#CCCCCC">                 </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc"> Date comparison in token expiry check. Added regression </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="554.1" textLength="884.9" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">47 msgs • 128k tok</tspan>
+<tspan fill="#CCCCCC">                       </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">  </tspan>
+<tspan fill="#cccccc">test covering edge cases around midnight UTC transitions.</tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="573.7" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">Budget</tspan>
+<tspan fill="#2dd4bf">████████████████████░░░░░░░░░░</tspan>
+<tspan fill="#808080"> 64%</tspan>
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">                                                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="593.3" textLength="851.2" lengthAdjust="spacing">
+<tspan fill="#303030">│</tspan>
+<tspan fill="#CCCCCC">       </tspan>
+<tspan fill="#2dd4bf">░</tspan>
+<tspan fill="#CCCCCC">                                  </tspan>
+<tspan fill="#303030">│</tspan>
+<tspan fill="#e87632">│</tspan>
+<tspan fill="#CCCCCC">                                                       </tspan>
+<tspan fill="#e87632">│</tspan>
+</text>
+<text x="12" y="612.9" textLength="927.1" lengthAdjust="spacing">
+<tspan fill="#303030">└──────────────────────────────────────────┘</tspan>
+<tspan fill="#e87632">└────────────────────────────────────────────────────────────────┘</tspan>
+</text>
+<text x="12" y="632.5" textLength="918.7" lengthAdjust="spacing">
+<tspan fill="#CCCCCC"> </tspan>
+<tspan fill="#808080">j/k:nav sessions  Enter:resume  Esc:back  q:quit</tspan>
+<tspan fill="#CCCCCC">                           </tspan>
+<tspan fill="#2dd4bf">█████░░░</tspan>
+<tspan fill="#808080"> 64% · </tspan>
+<tspan fill="#e87632">47 msgs · 128k tok</tspan>
+</text>
+</svg>

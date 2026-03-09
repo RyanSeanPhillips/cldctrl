@@ -57,6 +57,16 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const cli = createCli();
 
+  // Demo mode: load synthetic data for screenshots/recording
+  if (args.includes('--demo')) {
+    const { setDemoMode } = await import('./core/demo-data.js');
+    setDemoMode();
+    // Strip --demo from args so it doesn't confuse Commander
+    const idx = args.indexOf('--demo');
+    if (idx !== -1) args.splice(idx, 1);
+    // If no other args, fall through to TUI launch below
+  }
+
   // Mini TUI mode: fast 3-phase wizard (Ctrl+Up hotkey, quick task)
   if (args.includes('--mini') || args.includes('-m')) {
     if (isTTY()) {

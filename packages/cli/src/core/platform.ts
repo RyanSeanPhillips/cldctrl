@@ -59,6 +59,9 @@ export function pathIsSafe(p: string): boolean {
   // Reject path traversal
   if (p.includes('..')) return false;
 
+  // Reject newlines (can bypass shell escaping)
+  if (p.includes('\n') || p.includes('\r')) return false;
+
   // Only reject characters that enable shell injection
   // (semicolon, pipe, backtick, dollar, angle brackets, parens)
   const dangerousChars = /[;&|`$><(){}]/;
@@ -67,6 +70,19 @@ export function pathIsSafe(p: string): boolean {
   if (dangerousChars.test(testPath)) return false;
 
   return true;
+}
+
+/**
+ * Normalize a path for case-insensitive comparison.
+ * Windows and macOS (default) are case-insensitive; Linux is case-sensitive.
+ */
+export function normalizePathForCompare(p: string): string {
+  const platform = getPlatform();
+  // Windows and macOS default to case-insensitive filesystems
+  if (platform === 'windows' || platform === 'macos') {
+    return p.toLowerCase();
+  }
+  return p;
 }
 
 /**
@@ -132,6 +148,10 @@ export function detectLinuxTerminal(): string | null {
     'x-terminal-emulator',
     'gnome-terminal',
     'konsole',
+    'kitty',
+    'alacritty',
+    'wezterm',
+    'foot',
     'xfce4-terminal',
     'xterm',
   ];

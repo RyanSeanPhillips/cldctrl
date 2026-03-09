@@ -20,6 +20,7 @@ import {
 } from './hooks/useBackgroundData.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { getRecentSessions } from '../core/sessions.js';
+import { isDemoMode, DEMO_SESSIONS, DEMO_SKILLS_DATA, DEMO_ISSUE_COUNTS } from '../core/demo-data.js';
 import { ProjectPane } from './components/ProjectPane.js';
 import { DetailPane } from './components/DetailPane.js';
 import { FilterBar } from './components/FilterBar.js';
@@ -27,6 +28,8 @@ import { PromptBar } from './components/PromptBar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Welcome } from './components/Welcome.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
+import { MatrixGlitch, useMatrixGlitch } from './components/MatrixGlitch.js';
+import { useClock, usePulse } from './hooks/useAnimations.js';
 import { GameScreen } from './games/GameScreen.js';
 import { DEFAULTS, INK_COLORS, APP_NAME, VERSION } from '../constants.js';
 import { getSkillsSummary } from '../core/skills.js';
@@ -69,8 +72,10 @@ function App() {
 
 
   // Skills/commands discovery (lazy — avoid sync FS reads during first render)
-  const [skillsData, setSkillsData] = useState({ commands: [] as any[], skills: [] as any[] });
-  useEffect(() => { setSkillsData(getSkillsSummary()); }, []);
+  const [skillsData, setSkillsData] = useState(() =>
+    isDemoMode() ? DEMO_SKILLS_DATA : { commands: [] as any[], skills: [] as any[] }
+  );
+  useEffect(() => { if (!isDemoMode()) setSkillsData(getSkillsSummary()); }, []);
 
   // Filter projects
   const filteredProjects = useMemo(() => {
@@ -155,8 +160,11 @@ function App() {
   }, [activeProcesses, liveSession, settledProject]);
 
   // Issue counts per project (for badges) — accumulates across selections
-  const [issueCounts, setIssueCounts] = useState(new Map<string, number>());
+  const [issueCounts, setIssueCounts] = useState(() =>
+    isDemoMode() ? DEMO_ISSUE_COUNTS : new Map<string, number>()
+  );
   useEffect(() => {
+    if (isDemoMode()) return;
     if (settledProject && issues) {
       setIssueCounts(prev => {
         if (prev.get(settledProject.path) === issues.length) return prev;
@@ -180,6 +188,10 @@ function App() {
   // Recent sessions for settled project (re-fetches when summaries are generated)
   const [sessions, setSessions] = useState<Session[]>([]);
   useEffect(() => {
+    if (isDemoMode()) {
+      setSessions(settledPath ? (DEMO_SESSIONS[settledPath] ?? []) : []);
+      return;
+    }
     if (!settledPath) {
       setSessions([]);
       return;
@@ -270,6 +282,11 @@ function App() {
     return Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [usageHistory]);
 
+  // Animations
+  const clock = useClock();
+  const pulse = usePulse(800);
+  const matrixGlitch = useMatrixGlitch();
+
   // Keyboard handling — uses cached snapshot data for stable counts
   useKeyboard({
     state,
@@ -333,12 +350,12 @@ function App() {
         <Box>
           {liveSessionCount > 0 && (
             <Text>
-              <Text color={INK_COLORS.green} bold>● </Text>
+              <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim} bold>● </Text>
               <Text color={INK_COLORS.text}>{liveSessionCount} live</Text>
               <Text color={INK_COLORS.textDim}>  </Text>
             </Text>
           )}
-          <Text color={INK_COLORS.textDim}>v{VERSION}</Text>
+          <Text color={INK_COLORS.textDim}>{clock}  v{VERSION}</Text>
         </Box>
       </Box>
 
@@ -401,6 +418,9 @@ function App() {
         launchMsg={launchMsg}
         dailyBudget={state.config.daily_budget_tokens}
       />
+
+      {/* Matrix glitch Easter egg — rare, brief, subtle */}
+      <MatrixGlitch width={dims.cols} height={dims.rows} active={matrixGlitch} />
     </Box>
   );
 }
@@ -409,7 +429,12 @@ function App() {
  * Render the TUI app with alternate screen buffer.
  */
 export async function renderApp(): Promise<void> {
-  // Enter alternate screen buffer
+  // Enable differential rendering to eliminate flicker
+  const { enableDiffRendering } = await import('./diffRenderer.js');
+  const disableDiff = enableDiffRendering();
+
+  // Set tab title and enter alternate screen buffer
+  process.stdout.write('\x1b]0;CLD CTRL\x07');
   process.stdout.write('\x1b[?1049h');
 
   const instance = render(<App />, {
@@ -419,7 +444,9 @@ export async function renderApp(): Promise<void> {
   try {
     await instance.waitUntilExit();
   } finally {
-    // Exit alternate screen buffer
+    disableDiff();
+    // Restore tab title and exit alternate screen buffer
+    process.stdout.write('\x1b]0;\x07');
     process.stdout.write('\x1b[?1049l');
   }
 }

@@ -12,7 +12,8 @@ export const CONFIG_VERSION = 4;
 
 const isTruecolor =
   process.env.COLORTERM === 'truecolor' ||
-  process.env.COLORTERM === '24bit';
+  process.env.COLORTERM === '24bit' ||
+  !!process.env.WT_SESSION; // Windows Terminal always supports truecolor
 
 // Truecolor palette (matches PowerShell GDI+ colors)
 const TRUECOLOR = {

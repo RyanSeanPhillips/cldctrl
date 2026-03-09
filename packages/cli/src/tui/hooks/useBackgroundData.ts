@@ -27,6 +27,12 @@ import { getActiveSessionFile, tailSessionFile } from '../../core/tailer.js';
 import { scanAllSessions, getCachedUsage } from '../../core/command-usage.js';
 import type { CommandUsageCounts } from '../../core/command-usage.js';
 import type { TailState } from '../../core/tailer.js';
+import {
+  isDemoMode,
+  DEMO_GIT_STATUSES, DEMO_ISSUES, DEMO_USAGE_STATS, DEMO_ACTIVE_SESSIONS,
+  DEMO_COMMITS, DEMO_COMMIT_ACTIVITY, DEMO_USAGE_HISTORY,
+  DEMO_SESSION_ACTIVITY, DEMO_COMMAND_USAGE, DEMO_SESSIONS,
+} from '../../core/demo-data.js';
 import type { GitStatus, Issue, UsageStats, Project, GitCommit, DailyUsage, ActiveSession, SessionActivity } from '../../types.js';
 
 const limit = pLimit(DEFAULTS.concurrencyLimit);
@@ -144,7 +150,10 @@ export function useGitStatuses(
   visibleStart: number,
   visibleEnd: number
 ): Map<string, GitStatus> {
-  const [statuses, setStatuses] = useState<Map<string, GitStatus>>(new Map());
+  const [statuses, setStatuses] = useState<Map<string, GitStatus>>(
+    () => isDemoMode() ? DEMO_GIT_STATUSES : new Map()
+  );
+  if (isDemoMode()) return statuses;
   const busyRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -276,6 +285,7 @@ export function useGitStatuses(
 // ── Issues ──────────────────────────────────────────────────
 
 export function useIssues(projectPath: string | null): Issue[] | undefined {
+  if (isDemoMode()) return projectPath ? (DEMO_ISSUES[projectPath] ?? EMPTY_ISSUES) : EMPTY_ISSUES;
   return usePolling(
     async () => {
       if (!projectPath) return EMPTY_ISSUES;
@@ -303,6 +313,7 @@ export function useIssues(projectPath: string | null): Issue[] | undefined {
 // ── Usage stats ─────────────────────────────────────────────
 
 export function useUsageStats(): UsageStats | undefined {
+  if (isDemoMode()) return DEMO_USAGE_STATS;
   return usePolling(
     async () => getRollingUsageStats(getClaudeProjectsDir()),
     DEFAULTS.pollIntervalMs,
@@ -315,6 +326,7 @@ export function useUsageStats(): UsageStats | undefined {
 export function useActiveProcesses(
   projects: Project[]
 ): { map: Map<string, ActiveSession>; totalCount: number } {
+  if (isDemoMode()) return { map: DEMO_ACTIVE_SESSIONS, totalCount: DEMO_ACTIVE_SESSIONS.size };
   const pathsRef = useRef(projects.map(p => p.path));
   pathsRef.current = projects.map(p => p.path);
 
@@ -369,6 +381,7 @@ export function useActiveProcesses(
 // ── Recent commits ───────────────────────────────────────────
 
 export function useRecentCommits(projectPath: string | null): GitCommit[] {
+  if (isDemoMode()) return projectPath ? (DEMO_COMMITS[projectPath] ?? EMPTY_COMMITS) : EMPTY_COMMITS;
   const result = usePolling(
     async () => {
       if (!projectPath) return EMPTY_COMMITS;
@@ -383,6 +396,7 @@ export function useRecentCommits(projectPath: string | null): GitCommit[] {
 // ── Commit activity (for heatmap) ────────────────────────────
 
 export function useCommitActivity(projectPath: string | null): DailyUsage[] {
+  if (isDemoMode()) return projectPath ? (DEMO_COMMIT_ACTIVITY[projectPath] ?? EMPTY_DAILY) : EMPTY_DAILY;
   const result = usePolling(
     async () => {
       if (!projectPath) return EMPTY_DAILY;
@@ -397,6 +411,7 @@ export function useCommitActivity(projectPath: string | null): DailyUsage[] {
 // ── Usage history (per-project daily) ────────────────────────
 
 export function useUsageHistory(): Record<string, DailyUsage[]> {
+  if (isDemoMode()) return DEMO_USAGE_HISTORY;
   const result = usePolling(
     async () => getDailyUsageByProject(28),
     300_000, // 5 min
@@ -409,7 +424,10 @@ export function useUsageHistory(): Record<string, DailyUsage[]> {
 // Preserves previous activity during async transition to avoid flash-to-null.
 
 export function useSessionActivity(sessionFilePath: string | null): SessionActivity | null {
-  const [activity, setActivity] = useState<SessionActivity | null>(null);
+  const [activity, setActivity] = useState<SessionActivity | null>(
+    () => isDemoMode() ? DEMO_SESSION_ACTIVITY : null
+  );
+  if (isDemoMode()) return sessionFilePath ? DEMO_SESSION_ACTIVITY : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -435,6 +453,7 @@ export function useLiveSession(
   isActive: boolean,
 ): TailState | null {
   const [tailState, setTailState] = useState<TailState | null>(null);
+  if (isDemoMode()) return null; // Active sessions show via DEMO_ACTIVE_SESSIONS instead
 
   useEffect(() => {
     if (!projectPath || !isActive) {
@@ -472,6 +491,7 @@ export function useAutoSummarize(
   issues: Issue[] | undefined,
 ): number {
   const [revision, setRevision] = useState(0);
+  if (isDemoMode()) return 0;
   const startupDoneRef = useRef(false);
   const issueSummarizedRef = useRef(new Set<string>());
 
@@ -536,6 +556,7 @@ export function useAutoSummarize(
  * Returns cached counts instantly, then updates after full scan.
  */
 export function useCommandUsage(): CommandUsageCounts {
+  if (isDemoMode()) return DEMO_COMMAND_USAGE;
   const [counts, setCounts] = useState<CommandUsageCounts>(() => getCachedUsage());
 
   useEffect(() => {
