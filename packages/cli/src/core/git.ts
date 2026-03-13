@@ -148,20 +148,46 @@ export async function getRecentCommits(projectPath: string, count: number = 10):
 export async function getCommitDailyActivity(projectPath: string, days: number = 28): Promise<DailyUsage[]> {
   try {
     const output = await runGit(
-      ['-C', projectPath, 'log', `--since=${days} days ago`, '--format=%aI'],
+      ['-C', projectPath, 'log', `--since=${days} days ago`, '--format=%aI', '--shortstat'],
       projectPath
     );
 
-    const dailyMap = new Map<string, number>();
-    for (const line of output.split('\n')) {
-      const trimmed = line.trim();
+    const dailyMap = new Map<string, { commits: number; additions: number; deletions: number }>();
+    const lines = output.split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
       if (!trimmed) continue;
-      const dateStr = trimmed.slice(0, 10);
-      dailyMap.set(dateStr, (dailyMap.get(dateStr) || 0) + 1);
+
+      // Date line: 2025-03-09T14:30:00-05:00
+      if (trimmed.length >= 10 && trimmed[4] === '-' && trimmed[7] === '-') {
+        const dateStr = trimmed.slice(0, 10);
+        const entry = dailyMap.get(dateStr) ?? { commits: 0, additions: 0, deletions: 0 };
+        entry.commits++;
+
+        // Next non-blank line might be shortstat
+        for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+          const stat = lines[j].trim();
+          if (!stat) continue;
+          if (stat.includes('insertion') || stat.includes('deletion')) {
+            const addMatch = stat.match(/(\d+) insertion/);
+            const delMatch = stat.match(/(\d+) deletion/);
+            if (addMatch) entry.additions += parseInt(addMatch[1], 10);
+            if (delMatch) entry.deletions += parseInt(delMatch[1], 10);
+            i = j;
+          }
+          break;
+        }
+
+        dailyMap.set(dateStr, entry);
+      }
     }
 
     return Array.from(dailyMap.entries())
-      .map(([date, commits]) => ({ date, tokens: 0, messages: 0, commits }))
+      .map(([date, d]) => ({
+        date, tokens: 0, messages: 0,
+        commits: d.commits, additions: d.additions, deletions: d.deletions,
+      }))
       .sort((a, b) => a.date.localeCompare(b.date));
   } catch (err) {
     log('error', { function: 'getCommitDailyActivity', message: String(err) });

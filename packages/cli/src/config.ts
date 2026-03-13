@@ -38,6 +38,16 @@ const ConfigSchema = z.object({
     enabled: z.boolean().default(true),
   }).default({}),
   daily_budget_tokens: z.number().optional(),
+  features: z.object({
+    rate_limit_bars: z.boolean().default(true),
+    cost_estimates: z.boolean().default(true),
+    code_stats: z.boolean().default(true),
+    calendar_heatmap: z.boolean().default(true),
+    live_session_tailing: z.boolean().default(true),
+    auto_discovery: z.boolean().default(true),
+    commands_section: z.boolean().default(true),
+    animations: z.boolean().default(true),
+  }).default({}).optional(),
   notifications: z.object({
     github_issues: z.object({
       enabled: z.boolean().default(true),
@@ -50,15 +60,39 @@ const ConfigSchema = z.object({
   }).default({}),
 });
 
+// ── Feature flag helper ────────────────────────────────────
+
+const FEATURE_DEFAULTS: Record<string, boolean> = {
+  rate_limit_bars: true,
+  cost_estimates: true,
+  code_stats: true,
+  calendar_heatmap: true,
+  live_session_tailing: true,
+  auto_discovery: true,
+  commands_section: true,
+  animations: true,
+};
+
+/** Check if a feature is enabled (defaults to true if not configured). */
+export function isFeatureEnabled(config: Config, feature: string): boolean {
+  const val = config.features?.[feature as keyof typeof config.features];
+  if (val !== undefined) return val as boolean;
+  return FEATURE_DEFAULTS[feature] ?? true;
+}
+
 // ── Config directory resolution ─────────────────────────────
 
 let configDirOverride: string | null = null;
+let configDirCached: string | null = null;
 
 export function setConfigDir(dir: string): void {
   configDirOverride = dir;
+  configDirCached = null; // bust cache on override
 }
 
 export function getConfigDir(): string {
+  if (configDirCached) return configDirCached;
+
   // Environment variable override
   // Support both new and legacy env var names
   const envDir = process.env.CLDCTRL_CONFIG_DIR ?? process.env.CLAUDEDOCK_CONFIG_DIR;
@@ -67,30 +101,35 @@ export function getConfigDir(): string {
     if (envDir.includes('..')) {
       throw new Error('CLDCTRL_CONFIG_DIR must not contain ".." segments');
     }
-    return path.resolve(envDir);
+    configDirCached = path.resolve(envDir);
+    return configDirCached;
   }
 
-  if (configDirOverride) return configDirOverride;
+  if (configDirOverride) {
+    configDirCached = configDirOverride;
+    return configDirCached;
+  }
 
   // Platform-appropriate config location
   // Check for legacy 'claudedock' dir first, then use 'cldctrl'
+  let result: string;
   const platform = os.platform();
   if (platform === 'win32') {
     const appData = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming');
     const legacy = path.join(appData, 'claudedock');
-    if (fs.existsSync(legacy)) return legacy;
-    return path.join(appData, 'cldctrl');
-  }
-  if (platform === 'darwin') {
+    result = fs.existsSync(legacy) ? legacy : path.join(appData, 'cldctrl');
+  } else if (platform === 'darwin') {
     const legacy = path.join(os.homedir(), '.config', 'claudedock');
-    if (fs.existsSync(legacy)) return legacy;
-    return path.join(os.homedir(), '.config', 'cldctrl');
+    result = fs.existsSync(legacy) ? legacy : path.join(os.homedir(), '.config', 'cldctrl');
+  } else {
+    // Linux/other: XDG_CONFIG_HOME or ~/.config
+    const xdgConfig = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
+    const legacy = path.join(xdgConfig, 'claudedock');
+    result = fs.existsSync(legacy) ? legacy : path.join(xdgConfig, 'cldctrl');
   }
-  // Linux/other: XDG_CONFIG_HOME or ~/.config
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
-  const legacy = path.join(xdgConfig, 'claudedock');
-  if (fs.existsSync(legacy)) return legacy;
-  return path.join(xdgConfig, 'cldctrl');
+
+  configDirCached = result;
+  return result;
 }
 
 export function getConfigPath(): string {

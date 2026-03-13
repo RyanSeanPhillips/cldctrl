@@ -61,6 +61,19 @@ export interface TailState {
   currentAction?: string;
   sessionId?: string;
   filePath: string;
+  /** One-line summaries of completed rounds (most recent last, max 5). */
+  roundSummaries: string[];
+}
+
+const MAX_ROUND_SUMMARIES = 5;
+const MAX_PROMPT_LENGTH = 200;
+const MAX_TOOL_ACTIONS = 8;
+
+/** Data collected during a single user→assistant round. */
+interface RoundData {
+  userPrompt: string;
+  toolActions: string[];       // e.g., "Edit DetailPane.tsx", "Read tailer.ts"
+  assistantSnippet: string;    // first ~200 chars of assistant text
 }
 
 interface TailerInternal {
@@ -73,12 +86,23 @@ interface TailerInternal {
   firstTimestamp: number | null;
   lastTimestamp: number | null;
   lastWasAssistant: boolean;
+  // Round tracking
+  currentRound: {
+    userPrompt: string;
+    toolActions: string[];
+    assistantText: string;
+  };
+  pendingRounds: RoundData[];    // completed rounds awaiting summary generation
+  roundSummaries: string[];      // one-line round summaries
+  roundCount: number;            // total rounds seen
 }
 
 function createEmptyActivity(): SessionActivity {
   return {
     messages: 0,
     tokens: 0,
+    tokenBreakdown: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    inputPerMessage: [],
     toolCalls: { reads: 0, writes: 0, bash: 0, other: 0 },
     mcpCalls: {},
     agentSpawns: 0,
@@ -87,6 +111,8 @@ function createEmptyActivity(): SessionActivity {
     thinkingTokens: 0,
     duration: 0,
     hourlyActivity: new Array(24).fill(0),
+    assistantTurns: 0,
+    toolUseTurns: 0,
   };
 }
 
@@ -113,8 +139,36 @@ function processLine(line: string, state: TailerInternal): void {
     state.activity.messages++;
     if (state.lastWasAssistant) state.activity.interruptions++;
     state.lastWasAssistant = false;
+
+    // Finalize the previous round (if it has tool actions)
+    if (state.currentRound.toolActions.length > 0 || state.currentRound.assistantText) {
+      state.pendingRounds.push({
+        userPrompt: state.currentRound.userPrompt,
+        toolActions: state.currentRound.toolActions.slice(0, MAX_TOOL_ACTIONS),
+        assistantSnippet: state.currentRound.assistantText.slice(0, MAX_PROMPT_LENGTH),
+      });
+      state.roundCount++;
+    }
+
+    // Start a new round — extract user prompt text
+    const msg = obj.message;
+    let text = '';
+    if (msg) {
+      if (typeof msg.content === 'string') {
+        text = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        text = msg.content
+          .filter((b: any) => b.type === 'text' && b.text)
+          .map((b: any) => b.text)
+          .join(' ');
+      }
+    }
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text.length > MAX_PROMPT_LENGTH) text = text.slice(0, MAX_PROMPT_LENGTH - 3) + '...';
+    state.currentRound = { userPrompt: text, toolActions: [], assistantText: '' };
   } else if (obj.type === 'assistant' && obj.message) {
     state.lastWasAssistant = true;
+    state.activity.assistantTurns++;
     const msg = obj.message;
 
     // Model tracking
@@ -124,16 +178,27 @@ function processLine(line: string, state: TailerInternal): void {
 
     // Token counting
     if (msg.usage) {
-      state.activity.tokens += (msg.usage.input_tokens || 0)
-        + (msg.usage.output_tokens || 0)
-        + (msg.usage.cache_read_input_tokens || 0)
-        + (msg.usage.cache_creation_input_tokens || 0);
+      const inp = msg.usage.input_tokens || 0;
+      const out = msg.usage.output_tokens || 0;
+      const cacheR = msg.usage.cache_read_input_tokens || 0;
+      const cacheW = msg.usage.cache_creation_input_tokens || 0;
+      state.activity.tokens += inp + out + cacheR + cacheW;
+      state.activity.tokenBreakdown.input += inp;
+      state.activity.tokenBreakdown.output += out;
+      state.activity.tokenBreakdown.cacheRead += cacheR;
+      state.activity.tokenBreakdown.cacheWrite += cacheW;
+      state.activity.inputPerMessage.push(inp);
     }
 
-    // Tool use from content array — also track current action
+    // Collect assistant text output for round summaries
+    let hasToolUse = false;
     if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
+        if (block.type === 'text' && block.text && state.currentRound.assistantText.length < MAX_PROMPT_LENGTH) {
+          state.currentRound.assistantText += (state.currentRound.assistantText ? ' ' : '') + block.text;
+        }
         if (block.type !== 'tool_use') continue;
+        hasToolUse = true;
         const name = block.name;
         if (!name) continue;
 
@@ -141,15 +206,25 @@ function processLine(line: string, state: TailerInternal): void {
 
         // Track current action (last tool_use seen)
         state.currentAction = name;
+        let actionStr = name;
         if (block.input) {
           const filePath = block.input.file_path || block.input.path;
           if (filePath) {
             const parts = String(filePath).split(/[/\\]/);
-            state.currentAction += ` ${parts[parts.length - 1]}`;
+            const fileName = parts[parts.length - 1];
+            state.currentAction += ` ${fileName}`;
+            actionStr += ` ${fileName}`;
           }
+        }
+
+        // Record for round summary (deduplicate)
+        if (state.currentRound.toolActions.length < MAX_TOOL_ACTIONS
+            && !state.currentRound.toolActions.includes(actionStr)) {
+          state.currentRound.toolActions.push(actionStr);
         }
       }
     }
+    if (hasToolUse) state.activity.toolUseTurns++;
   }
 
   // Update duration
@@ -218,6 +293,70 @@ function readNewBytes(state: TailerInternal): boolean {
   }
 }
 
+// ── Round summarization (template-based, no API calls) ──────
+
+/**
+ * Build a concise round summary from the user prompt + tool activity.
+ * Format: "user request — edited X, Y" or just "user request" or just "edited X, Y"
+ */
+function buildRoundSummary(round: RoundData): string {
+  // Build tool activity suffix
+  const writes = round.toolActions
+    .filter(a => a.startsWith('Edit') || a.startsWith('Write'))
+    .map(a => a.split(' ').slice(1).join(' '))
+    .filter(Boolean);
+  const bashCount = round.toolActions.filter(a => a.startsWith('Bash')).length;
+
+  const activityParts: string[] = [];
+  if (writes.length > 0) {
+    // Show up to 3 filenames
+    const shown = writes.slice(0, 3);
+    const suffix = writes.length > 3 ? ` +${writes.length - 3}` : '';
+    activityParts.push(`edited ${shown.join(', ')}${suffix}`);
+  }
+  if (bashCount > 0) activityParts.push(`${bashCount} cmd${bashCount > 1 ? 's' : ''}`);
+
+  const activity = activityParts.join(', ');
+
+  // Prefer the user prompt as the primary description
+  if (round.userPrompt) {
+    const prompt = round.userPrompt.length > 80
+      ? round.userPrompt.slice(0, 77) + '...'
+      : round.userPrompt;
+    // Append activity if there's room
+    if (activity && prompt.length + activity.length < 100) {
+      return `${prompt} — ${activity}`;
+    }
+    return prompt;
+  }
+
+  // No user prompt — use activity only
+  return activity || '';
+}
+
+/** Process all pending rounds into summaries (synchronous, no API calls). */
+function drainPendingRounds(state: TailerInternal): void {
+  while (state.pendingRounds.length > 0) {
+    const round = state.pendingRounds.shift()!;
+    const summary = buildRoundSummary(round);
+    if (!summary) continue;
+    state.roundSummaries.push(summary);
+    if (state.roundSummaries.length > MAX_ROUND_SUMMARIES) {
+      state.roundSummaries.shift();
+    }
+  }
+}
+
+function buildTailState(state: TailerInternal): TailState {
+  return {
+    activity: { ...state.activity },
+    currentAction: state.currentAction,
+    sessionId: state.sessionId,
+    filePath: state.filePath,
+    roundSummaries: [...state.roundSummaries],
+  };
+}
+
 /**
  * Start tailing a JSONL file. Calls onUpdate with incremental state on each change.
  * Returns a cleanup function that stops watching.
@@ -236,27 +375,23 @@ export function tailSessionFile(
     firstTimestamp: null,
     lastTimestamp: null,
     lastWasAssistant: false,
+    currentRound: { userPrompt: '', toolActions: [], assistantText: '' },
+    pendingRounds: [],
+    roundSummaries: [],
+    roundCount: 0,
   };
 
-  // Do an initial full read
+  // Do an initial full read and summarize all completed rounds
   readNewBytes(state);
-  onUpdate({
-    activity: { ...state.activity },
-    currentAction: state.currentAction,
-    sessionId: state.sessionId,
-    filePath: state.filePath,
-  });
+  drainPendingRounds(state);
+  onUpdate(buildTailState(state));
 
   // Watch for changes at 1s interval
   const listener = () => {
     const changed = readNewBytes(state);
     if (changed) {
-      onUpdate({
-        activity: { ...state.activity },
-        currentAction: state.currentAction,
-        sessionId: state.sessionId,
-        filePath: state.filePath,
-      });
+      drainPendingRounds(state);
+      onUpdate(buildTailState(state));
     }
   };
 

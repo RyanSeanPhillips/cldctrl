@@ -23,12 +23,17 @@ export const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
   ['p            ', 'Pin/unpin project'],
   ['h            ', 'Hide discovered project'],
   ['r            ', 'Refresh git/issues'],
+  ['S            ', 'Scan for new projects'],
   ['o            ', 'Open in file explorer'],
+  ['f            ', 'Files tab (detail pane)'],
+  ['l            ', 'Jump to live conversations'],
   ['a            ', 'Add project'],
   ['Tab          ', 'Focus details pane'],
   ['Esc          ', 'Back / exit pane'],
+  [',            ', 'Settings'],
   ['q            ', 'Quit'],
   ['?            ', 'Toggle this help'],
+  ['--safe       ', 'Bypass diff renderer (flag)'],
 ];
 
 export type SkillsData = { commands: ClaudeCommand[]; skills: ClaudeSkill[] };

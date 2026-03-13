@@ -1,13 +1,14 @@
 /**
  * Mini TUI keyboard: phase-aware navigation.
  * Left/Right to drill in/out, Up/Down to move within lists.
+ * Enter launches directly from projects phase; Right arrow drills into actions.
  */
 
 import { useInput, useApp } from 'ink';
-import { launchClaude, openVSCode, launchAndTrack, buildIssueFixPrompt } from '../../core/launcher.js';
+import { openVSCode, launchAndTrack } from '../../core/launcher.js';
 import { openInExplorer } from '../../core/platform.js';
-import type { Project, Session, Issue } from '../../types.js';
-import type { MiniState, MiniDispatch, MiniPhase } from './useMiniState.js';
+import type { Project, Session } from '../../types.js';
+import type { MiniState, MiniDispatch } from './useMiniState.js';
 import type { ActionItem } from '../components/MiniActionMenu.js';
 
 interface UseMiniKeyboardOptions {
@@ -17,16 +18,13 @@ interface UseMiniKeyboardOptions {
   selectedProject: Project | undefined;
   actions: ActionItem[];
   sessions: Session[];
-  issues: Issue[];
-  sessionCount: number;
-  issueCount: number;
   onExpandFull?: () => void;
 }
 
 export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
   const {
     state, dispatch, filteredProjects, selectedProject,
-    actions, sessions, issues, sessionCount, issueCount,
+    actions, sessions,
     onExpandFull,
   } = opts;
   const { exit } = useApp();
@@ -36,7 +34,6 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
       case 'projects': return Math.max(0, filteredProjects.length - 1);
       case 'actions': return Math.max(0, actions.length - 1);
       case 'sessions': return Math.max(0, sessions.length - 1);
-      case 'issues': return Math.max(0, issues.length - 1);
     }
   })();
 
@@ -127,9 +124,15 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
       return;
     }
 
-    // Drill in (right arrow or Enter)
-    if (key.rightArrow || key.return) {
+    // Drill in (right arrow)
+    if (key.rightArrow) {
       handleDrillIn();
+      return;
+    }
+
+    // Quick launch (Enter) — launches directly from projects, drills in from actions/sessions
+    if (key.return) {
+      handleSelect();
       return;
     }
 
@@ -144,17 +147,35 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
     }
 
     // New session with prompt (from any phase if project is selected)
-    if (input === 'n' && selectedProject) {
+    if (input === 'n' && selectedProject && (state.phase === 'projects' || state.phase === 'actions')) {
       dispatch({ type: 'SET_MODE', mode: 'prompt' });
       return;
     }
   });
 
+  function handleSelect(): void {
+    switch (state.phase) {
+      case 'projects': {
+        // Enter on project = launch immediately (continue last session)
+        const proj = filteredProjects[state.selectedIndex];
+        if (proj) {
+          launchAndTrack({ projectPath: proj.path });
+          exit();
+        }
+        break;
+      }
+      // For all other phases, Enter behaves same as drill-in
+      default:
+        handleDrillIn();
+    }
+  }
+
   function handleDrillIn(): void {
     switch (state.phase) {
       case 'projects': {
-        if (filteredProjects.length > 0) {
-          dispatch({ type: 'SET_PHASE', phase: 'actions' });
+        const proj = filteredProjects[state.selectedIndex];
+        if (proj) {
+          dispatch({ type: 'SET_PHASE', phase: 'actions', projectPath: proj.path });
         }
         break;
       }
@@ -173,9 +194,6 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
           case 'sessions':
             dispatch({ type: 'SET_PHASE', phase: 'sessions' });
             break;
-          case 'issues':
-            dispatch({ type: 'SET_PHASE', phase: 'issues' });
-            break;
           case 'folder':
             openInExplorer(selectedProject.path);
             exit();
@@ -183,9 +201,6 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
           case 'vscode':
             openVSCode(selectedProject.path);
             exit();
-            break;
-          case 'full':
-            onExpandFull?.();
             break;
         }
         break;
@@ -196,17 +211,6 @@ export function useMiniKeyboard(opts: UseMiniKeyboardOptions): void {
           launchAndTrack({
             projectPath: selectedProject.path,
             sessionId: session.id,
-          });
-          exit();
-        }
-        break;
-      }
-      case 'issues': {
-        const issue = issues[state.selectedIndex];
-        if (issue && selectedProject) {
-          launchAndTrack({
-            projectPath: selectedProject.path,
-            prompt: buildIssueFixPrompt(issue),
           });
           exit();
         }

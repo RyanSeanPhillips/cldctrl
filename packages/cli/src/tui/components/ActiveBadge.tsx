@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
-import { INK_COLORS } from '../../constants.js';
+import { INK_COLORS, formatDuration } from '../../constants.js';
 import { formatTokenCount } from '../../core/sessions.js';
 import { usePulse, useSpinner } from '../hooks/useAnimations.js';
 import type { ActiveSession } from '../../types.js';
@@ -13,14 +13,6 @@ interface ActiveBadgeProps {
   session: ActiveSession;
   compact?: boolean;
   maxWidth?: number;
-}
-
-function formatDuration(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
 }
 
 export const ActiveBadge = React.memo(function ActiveBadge({
@@ -53,7 +45,7 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   const isIdle = session.tracked && session.idle;
   const isThinking = !isIdle && !!session.currentAction;
   const pulse = usePulse(800);
-  const spinner = useSpinner(isThinking, 80);
+  const spinner = useSpinner(isThinking);
 
   const badgeColor = isIdle ? INK_COLORS.yellow : (pulse ? INK_COLORS.green : '#1a7a1a');
   const badgeIcon = isIdle ? '○' : '●';

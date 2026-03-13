@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from '../config.js';
 import { log } from './logger.js';
+import type { DaemonCache } from '../types.js';
 
 // ── Atomic write helper ─────────────────────────────────────
 
@@ -87,16 +88,19 @@ export function getCachePath(): string {
   return path.join(getConfigDir(), 'cache.json');
 }
 
-export function readDaemonCache(): Record<string, unknown> | null {
+export function readDaemonCache(): DaemonCache | null {
   try {
     const cachePath = getCachePath();
     if (!fs.existsSync(cachePath)) return null;
 
     const stat = fs.statSync(cachePath);
     const ageMs = Date.now() - stat.mtimeMs;
-    if (ageMs > 5 * 60 * 1000) return null;
+    // Accept cache up to 10 min old (daemon writes every 5 min)
+    if (ageMs > 10 * 60 * 1000) return null;
 
-    return JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    if (!raw || typeof raw !== 'object' || !raw.lastUpdated) return null;
+    return raw as DaemonCache;
   } catch {
     return null;
   }

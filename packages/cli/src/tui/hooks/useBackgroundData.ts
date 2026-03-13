@@ -9,13 +9,13 @@
  * - useSessionActivity keeps previous value during async transition
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import pLimit from 'p-limit';
 import { getGitStatus } from '../../core/git.js';
 import { getIssues } from '../../core/github.js';
 import { getRollingUsageStats } from '../../core/sessions.js';
 import { loadIssueSummaryCache, generateMissingSummaries, generateMissingIssueSummaries } from '../../core/summaries.js';
-import { issueKey } from '../../core/background.js';
+import { issueKey, readDaemonCache } from '../../core/background.js';
 import { getClaudeProjectsDir } from '../../core/platform.js';
 import { log } from '../../core/logger.js';
 import { DEFAULTS } from '../../constants.js';
@@ -24,25 +24,44 @@ import { getActiveClaudeProcesses } from '../../core/processes.js';
 import { parseSessionActivity } from '../../core/activity.js';
 import { getDailyUsageByProject } from '../../core/usage.js';
 import { getActiveSessionFile, tailSessionFile } from '../../core/tailer.js';
+import { getActiveSessionInfo } from '../../core/activity.js';
 import { scanAllSessions, getCachedUsage } from '../../core/command-usage.js';
+import { readClaudeTier, getEffectiveDailyBudget, getTierLabel, probeRateLimits } from '../../core/claude-usage.js';
+import type { ClaudeTier, RateLimitInfo } from '../../core/claude-usage.js';
 import type { CommandUsageCounts } from '../../core/command-usage.js';
 import type { TailState } from '../../core/tailer.js';
 import {
   isDemoMode,
-  DEMO_GIT_STATUSES, DEMO_ISSUES, DEMO_USAGE_STATS, DEMO_ACTIVE_SESSIONS,
-  DEMO_COMMITS, DEMO_COMMIT_ACTIVITY, DEMO_USAGE_HISTORY,
-  DEMO_SESSION_ACTIVITY, DEMO_COMMAND_USAGE, DEMO_SESSIONS,
+  demoGitStatuses, demoIssues, demoUsageStats, demoActiveSessions,
+  demoCommits, demoCommitActivity, demoUsageHistory, demoCommandUsage,
+  demoSessions,
+  DEMO_SESSION_ACTIVITY,
 } from '../../core/demo-data.js';
-import type { GitStatus, Issue, UsageStats, Project, GitCommit, DailyUsage, ActiveSession, SessionActivity } from '../../types.js';
+import type { GitStatus, Issue, UsageStats, UsageBudget, Project, GitCommit, DailyUsage, ActiveSession, SessionActivity, DaemonCache } from '../../types.js';
+
+export type { RateLimitInfo } from '../../core/claude-usage.js';
 
 const limit = pLimit(DEFAULTS.concurrencyLimit);
+
+// ── Daemon cache: read once at module load for instant first paint ──
+let _cachedDaemon: DaemonCache | null | undefined; // undefined = not yet read
+function getDaemonCache(): DaemonCache | null {
+  if (_cachedDaemon === undefined) {
+    try {
+      _cachedDaemon = readDaemonCache();
+    } catch {
+      _cachedDaemon = null;
+    }
+  }
+  return _cachedDaemon;
+}
 
 // ── Stable fallback constants (avoid new refs on every render) ────
 const EMPTY_ISSUES: Issue[] = [];
 const EMPTY_COMMITS: GitCommit[] = [];
 const EMPTY_DAILY: DailyUsage[] = [];
 const EMPTY_USAGE_HISTORY: Record<string, DailyUsage[]> = {};
-const EMPTY_ACTIVE_SESSIONS = { map: new Map<string, ActiveSession>(), totalCount: 0 };
+const EMPTY_ACTIVE_SESSIONS = { map: new Map<string, ActiveSession>(), allSessions: [] as ActiveSession[], totalCount: 0 };
 
 // ── Shallow equality check ──────────────────────────────────
 // Prevents no-op re-renders when polled data hasn't changed.
@@ -151,9 +170,16 @@ export function useGitStatuses(
   visibleEnd: number
 ): Map<string, GitStatus> {
   const [statuses, setStatuses] = useState<Map<string, GitStatus>>(
-    () => isDemoMode() ? DEMO_GIT_STATUSES : new Map()
+    () => {
+      if (isDemoMode()) return demoGitStatuses();
+      const cache = getDaemonCache();
+      if (cache?.gitStatuses) {
+        return new Map(Object.entries(cache.gitStatuses));
+      }
+      return new Map();
+    }
   );
-  if (isDemoMode()) return statuses;
+  const demo = isDemoMode();
   const busyRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -165,6 +191,7 @@ export function useGitStatuses(
 
   // Single stable effect — timer never restarts on scroll
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
 
     const fetchVisible = async () => {
@@ -190,7 +217,6 @@ export function useGitStatuses(
           for (const { path, status } of results) {
             if (status) {
               const existing = prev.get(path);
-              // Only update if actually different to avoid unnecessary re-renders
               if (!existing || existing.branch !== status.branch
                 || existing.dirty !== status.dirty
                 || existing.ahead !== status.ahead) {
@@ -206,19 +232,18 @@ export function useGitStatuses(
       }
     };
 
-    // Initial fetch
     fetchVisible();
-    // Periodic refresh
     const timer = setInterval(fetchVisible, DEFAULTS.gitPollIntervalMs);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []); // stable — uses refs for everything
+  }, [demo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced re-fetch when visible range changes (for newly scrolled-to projects)
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -226,7 +251,6 @@ export function useGitStatuses(
       busyRef.current = true;
       try {
         const visible = projectsRef.current.slice(visibleStart, visibleEnd + 1);
-        // Only fetch projects we don't already have
         const missing = visible.filter(p => !statuses.has(p.path));
         if (missing.length === 0) { busyRef.current = false; return; }
 
@@ -257,19 +281,20 @@ export function useGitStatuses(
       cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [visibleStart, visibleEnd]);
+  }, [visibleStart, visibleEnd]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Prune stale entries when project paths actually change (not on every filter keystroke)
-  const projectPathsKey = projects.map(p => p.path).join('\0');
+  // Prune stale entries when project paths actually change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const projectPathsKey = useMemo(() => projects.map(p => p.path).join('\0'), [projects]);
   useEffect(() => {
+    if (demo) return;
     const paths = new Set(projects.map((p) => p.path));
     setStatuses((prev) => {
-      // Only prune if there are actually stale keys
       let hasStale = false;
       for (const k of prev.keys()) {
         if (!paths.has(k)) { hasStale = true; break; }
       }
-      if (!hasStale) return prev; // skip setState entirely
+      if (!hasStale) return prev;
       const next = new Map<string, GitStatus>();
       for (const [k, v] of prev) {
         if (paths.has(k)) next.set(k, v);
@@ -285,18 +310,18 @@ export function useGitStatuses(
 // ── Issues ──────────────────────────────────────────────────
 
 export function useIssues(projectPath: string | null): Issue[] | undefined {
-  if (isDemoMode()) return projectPath ? (DEMO_ISSUES[projectPath] ?? EMPTY_ISSUES) : EMPTY_ISSUES;
-  return usePolling(
+  const demo = isDemoMode();
+  const result = usePolling(
     async () => {
-      if (!projectPath) return EMPTY_ISSUES;
+      if (demo || !projectPath) return EMPTY_ISSUES;
       const issues = await getIssues(projectPath);
 
       // Populate richSummary from cached issue summaries
       try {
-        const cache = loadIssueSummaryCache();
+        const summaryCache = loadIssueSummaryCache();
         for (const issue of issues) {
           const key = issueKey(projectPath, issue.number);
-          const cached = cache[key];
+          const cached = summaryCache[key];
           if (cached) {
             issue.richSummary = cached.summary;
           }
@@ -308,34 +333,167 @@ export function useIssues(projectPath: string | null): Issue[] | undefined {
     DEFAULTS.issuePollIntervalMs,
     [projectPath]
   );
+  if (demo) return projectPath ? demoIssues(projectPath) : EMPTY_ISSUES;
+  if (result !== undefined) return result;
+  if (projectPath) {
+    const cached = getDaemonCache()?.issues?.[projectPath];
+    if (cached) return cached;
+  }
+  return undefined;
 }
 
 // ── Usage stats ─────────────────────────────────────────────
 
 export function useUsageStats(): UsageStats | undefined {
-  if (isDemoMode()) return DEMO_USAGE_STATS;
-  return usePolling(
-    async () => getRollingUsageStats(getClaudeProjectsDir()),
+  const demo = isDemoMode();
+  const cached = getDaemonCache()?.usageStats;
+  const result = usePolling(
+    async () => demo ? undefined as any : getRollingUsageStats(getClaudeProjectsDir()),
     DEFAULTS.pollIntervalMs,
     []
   );
+  if (demo) return demoUsageStats();
+  return result ?? cached;
+}
+
+// ── Claude tier + usage budget ──────────────────────────────
+
+/**
+ * Read Claude Code's subscription tier (cached for process lifetime).
+ * Returns null if credentials aren't found.
+ */
+export function useClaudeTier(): ClaudeTier | null {
+  const demo = isDemoMode();
+  const [tier] = useState<ClaudeTier | null>(() => {
+    if (demo) return { subscription: 'max', rateLimitTier: 'default_claude_max_5x', windowLimit: 25_000_000, dailyDefault: 50_000_000 };
+    return readClaudeTier();
+  });
+  return tier;
+}
+
+/**
+ * Compute a unified usage budget from stats + tier + config + live rate limits.
+ * Combines auto-detected tier limits with user config override.
+ */
+export function useUsageBudget(
+  usageStats: UsageStats | undefined,
+  configBudget: number | undefined,
+): UsageBudget | null {
+  const tier = useClaudeTier();
+  const rateLimitInfo = useRateLimits();
+
+  // Memoize return value — prevents defeating React.memo on ProjectPane/StatusBar
+  return useMemo(() => {
+    if (!usageStats) return null;
+
+    const autoDetected = !configBudget || configBudget <= 0;
+    const tierLabel = getTierLabel(tier);
+
+    // Use local JSONL data for basic stats
+    const budgetLimit = getEffectiveDailyBudget(configBudget);
+    const used = usageStats.tokens;
+
+    // If we have live rate limit data, use the 5h utilization as the percentage
+    // (it's the real API-reported usage, more accurate than our local estimate)
+    let percent: number;
+    let rateLimits: UsageBudget['rateLimits'] = null;
+
+    if (rateLimitInfo && rateLimitInfo.fiveHourUtil >= 0) {
+      percent = rateLimitInfo.fiveHourUtil * 100;
+      // Extra tokens: overage utilization > 0 means actively spending paid credits
+      const usingExtra = rateLimitInfo.overageUtil > 0;
+
+      rateLimits = {
+        fiveHourPercent: rateLimitInfo.fiveHourUtil * 100,
+        sevenDayPercent: rateLimitInfo.sevenDayUtil * 100,
+        fiveHourResetIn: rateLimitInfo.fiveHourResetIn,
+        sevenDayResetIn: rateLimitInfo.sevenDayResetIn,
+        status: rateLimitInfo.overallStatus,
+        fallbackAvailable: rateLimitInfo.fallbackAvailable,
+        usingExtraTokens: usingExtra,
+        fallbackThreshold: rateLimitInfo.fallbackPercentage,
+        overagePercent: rateLimitInfo.overageUtil * 100,
+        overageEnabled: rateLimitInfo.overageStatus === 'allowed',
+        overageResetIn: rateLimitInfo.overageResetIn,
+      };
+    } else {
+      percent = budgetLimit > 0 ? (used / budgetLimit) * 100 : 0;
+    }
+
+    return { limit: budgetLimit, used, percent, tierLabel, autoDetected, rateLimits };
+  }, [usageStats, configBudget, tier, rateLimitInfo]);
+}
+
+/**
+ * Probe the Anthropic API for live rate limit data.
+ * Runs once on mount, then every 5 minutes.
+ * Returns: token limit, remaining, used %, reset time.
+ */
+export function useRateLimits(): RateLimitInfo | null {
+  const demo = isDemoMode();
+  const result = usePolling(
+    async () => {
+      if (demo) return null;
+      return probeRateLimits();
+    },
+    300_000, // 5 minutes
+    [],
+  );
+  if (demo) {
+    return {
+      fiveHourUtil: 0.30,
+      fiveHourStatus: 'allowed',
+      fiveHourReset: Math.floor(Date.now() / 1000) + 3 * 3600,
+      sevenDayUtil: 0.12,
+      sevenDayStatus: 'allowed',
+      sevenDayReset: Math.floor(Date.now() / 1000) + 72 * 3600,
+      fallbackAvailable: true,
+      fallbackPercentage: 0.5,
+      overageUtil: 0.62,
+      overageStatus: 'allowed',
+      overageReset: Math.floor(Date.now() / 1000) + 23 * 24 * 3600,
+      overageResetIn: '23d (Apr 1)',
+      representativeClaim: 'five_hour',
+      overallStatus: 'allowed',
+      fiveHourResetIn: '3h',
+      sevenDayResetIn: '3d',
+      fetchedAt: Date.now(),
+    };
+  }
+  return result ?? null;
 }
 
 // ── Active processes ─────────────────────────────────────────
 
 export function useActiveProcesses(
   projects: Project[]
-): { map: Map<string, ActiveSession>; totalCount: number } {
-  if (isDemoMode()) return { map: DEMO_ACTIVE_SESSIONS, totalCount: DEMO_ACTIVE_SESSIONS.size };
+): { map: Map<string, ActiveSession>; allSessions: ActiveSession[]; totalCount: number } {
+  const demo = isDemoMode();
   const pathsRef = useRef(projects.map(p => p.path));
   pathsRef.current = projects.map(p => p.path);
 
   // Keep a stable reference to the previous result to avoid unnecessary re-renders
-  const prevResultRef = useRef<{ map: Map<string, ActiveSession>; totalCount: number } | null>(null);
+  const prevResultRef = useRef<{ map: Map<string, ActiveSession>; allSessions: ActiveSession[]; totalCount: number } | null>(null);
 
   const result = usePolling(
     async () => {
+      if (demo) return EMPTY_ACTIVE_SESSIONS;
       const sessions = await getActiveClaudeProcesses(pathsRef.current);
+
+      // Enrich each session with JSONL-parsed stats (cached — only re-parses on file change)
+      for (const session of sessions) {
+        try {
+          const jsonlFile = getActiveSessionFile(session.projectPath);
+          if (jsonlFile) {
+            const info = await getActiveSessionInfo(jsonlFile);
+            if (info) {
+              session.stats = info.stats;
+              if (info.currentAction) session.currentAction = info.currentAction;
+            }
+          }
+        } catch { /* skip enrichment on error */ }
+      }
+
       const map = new Map<string, ActiveSession>();
       for (const s of sessions) {
         // If multiple sessions on same project, keep the most recently active
@@ -344,7 +502,7 @@ export function useActiveProcesses(
           map.set(s.projectPath, s);
         }
       }
-      const next = { map, totalCount: sessions.length };
+      const next = { map, allSessions: sessions, totalCount: sessions.length };
 
       // Compare with previous result — reuse if structurally equal to keep refs stable
       const prev = prevResultRef.current;
@@ -362,7 +520,9 @@ export function useActiveProcesses(
             || old.stats.toolCalls.writes !== session.stats.toolCalls.writes
             || old.stats.toolCalls.reads !== session.stats.toolCalls.reads
             || old.stats.toolCalls.bash !== session.stats.toolCalls.bash
-            || JSON.stringify(old.stats.mcpCalls) !== JSON.stringify(session.stats.mcpCalls)) {
+            || old.stats.assistantTurns !== session.stats.assistantTurns
+            || old.stats.toolUseTurns !== session.stats.toolUseTurns
+            || !shallowEqual(old.stats.mcpCalls, session.stats.mcpCalls)) {
             same = false;
             break;
           }
@@ -375,73 +535,88 @@ export function useActiveProcesses(
     5000, // every 5 seconds
     [] // no deps — uses ref, polls forever
   );
+  if (demo) { const m = demoActiveSessions(); return { map: m, allSessions: Array.from(m.values()), totalCount: m.size }; }
   return result ?? EMPTY_ACTIVE_SESSIONS;
 }
 
 // ── Recent commits ───────────────────────────────────────────
 
 export function useRecentCommits(projectPath: string | null): GitCommit[] {
-  if (isDemoMode()) return projectPath ? (DEMO_COMMITS[projectPath] ?? EMPTY_COMMITS) : EMPTY_COMMITS;
+  const demo = isDemoMode();
   const result = usePolling(
     async () => {
-      if (!projectPath) return EMPTY_COMMITS;
+      if (demo || !projectPath) return EMPTY_COMMITS;
       return getRecentCommits(projectPath, 10);
     },
     30_000,
     [projectPath]
   );
-  return result ?? EMPTY_COMMITS;
+  if (demo) return projectPath ? demoCommits(projectPath) : EMPTY_COMMITS;
+  if (result) return result;
+  if (projectPath) {
+    const cached = getDaemonCache()?.recentCommits?.[projectPath];
+    if (cached) return cached;
+  }
+  return EMPTY_COMMITS;
 }
 
 // ── Commit activity (for heatmap) ────────────────────────────
 
 export function useCommitActivity(projectPath: string | null): DailyUsage[] {
-  if (isDemoMode()) return projectPath ? (DEMO_COMMIT_ACTIVITY[projectPath] ?? EMPTY_DAILY) : EMPTY_DAILY;
+  const demo = isDemoMode();
   const result = usePolling(
     async () => {
-      if (!projectPath) return EMPTY_DAILY;
+      if (demo || !projectPath) return EMPTY_DAILY;
       return getCommitDailyActivity(projectPath, 28);
     },
     300_000, // 5 min
     [projectPath]
   );
-  return result ?? EMPTY_DAILY;
+  if (demo) return projectPath ? demoCommitActivity(projectPath) : EMPTY_DAILY;
+  if (result) return result;
+  if (projectPath) {
+    const cached = getDaemonCache()?.commitActivity?.[projectPath];
+    if (cached) return cached;
+  }
+  return EMPTY_DAILY;
 }
 
 // ── Usage history (per-project daily) ────────────────────────
 
 export function useUsageHistory(): Record<string, DailyUsage[]> {
-  if (isDemoMode()) return DEMO_USAGE_HISTORY;
+  const demo = isDemoMode();
   const result = usePolling(
-    async () => getDailyUsageByProject(28),
+    async () => demo ? EMPTY_USAGE_HISTORY : getDailyUsageByProject(28),
     300_000, // 5 min
     []
   );
-  return result ?? EMPTY_USAGE_HISTORY;
+  if (demo) return demoUsageHistory();
+  return result ?? getDaemonCache()?.usageByProject ?? EMPTY_USAGE_HISTORY;
 }
 
 // ── Session activity (rich stats for selected session) ────────
 // Preserves previous activity during async transition to avoid flash-to-null.
 
 export function useSessionActivity(sessionFilePath: string | null): SessionActivity | null {
+  const demo = isDemoMode();
   const [activity, setActivity] = useState<SessionActivity | null>(
-    () => isDemoMode() ? DEMO_SESSION_ACTIVITY : null
+    () => demo ? DEMO_SESSION_ACTIVITY : null
   );
-  if (isDemoMode()) return sessionFilePath ? DEMO_SESSION_ACTIVITY : null;
 
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
     if (!sessionFilePath) { setActivity(null); return; }
 
-    // Don't clear previous activity — keep showing it until new data arrives
     parseSessionActivity(sessionFilePath).then(result => {
       if (!cancelled) setActivity(result);
     }).catch(() => {
       if (!cancelled) setActivity(null);
     });
     return () => { cancelled = true; };
-  }, [sessionFilePath]);
+  }, [sessionFilePath, demo]);
 
+  if (demo) return sessionFilePath ? DEMO_SESSION_ACTIVITY : null;
   return activity;
 }
 
@@ -452,11 +627,11 @@ export function useLiveSession(
   projectPath: string | null,
   isActive: boolean,
 ): TailState | null {
+  const demo = isDemoMode();
   const [tailState, setTailState] = useState<TailState | null>(null);
-  if (isDemoMode()) return null; // Active sessions show via DEMO_ACTIVE_SESSIONS instead
 
   useEffect(() => {
-    if (!projectPath || !isActive) {
+    if (demo || !projectPath || !isActive) {
       setTailState(null);
       return;
     }
@@ -474,8 +649,9 @@ export function useLiveSession(
     return () => {
       cleanup();
     };
-  }, [projectPath, isActive]);
+  }, [projectPath, isActive, demo]);
 
+  if (demo) return null;
   return tailState;
 }
 
@@ -489,26 +665,56 @@ export function useAutoSummarize(
   allProjects: Project[],
   selectedProjectPath: string | null,
   issues: Issue[] | undefined,
-): number {
+): { revision: number; isSummarizing: boolean } {
+  const demo = isDemoMode();
   const [revision, setRevision] = useState(0);
-  if (isDemoMode()) return 0;
+  const [isSummarizing, setSummarizing] = useState(false);
   const startupDoneRef = useRef(false);
   const issueSummarizedRef = useRef(new Set<string>());
+  const sessionSummarizedRef = useRef(new Set<string>());
 
-  // Startup sweep: summarize sessions across all projects
+  // Priority: summarize the SELECTED project immediately on navigation
   useEffect(() => {
-    if (startupDoneRef.current || allProjects.length === 0) return;
+    if (demo || !selectedProjectPath) return;
+    if (sessionSummarizedRef.current.has(selectedProjectPath)) return;
+
+    let cancelled = false;
+    setSummarizing(true);
+
+    (async () => {
+      try {
+        const count = await generateMissingSummaries(selectedProjectPath, 2);
+        sessionSummarizedRef.current.add(selectedProjectPath);
+        if (!cancelled && count > 0) {
+          log('auto-summarize', { action: 'selected', projectPath: selectedProjectPath, count });
+          setRevision(r => r + 1);
+        }
+      } catch {
+        // Ignore errors — startup sweep will retry
+      } finally {
+        if (!cancelled) setSummarizing(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedProjectPath]);
+
+  // Startup sweep: summarize sessions across all projects (lower priority)
+  useEffect(() => {
+    if (demo || startupDoneRef.current || allProjects.length === 0) return;
     startupDoneRef.current = true;
 
     let cancelled = false;
 
     (async () => {
       let totalGenerated = 0;
-      // Process sequentially so we don't hammer CPU with parallel claude calls
       for (const project of allProjects) {
         if (cancelled) break;
+        // Skip projects already summarized by the priority effect
+        if (sessionSummarizedRef.current.has(project.path)) continue;
         try {
           const count = await generateMissingSummaries(project.path, 2);
+          sessionSummarizedRef.current.add(project.path);
           if (count > 0) {
             totalGenerated += count;
             if (!cancelled) setRevision(r => r + 1);
@@ -527,7 +733,7 @@ export function useAutoSummarize(
 
   // Issue summaries: generate when issues load for a project
   useEffect(() => {
-    if (!selectedProjectPath || !issues || issues.length === 0) return;
+    if (demo || !selectedProjectPath || !issues || issues.length === 0) return;
     if (issueSummarizedRef.current.has(selectedProjectPath)) return;
 
     let cancelled = false;
@@ -546,9 +752,10 @@ export function useAutoSummarize(
     })();
 
     return () => { cancelled = true; };
-  }, [selectedProjectPath, issues]);
+  }, [selectedProjectPath, issues]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return revision;
+  if (demo) return { revision: 0, isSummarizing: false };
+  return { revision, isSummarizing };
 }
 
 /**
@@ -556,10 +763,11 @@ export function useAutoSummarize(
  * Returns cached counts instantly, then updates after full scan.
  */
 export function useCommandUsage(): CommandUsageCounts {
-  if (isDemoMode()) return DEMO_COMMAND_USAGE;
+  const demo = isDemoMode();
   const [counts, setCounts] = useState<CommandUsageCounts>(() => getCachedUsage());
 
   useEffect(() => {
+    if (demo) return;
     let cancelled = false;
 
     (async () => {
@@ -572,7 +780,8 @@ export function useCommandUsage(): CommandUsageCounts {
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [demo]);
 
+  if (demo) return demoCommandUsage();
   return counts;
 }

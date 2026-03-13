@@ -45,6 +45,8 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
     const activity: SessionActivity = {
       messages: 0,
       tokens: 0,
+      tokenBreakdown: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      inputPerMessage: [],
       toolCalls: { reads: 0, writes: 0, bash: 0, other: 0 },
       mcpCalls: {},
       agentSpawns: 0,
@@ -53,6 +55,8 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
       thinkingTokens: 0,
       duration: 0,
       hourlyActivity: new Array(24).fill(0),
+      assistantTurns: 0,
+      toolUseTurns: 0,
     };
 
     let firstTimestamp: number | null = null;
@@ -83,6 +87,7 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
           lastWasAssistant = false;
         } else if (obj.type === 'assistant' && obj.message) {
           lastWasAssistant = true;
+          activity.assistantTurns++;
           const msg = obj.message;
 
           // Model tracking
@@ -92,21 +97,30 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
 
           // Token counting from usage object
           if (msg.usage) {
-            activity.tokens += (msg.usage.input_tokens || 0)
-              + (msg.usage.output_tokens || 0)
-              + (msg.usage.cache_read_input_tokens || 0)
-              + (msg.usage.cache_creation_input_tokens || 0);
+            const inp = msg.usage.input_tokens || 0;
+            const out = msg.usage.output_tokens || 0;
+            const cacheR = msg.usage.cache_read_input_tokens || 0;
+            const cacheW = msg.usage.cache_creation_input_tokens || 0;
+            activity.tokens += inp + out + cacheR + cacheW;
+            activity.tokenBreakdown.input += inp;
+            activity.tokenBreakdown.output += out;
+            activity.tokenBreakdown.cacheRead += cacheR;
+            activity.tokenBreakdown.cacheWrite += cacheW;
+            activity.inputPerMessage.push(inp);
           }
 
           // Tool use from content array
+          let hasToolUse = false;
           if (Array.isArray(msg.content)) {
             for (const block of msg.content) {
               if (block.type !== 'tool_use') continue;
+              hasToolUse = true;
               const name = block.name;
               if (!name) continue;
               classifyToolUse(name, activity);
             }
           }
+          if (hasToolUse) activity.toolUseTurns++;
         }
       }
     } finally {
@@ -124,13 +138,6 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
     log('error', { function: 'parseSessionActivity', message: String(err) });
     return null;
   }
-}
-
-// ── Hourly activity buckets ──────────────────────────────────
-
-export async function getHourlyActivity(filePath: string): Promise<number[]> {
-  const activity = await parseSessionActivity(filePath);
-  return activity?.hourlyActivity ?? new Array(24).fill(0);
 }
 
 // ── Active session info (last ~20 lines) ─────────────────────

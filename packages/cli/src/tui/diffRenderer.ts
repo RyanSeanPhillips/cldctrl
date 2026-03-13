@@ -1,81 +1,129 @@
 /**
- * Differential screen renderer: intercepts Ink's full-repaint writes
- * and only updates terminal lines that actually changed.
+ * Flicker-free renderer: intercepts Ink's stdout.write() calls,
+ * keeps only the LATEST write per event-loop tick, strips non-SGR
+ * control sequences, and redraws ALL lines with explicit cursor
+ * positioning.
  *
- * Ink redraws the entire screen on every React render, which causes
- * visible flicker — especially at the bottom of the screen where the
- * terminal is still painting when the next frame arrives.
- *
- * This layer:
- * 1. Buffers all stdout writes within a single event-loop tick
- * 2. Strips Ink's cursor-home / clear-screen sequences
- * 3. Compares each line with the previous frame
- * 4. Only writes changed lines using direct cursor positioning
- *
- * Result: unchanged lines are never touched, eliminating flicker.
+ * Key anti-flicker techniques:
+ * - Content is written BEFORE erase (overwrite-then-erase-tail),
+ *   never erase-then-write. This eliminates the visible "blank line"
+ *   flash that occurs when \x1b[2K erases a line before content
+ *   replaces it.
+ * - stderr is intercepted during alt screen to prevent any bypassing
+ *   writes from corrupting the display.
+ * - DEC 2026 synchronized update markers for atomic frame display.
  */
+
+// Strip non-SGR ANSI escape sequences (cursor, clear, erase).
+// SGR codes (\x1b[...m) are preserved for colors/styles.
+const STRIP_PATTERNS = [
+  /\x1b\[[\d;]*[Hf]/g,    // cursor positioning (CUP/HVP)
+  /\x1b\[\d*J/g,           // clear screen / scrollback
+  /\x1b\[\d*K/g,           // erase in line (all variants: 0K, 1K, 2K, K)
+  /\x1b\[\d*[ABCD]/g,      // cursor up/down/forward/backward
+  /\x1b\[\d*G/g,           // cursor to column
+  /\x1b\[\?25[lh]/g,       // cursor show/hide
+  /\x1b\[\?\d+[hl]/g,      // private mode set/reset (DEC modes)
+];
+
+function stripControlSequences(str: string): string {
+  let result = str;
+  for (const pattern of STRIP_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  return result;
+}
 
 export function enableDiffRendering(): () => void {
   const stdout = process.stdout;
+  const stderr = process.stderr;
   const originalWrite = stdout.write;
+  const originalStderrWrite = stderr.write;
 
-  let prevLines: string[] = [];
-  let buffer = '';
-  let flushPending = false;
-  let active = false; // only diff inside alternate screen buffer
+  let active = false;
+  let latestWrite = '';       // Only the LAST write is kept
+  let flushScheduled = false;
+  let pendingCallbacks: (() => void)[] = [];
 
   function realWrite(data: string): boolean {
     return originalWrite.call(stdout, data);
   }
 
-  function flush() {
-    flushPending = false;
+  function firePendingCallbacks(): void {
+    const cbs = pendingCallbacks;
+    pendingCallbacks = [];
+    for (const fn of cbs) fn();
+  }
 
-    if (!active || !buffer) {
-      if (buffer) realWrite(buffer);
-      buffer = '';
+  function flush(): void {
+    flushScheduled = false;
+    if (!latestWrite) {
+      firePendingCallbacks();
       return;
     }
 
-    let frame = buffer;
-    buffer = '';
+    const raw = latestWrite;
+    latestWrite = '';
 
-    // Strip Ink's framing sequences — we handle positioning ourselves
-    // Matches: cursor home (\x1b[H, \x1b[1;1H), clear to end (\x1b[J, \x1b[0J),
-    // cursor visibility (\x1b[?25l, \x1b[?25h), and any other cursor positioning
-    frame = frame.replace(/\x1b\[\?25[lh]/g, '');
-    frame = frame.replace(/\x1b\[[\d;]*H/g, '');
-    frame = frame.replace(/\x1b\[[012]?J/g, '');
+    if (!active) {
+      realWrite(raw);
+      firePendingCallbacks();
+      return;
+    }
 
-    const lines = frame.split('\n');
-    const out: string[] = ['\x1b[?25l']; // keep cursor hidden
-    let changes = 0;
+    // Strip all non-SGR control sequences to get pure content
+    const stripped = stripControlSequences(raw);
+
+    const allLines = stripped.split('\n');
+    // Remove trailing empty string from log-update's appended \n
+    if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
+      allLines.pop();
+    }
+
+    const maxRows = stdout.rows || 24;
+    const lines = allLines.slice(0, maxRows);
+
+    // Skip trivial writes (only control sequences, no real content)
+    const hasContent = lines.some(line => line.length > 0);
+    if (!hasContent) {
+      firePendingCallbacks();
+      return;
+    }
+
+    // Write ALL lines with explicit positioning every frame.
+    // Each line: position → reset SGR → write content → reset SGR → erase tail.
+    // Content is written BEFORE erase (overwrite-then-erase-tail pattern).
+    // This avoids the visible "blank line" flash that \x1b[2K causes when
+    // the terminal renders the erase before the content that follows.
+    const out: string[] = [
+      '\x1b[?2026h', // begin synchronized update (atomic display)
+      '\x1b[?25l',   // hide cursor
+    ];
 
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i] !== prevLines[i]) {
-        // Move to row i+1 col 1, clear line, write new content
-        out.push(`\x1b[${i + 1};1H\x1b[2K${lines[i]}`);
-        changes++;
-      }
+      // Position → reset → content → reset → erase tail
+      out.push(`\x1b[${i + 1};1H\x1b[0m${lines[i]}\x1b[0m\x1b[K`);
     }
 
-    // Clear leftover lines if previous frame was taller
-    for (let i = lines.length; i < prevLines.length; i++) {
-      out.push(`\x1b[${i + 1};1H\x1b[2K`);
-      changes++;
+    // Clear any remaining rows below the content
+    for (let i = lines.length; i < maxRows; i++) {
+      out.push(`\x1b[${i + 1};1H\x1b[0m\x1b[K`);
     }
 
-    prevLines = lines;
+    out.push('\x1b[?2026l'); // end synchronized update
+    realWrite(out.join(''));
 
-    if (changes > 0) {
-      realWrite(out.join(''));
+    firePendingCallbacks();
+  }
+
+  function scheduleFlush(): void {
+    if (!flushScheduled) {
+      flushScheduled = true;
+      setImmediate(flush);
     }
   }
 
-  // Invalidate cache on resize (terminal dimensions changed, full redraw needed)
-  const onResize = () => { prevLines = []; };
-  stdout.on('resize', onResize);
-
+  // ── stdout interceptor ────────────────────────────────────
   (stdout as any).write = function (chunk: any, ...args: any[]): boolean {
     const str = typeof chunk === 'string' ? chunk : chunk.toString();
     const cb = args.find((a: any) => typeof a === 'function');
@@ -83,7 +131,6 @@ export function enableDiffRendering(): () => void {
     // Alternate screen toggle — pass through immediately
     if (str.includes('\x1b[?1049h')) {
       active = true;
-      prevLines = [];
       realWrite(str);
       if (cb) cb();
       return true;
@@ -100,18 +147,31 @@ export function enableDiffRendering(): () => void {
       return originalWrite.call(stdout, chunk, ...args);
     }
 
-    // Inside alternate screen — buffer for diffing
-    buffer += str;
-    if (!flushPending) {
-      flushPending = true;
-      setImmediate(flush);
-    }
-    if (cb) cb();
+    // Inside alternate screen — REPLACE with latest write.
+    latestWrite = str;
+    if (cb) pendingCallbacks.push(cb);
+    scheduleFlush();
     return true;
   };
 
+  // ── stderr interceptor ────────────────────────────────────
+  // Suppress stderr during alt screen to prevent stray error messages,
+  // unhandled rejection warnings, or debug output from corrupting the
+  // alternate screen buffer. Silently drop (stderr is not critical for
+  // TUI rendering; errors are logged to debug.log via the file logger).
+  (stderr as any).write = function (chunk: any, ...args: any[]): boolean {
+    if (active) {
+      // Swallow stderr while alt screen is active
+      const cb = args.find((a: any) => typeof a === 'function');
+      if (cb) cb();
+      return true;
+    }
+    return originalStderrWrite.call(stderr, chunk, ...args);
+  };
+
   return () => {
-    stdout.off('resize', onResize);
+    active = false;
     (stdout as any).write = originalWrite;
+    (stderr as any).write = originalStderrWrite;
   };
 }

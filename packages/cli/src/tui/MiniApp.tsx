@@ -11,7 +11,7 @@ import path from 'node:path';
 import { useMiniState } from './hooks/useMiniState.js';
 import { useMiniKeyboard } from './hooks/useMiniKeyboard.js';
 import { getRecentSessions } from '../core/sessions.js';
-import { isDemoMode, DEMO_SESSIONS, DEMO_GIT_STATUSES, DEMO_ISSUE_COUNTS } from '../core/demo-data.js';
+import { isDemoMode, demoSessions } from '../core/demo-data.js';
 import { MiniProjectList } from './components/MiniProjectList.js';
 import { MiniActionMenu, MiniSessionList, buildActions } from './components/MiniActionMenu.js';
 import { PromptBar } from './components/PromptBar.js';
@@ -52,10 +52,11 @@ function MiniApp() {
 
   useEffect(() => {
     const onResize = () => {
-      if (stdout) setDims({
-        cols: Math.max(stdout.columns, MINI_COLS),
-        rows: Math.max(stdout.rows, 10),
-      });
+      if (stdout) {
+        const newCols = Math.max(stdout.columns, MINI_COLS);
+        const newRows = Math.max(stdout.rows, 10);
+        setDims(prev => (prev.cols === newCols && prev.rows === newRows) ? prev : { cols: newCols, rows: newRows });
+      }
     };
     stdout?.on('resize', onResize);
     return () => { stdout?.off('resize', onResize); };
@@ -89,13 +90,29 @@ function MiniApp() {
     );
   }, [state.projects, state.filterText]);
 
-  const selectedProject = filteredProjects[state.selectedIndex];
+  // In projects phase, selectedIndex IS the project index.
+  // In other phases, resolve the persisted selectedProjectPath from the full list.
+  const selectedProject = state.phase === 'projects'
+    ? filteredProjects[state.selectedIndex]
+    : state.selectedProjectPath
+      ? state.projects.find(p => p.path === state.selectedProjectPath)
+      : undefined;
+
+  // When returning to projects phase, scroll to the previously-selected project
+  useEffect(() => {
+    if (state.phase === 'projects' && state.selectedProjectPath) {
+      const idx = filteredProjects.findIndex(p => p.path === state.selectedProjectPath);
+      if (idx >= 0 && idx !== state.selectedIndex) {
+        dispatch({ type: 'SELECT_INDEX', index: idx });
+      }
+    }
+  }, [state.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sessions for selected project (async, lightweight)
   const [sessions, setSessions] = useState<Session[]>(EMPTY_SESSIONS);
   useEffect(() => {
     if (isDemoMode()) {
-      setSessions(selectedProject ? (DEMO_SESSIONS[selectedProject.path] ?? EMPTY_SESSIONS) : EMPTY_SESSIONS);
+      setSessions(selectedProject ? demoSessions(selectedProject.path) : EMPTY_SESSIONS);
       return;
     }
     if (!selectedProject || (state.phase !== 'actions' && state.phase !== 'sessions')) {
@@ -109,9 +126,9 @@ function MiniApp() {
     return () => { cancelled = true; };
   }, [selectedProject?.path, state.phase]);
 
-  // Build action items (no issues in mini view)
+  // Build action items
   const actions = useMemo(
-    () => buildActions(sessions.length, 0),
+    () => buildActions(sessions.length),
     [sessions.length],
   );
 
@@ -128,9 +145,6 @@ function MiniApp() {
     selectedProject,
     actions,
     sessions,
-    issues: [],
-    sessionCount: sessions.length,
-    issueCount: 0,
     onExpandFull,
   });
 
@@ -144,10 +158,9 @@ function MiniApp() {
     if (state.mode === 'filter') return 'Type to filter | Esc:cancel';
     if (state.mode === 'prompt') return 'Type prompt | Enter:launch | Esc:cancel';
     switch (state.phase) {
-      case 'projects': return `${CHARS.arrow_up}${CHARS.arrow_down} nav  ${CHARS.pointer} select  / filter  f full`;
+      case 'projects': return `${CHARS.arrow_up}${CHARS.arrow_down} nav  \u23CE launch  \u2192 more  / filter`;
       case 'actions': return `${CHARS.arrow_up}${CHARS.arrow_down} nav  ${CHARS.pointer} select  ← back`;
       case 'sessions': return `${CHARS.arrow_up}${CHARS.arrow_down} nav  ${CHARS.pointer} resume  ← back`;
-      case 'issues': return `${CHARS.arrow_up}${CHARS.arrow_down} nav  ${CHARS.pointer} fix  ← back`;
     }
   })();
 
@@ -249,6 +262,14 @@ export async function renderMiniApp(): Promise<void> {
     await renderApp();
   };
 
+  // Clean up ready signal on orphan/termination signals
+  const cleanup = () => {
+    try { fs.unlinkSync(READY_SIGNAL_PATH); } catch {}
+    process.exit(0);
+  };
+  process.on('SIGHUP', cleanup);
+  process.on('SIGTERM', cleanup);
+
   instance = render(<MiniApp />, { exitOnCtrlC: true });
 
   try {
@@ -256,5 +277,7 @@ export async function renderMiniApp(): Promise<void> {
   } finally {
     // Clean up ready signal
     try { fs.unlinkSync(READY_SIGNAL_PATH); } catch {}
+    process.removeListener('SIGHUP', cleanup);
+    process.removeListener('SIGTERM', cleanup);
   }
 }

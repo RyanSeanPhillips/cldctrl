@@ -4,9 +4,11 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { getClaudeProjectsDir, normalizePathForCompare } from './platform.js';
+import { isFeatureEnabled } from '../config.js';
 import { log } from './logger.js';
 import { readProjectNameCache, writeProjectNameCache } from './project-cache.js';
 import type { Config, Project } from '../types.js';
@@ -171,6 +173,14 @@ export function discoverProjects(): Array<{ name: string; path: string; slug: st
     const projectPath = getProjectPathFromSlug(slugDir);
     if (!projectPath) continue;
 
+    // Skip common non-project directories (Documents, Desktop, home root, etc.)
+    const basename = path.basename(projectPath).toLowerCase();
+    const parent = path.dirname(projectPath);
+    const isUserRoot = normalizePathForCompare(projectPath) === normalizePathForCompare(os.homedir());
+    const isShellFolder = ['documents', 'desktop', 'downloads', 'pictures', 'music', 'videos'].includes(basename)
+      && (parent === os.homedir() || parent.includes('OneDrive'));
+    if (isUserRoot || isShellFolder) continue;
+
     // Derive a display name from project metadata, falling back to folder name
     const name = extractProjectName(projectPath);
 
@@ -188,35 +198,73 @@ export function discoverProjects(): Array<{ name: string; path: string; slug: st
 /**
  * Read the first session file in a slug directory to extract the project path.
  * Mirrors PowerShell Get-ProjectPathFromSlug.
+ * Results (including null) are cached to avoid redundant 32KB reads.
  */
+const slugToPathCache = new Map<string, string | null>();
+
 function getProjectPathFromSlug(slugDir: string): string | null {
+  const cached = slugToPathCache.get(slugDir);
+  if (cached !== undefined) return cached;
+
+  let result: string | null = null;
   try {
     const files = fs.readdirSync(slugDir)
       .filter((f) => f.endsWith('.jsonl'))
       .sort()
       .reverse(); // newest first by name
 
-    if (files.length === 0) return null;
+    if (files.length === 0) {
+      slugToPathCache.set(slugDir, null);
+      return null;
+    }
 
-    // Read first ~20 lines to find cwd
+    // Read first 32KB chunk to find cwd. We use a regex scan on raw text
+    // so it works even when JSON lines are truncated by the chunk boundary.
     const filePath = path.join(slugDir, files[0]);
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const lines = content.split('\n').slice(0, 20);
+    const CHUNK_SIZE = 32768;
+    const buf = Buffer.alloc(CHUNK_SIZE);
+    let fd: number;
+    try {
+      fd = fs.openSync(filePath, 'r');
+    } catch {
+      slugToPathCache.set(slugDir, null);
+      return null;
+    }
+    let bytesRead: number;
+    try {
+      bytesRead = fs.readSync(fd, buf, 0, CHUNK_SIZE, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const chunk = buf.toString('utf-8', 0, bytesRead);
 
+    // First try: parse complete JSON lines for cwd
+    const lines = chunk.split('\n').slice(0, 20);
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
         const parsed = JSON.parse(line);
-        if (parsed.cwd) return parsed.cwd;
-        // Check for nested message content with cwd
-        if (parsed.message?.cwd) return parsed.message.cwd;
-      } catch { /* skip unparseable lines */ }
+        if (parsed.cwd) { result = parsed.cwd; break; }
+        if (parsed.message?.cwd) { result = parsed.message.cwd; break; }
+      } catch { /* line may be truncated by chunk boundary */ }
     }
 
-    return null;
+    // Fallback: regex scan for "cwd" field in raw text (handles truncated lines)
+    if (!result) {
+      const cwdMatch = chunk.match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (cwdMatch) {
+        // Unescape JSON string (backslash sequences)
+        result = cwdMatch[1].replace(/\\(.)/g, (_: string, c: string) =>
+          c === 'n' ? '\n' : c === 't' ? '\t' : c === '\\' ? '\\' : c,
+        );
+      }
+    }
   } catch {
-    return null;
+    // result stays null
   }
+
+  slugToPathCache.set(slugDir, result);
+  return result;
 }
 
 // ── List building ───────────────────────────────────────────
@@ -251,8 +299,8 @@ export function buildProjectList(config: Config): Project[] {
     });
   }
 
-  // Add discovered projects (not already in config)
-  const discovered = discoverProjects();
+  // Add discovered projects (not already in config) — skip if auto_discovery disabled
+  const discovered = isFeatureEnabled(config, 'auto_discovery') ? discoverProjects() : [];
   discovered.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
   for (const d of discovered) {
@@ -311,8 +359,8 @@ export function buildProjectListFast(config: Config): Project[] {
     });
   }
 
-  // Add discovered projects using cached names
-  const discovered = discoverProjectsFast(nameCache);
+  // Add discovered projects using cached names — skip if auto_discovery disabled
+  const discovered = isFeatureEnabled(config, 'auto_discovery') ? discoverProjectsFast(nameCache) : [];
   discovered.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
 
   for (const d of discovered) {
@@ -377,6 +425,14 @@ function discoverProjectsFast(
 
     const projectPath = getProjectPathFromSlug(slugDir);
     if (!projectPath) continue;
+
+    // Skip common non-project directories (Documents, Desktop, home root, etc.)
+    const basename = path.basename(projectPath).toLowerCase();
+    const parent = path.dirname(projectPath);
+    const isUserRoot = normalizePathForCompare(projectPath) === normalizePathForCompare(os.homedir());
+    const isShellFolder = ['documents', 'desktop', 'downloads', 'pictures', 'music', 'videos'].includes(basename)
+      && (parent === os.homedir() || parent.includes('OneDrive'));
+    if (isUserRoot || isShellFolder) continue;
 
     // Use cached name or basename (NO git, NO metadata reads)
     const name = nameCache[projectPath] ?? path.basename(projectPath);

@@ -20,6 +20,8 @@ const ACTIVE_THRESHOLD_MS = 30_000; // 30 seconds
 const EMPTY_ACTIVITY: SessionActivity = {
   messages: 0,
   tokens: 0,
+  tokenBreakdown: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  inputPerMessage: [],
   toolCalls: { reads: 0, writes: 0, bash: 0, other: 0 },
   mcpCalls: {},
   agentSpawns: 0,
@@ -28,6 +30,8 @@ const EMPTY_ACTIVITY: SessionActivity = {
   thinkingTokens: 0,
   duration: 0,
   hourlyActivity: new Array(24).fill(0),
+  assistantTurns: 0,
+  toolUseTurns: 0,
 };
 
 /**

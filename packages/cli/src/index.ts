@@ -7,17 +7,21 @@
  * - Alias shortcuts: `cc <alias> [-n] [-c] [prompt...]`
  */
 
-import { createCli } from './cli.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { isTTY } from './core/platform.js';
-import { loadConfig } from './config.js';
-import { buildProjectList } from './core/projects.js';
-import { launchClaude } from './core/launcher.js';
-import { trackSession, pruneClosedSessions } from './core/tracker.js';
+import { pruneClosedSessions } from './core/tracker.js';
+
+// Set console window title early (Windows uses process.title for the titlebar)
+process.title = 'CLD CTRL';
 
 /**
  * Try to resolve a positional arg as a project alias or name match.
+ * Lazy-imports heavy modules to avoid loading them for TUI-only paths.
  */
-function resolveProjectAlias(alias: string): { path: string; name: string } | null {
+async function resolveProjectAlias(alias: string): Promise<{ path: string; name: string } | null> {
+  const { loadConfig } = await import('./config.js');
+  const { buildProjectList } = await import('./core/projects.js');
   const { config } = loadConfig();
   const lower = alias.toLowerCase();
 
@@ -51,20 +55,45 @@ function resolveProjectAlias(alias: string): { path: string; name: string } | nu
 }
 
 async function main(): Promise<void> {
-  // Prune stale tracked sessions from previous runs
-  try { pruneClosedSessions(); } catch { /* ignore */ }
-
   const args = process.argv.slice(2);
-  const cli = createCli();
+  const isMini = args.includes('--mini') || args.includes('-m');
+
+  // Prune stale tracked sessions (skip for mini mode — adds ~50ms startup latency)
+  if (!isMini) {
+    try { pruneClosedSessions(); } catch { /* ignore */ }
+  }
+
+  // Lazy CLI construction — avoid loading Commander/zod/git/github modules for TUI paths
+  let _cli: import('commander').Command | null = null;
+  const getCli = async () => {
+    if (!_cli) {
+      const { createCli } = await import('./cli.js');
+      _cli = createCli();
+    }
+    return _cli;
+  };
 
   // Demo mode: load synthetic data for screenshots/recording
+  // Usage: --demo [variant]  where variant is: full (default), fresh, no-github, minimal
   if (args.includes('--demo')) {
     const { setDemoMode } = await import('./core/demo-data.js');
-    setDemoMode();
-    // Strip --demo from args so it doesn't confuse Commander
     const idx = args.indexOf('--demo');
-    if (idx !== -1) args.splice(idx, 1);
+    const validVariants = ['full', 'fresh', 'no-github', 'minimal'] as const;
+    const nextArg = args[idx + 1];
+    const variant = nextArg && validVariants.includes(nextArg as any)
+      ? nextArg as typeof validVariants[number]
+      : 'full';
+    setDemoMode(variant);
+    // Strip --demo and variant arg from args so they don't confuse Commander
+    args.splice(idx, nextArg === variant ? 2 : 1);
     // If no other args, fall through to TUI launch below
+  }
+
+  // Safe mode: bypass diff renderer for debugging rendering issues
+  if (args.includes('--safe')) {
+    const { setSafeMode } = await import('./core/platform.js');
+    setSafeMode(true);
+    args.splice(args.indexOf('--safe'), 1);
   }
 
   // Mini TUI mode: fast 3-phase wizard (Ctrl+Up hotkey, quick task)
@@ -73,7 +102,7 @@ async function main(): Promise<void> {
       const { renderMiniApp } = await import('./tui/MiniApp.js');
       await renderMiniApp();
     } else {
-      await cli.parseAsync(['node', 'cldctrl', 'list']);
+      await (await getCli()).parseAsync(['node', 'cldctrl', 'list']);
     }
     return;
   }
@@ -88,6 +117,34 @@ async function main(): Promise<void> {
   // If no subcommand provided
   if (args.length === 0 || (args.length === 1 && (args[0] === '--verbose' || args[0] === '--quiet'))) {
     if (isTTY()) {
+      // Single-instance guard: prevent multiple TUI instances
+      const { getConfigDir } = await import('./config.js');
+      const pidPath = path.join(getConfigDir(), 'tui.pid');
+      try {
+        const existingPid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+        if (existingPid && existingPid !== process.pid) {
+          try {
+            process.kill(existingPid, 0); // signal 0 = check if alive
+            console.log('CLD CTRL is already running. Press Ctrl+Up to focus it, or close the other instance first.');
+            process.exit(0);
+          } catch (e: any) {
+            if (e.code === 'EPERM') {
+              // Process exists but no permission — still running
+              console.log('CLD CTRL is already running.');
+              process.exit(0);
+            }
+            // ESRCH = process doesn't exist — stale PID file, continue
+          }
+        }
+      } catch { /* no PID file — first instance */ }
+      // Write our PID
+      try {
+        fs.mkdirSync(path.dirname(pidPath), { recursive: true });
+        fs.writeFileSync(pidPath, process.pid.toString());
+      } catch { /* ignore */ }
+      const cleanupPid = () => { try { fs.unlinkSync(pidPath); } catch { /* ignore */ } };
+      process.on('exit', cleanupPid);
+
       // Launch interactive TUI
       try {
         const { renderApp } = await import('./tui/App.js');
@@ -96,22 +153,23 @@ async function main(): Promise<void> {
         // Fallback if TUI fails (e.g., missing dependencies)
         console.error(`TUI failed to start: ${err}`);
         console.error('Falling back to list view...\n');
-        await cli.parseAsync(['node', 'cldctrl', 'list']);
+        await (await getCli()).parseAsync(['node', 'cldctrl', 'list']);
       }
     } else {
       // Non-TTY: pipe-friendly list output
-      await cli.parseAsync(['node', 'cldctrl', 'list']);
+      await (await getCli()).parseAsync(['node', 'cldctrl', 'list']);
     }
     return;
   }
 
   // Check for alias-based direct launch: cc <alias> [-n] [-c] [prompt...]
   // Only if the first arg doesn't look like a known subcommand
+  const cli = await getCli();
   const knownCommands = cli.commands.map(c => c.name());
   knownCommands.push('help', 'version');
   const firstArg = args[0];
   if (firstArg && !firstArg.startsWith('-') && !knownCommands.includes(firstArg)) {
-    const project = resolveProjectAlias(firstArg);
+    const project = await resolveProjectAlias(firstArg);
     if (project) {
       const hasNew = args.includes('-n');
       const hasContinue = args.includes('-c');
@@ -122,6 +180,8 @@ async function main(): Promise<void> {
 
       if (hasNew || hasContinue || prompt) {
         // Direct launch, skip TUI
+        const { launchClaude } = await import('./core/launcher.js');
+        const { trackSession } = await import('./core/tracker.js');
         console.log(`Launching ${project.name}...`);
         const result = launchClaude({
           projectPath: project.path,

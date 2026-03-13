@@ -116,6 +116,7 @@ function SnapshotApp({ width, height, selectedIndex = 0, mockGit = true, mockIss
           issues={issues}
           focused={focusDetails}
           selectedSessionIndex={detailIndex}
+          detailSection="sessions"
         />
       </Box>
       <StatusBar

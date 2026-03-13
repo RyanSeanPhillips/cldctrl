@@ -8,11 +8,43 @@ import path from 'node:path';
 import type { SetupResult } from './setup.js';
 
 const STARTUP_FILENAME = 'CldCtrl-Hotkey.vbs';
+const TASK_NAME = 'CldCtrl-Hotkey';
 
 function getStartupDir(): string {
   const appdata = process.env.APPDATA;
   if (!appdata) throw new Error('APPDATA not set');
   return path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+}
+
+/**
+ * Try to register a Scheduled Task with AtLogon trigger.
+ * These run earlier than Startup folder items and bypass Windows 11 startup throttling.
+ * Returns true if successful (may fail without admin rights).
+ */
+function tryRegisterScheduledTask(hotkeyScript: string): boolean {
+  const spawn = require('cross-spawn') as typeof import('cross-spawn');
+  try {
+    const psCommand = [
+      `$action = New-ScheduledTaskAction -Execute 'powershell' -Argument '-NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${hotkeyScript}"'`,
+      `$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME`,
+      `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)`,
+      `Register-ScheduledTask -TaskName '${TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null`,
+    ].join('; ');
+    const result = spawn.sync('powershell', ['-Command', psCommand], { stdio: 'ignore' });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function tryRemoveScheduledTask(): void {
+  const spawn = require('cross-spawn') as typeof import('cross-spawn');
+  try {
+    spawn.sync('powershell', [
+      '-Command',
+      `Unregister-ScheduledTask -TaskName '${TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue`,
+    ], { stdio: 'ignore' });
+  } catch { /* ignore */ }
 }
 
 function getHotkeyScriptPath(): string {
@@ -41,13 +73,16 @@ export function setupWindows(): SetupResult {
 
   const vbsPath = path.join(startupDir, STARTUP_FILENAME);
   const vbsContent = [
-    '\'Wait 10 seconds for system startup (PATH, Dropbox sync, etc.)',
-    'WScript.Sleep 10000',
+    '\'Brief delay for system startup (PATH resolution)',
+    'WScript.Sleep 2000',
     'Set WshShell = CreateObject("WScript.Shell")',
     `WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${hotkeyScript}""", 0, False`,
   ].join('\r\n');
 
   fs.writeFileSync(vbsPath, vbsContent, 'utf-8');
+
+  // Try to also register a Scheduled Task (faster startup, bypasses throttling)
+  const hasTask = tryRegisterScheduledTask(hotkeyScript);
 
   // Launch now so the user doesn't have to reboot
   const spawn = require('cross-spawn') as typeof import('cross-spawn');
@@ -57,20 +92,24 @@ export function setupWindows(): SetupResult {
     '-File', hotkeyScript,
   ], { detached: true, stdio: 'ignore' }).unref();
 
-  return {
-    success: true,
-    message: [
-      'Ctrl+Up hotkey installed successfully.',
-      '',
-      `  Startup: ${vbsPath}`,
-      `  Script:  ${hotkeyScript}`,
-      '',
-      'The hotkey listener is now running. Press Ctrl+Up to launch CLD CTRL.',
-      'It will start automatically on login.',
-      '',
-      'To remove: cldctrl setup --uninstall',
-    ].join('\n'),
-  };
+  const lines = [
+    'Ctrl+Up hotkey installed successfully.',
+    '',
+    `  Startup: ${vbsPath}`,
+    `  Script:  ${hotkeyScript}`,
+  ];
+  if (hasTask) {
+    lines.push(`  Task:    ${TASK_NAME} (scheduled task for faster boot startup)`);
+  }
+  lines.push(
+    '',
+    'The hotkey listener is now running. Press Ctrl+Up to launch CLD CTRL.',
+    'It will start automatically on login.',
+    '',
+    'To remove: cldctrl setup --uninstall',
+  );
+
+  return { success: true, message: lines.join('\n') };
 }
 
 export function removeWindows(): SetupResult {
@@ -81,11 +120,13 @@ export function removeWindows(): SetupResult {
     fs.unlinkSync(vbsPath);
   }
 
+  tryRemoveScheduledTask();
+
   const spawn = require('cross-spawn') as typeof import('cross-spawn');
   try {
     spawn.sync('powershell', [
       '-Command',
-      'Get-Process powershell | Where-Object { $_.CommandLine -like "*hotkey.ps1*" } | Stop-Process -Force -ErrorAction SilentlyContinue',
+      `Get-CimInstance Win32_Process -Filter "Name='powershell.exe' AND CommandLine LIKE '%hotkey.ps1%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
     ], { stdio: 'ignore' });
   } catch { /* ignore */ }
 

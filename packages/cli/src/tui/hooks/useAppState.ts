@@ -4,12 +4,12 @@
  * SAFETY: No side effects in reducer — config saves happen via useEffect.
  */
 
-import { useReducer, useEffect, useRef, useCallback } from 'react';
+import { useReducer, useEffect } from 'react';
 import os from 'node:os';
 import { loadConfig, saveConfig } from '../../config.js';
 import { buildProjectList, buildProjectListFast } from '../../core/projects.js';
-import { isDemoMode, DEMO_CONFIG, DEMO_PROJECTS } from '../../core/demo-data.js';
-import type { Config, Project, FocusPane, AppMode, AppState } from '../../types.js';
+import { isDemoMode, demoConfig, demoProjects, demoIsNewUser } from '../../core/demo-data.js';
+import type { Config, Project, FocusPane, AppMode, AppState, LeftSection } from '../../types.js';
 
 // Case-insensitive path comparison only on Windows
 const isWindows = os.platform() === 'win32';
@@ -36,12 +36,20 @@ type Action =
   | { type: 'HIDE_PROJECT'; index: number }
   | { type: 'REFRESH_PROJECTS' }
   | { type: 'DETAIL_NAVIGATE'; delta: number; maxIndex: number }
-  | { type: 'DETAIL_SECTION'; section: 'sessions' | 'issues' | 'commits'; index?: number }
+  | { type: 'DETAIL_SECTION'; section: 'sessions' | 'issues' | 'commits' | 'files'; index?: number }
   | { type: 'SET_GAME'; game: string | null }
-  | { type: 'HELP_NAVIGATE'; delta: number; maxIndex: number };
+  | { type: 'HELP_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'SETTINGS_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'SCAN_START' }
+  | { type: 'SCAN_COMPLETE'; projects: Project[] }
+  | { type: 'SCAN_CANCEL' }
+  | { type: 'SET_LEFT_SECTION'; section: LeftSection; convIndex?: number }
+  | { type: 'CONV_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'CONV_EXPAND'; expanded: boolean };
 
 // Track pending config saves (side-effect-free reducer)
 let pendingConfigSave: Config | null = null;
+let pendingConfigRevision = 0;
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -49,6 +57,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, projects: action.projects };
 
     case 'SET_CONFIG':
+      pendingConfigSave = action.config;
+      pendingConfigRevision++;
       return { ...state, config: action.config };
 
     case 'NAVIGATE': {
@@ -97,6 +107,8 @@ function reducer(state: AppState, action: Action): AppState {
         activeGame: action.mode === 'game' ? state.activeGame : null,
         // Reset help selection when entering help
         helpIndex: action.mode === 'help' ? 0 : state.helpIndex,
+        // Reset settings selection when entering settings
+        settingsIndex: action.mode === 'settings' ? 0 : state.settingsIndex,
       };
 
     case 'SET_GAME':
@@ -137,6 +149,7 @@ function reducer(state: AppState, action: Action): AppState {
 
       // Schedule async save (no side effects in reducer)
       pendingConfigSave = config;
+      pendingConfigRevision++;
       const projects = buildProjectListFast(config);
       return { ...state, config, projects };
     }
@@ -176,6 +189,42 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, helpIndex: newIdx };
     }
 
+    case 'SETTINGS_NAVIGATE': {
+      const newIdx = Math.max(0, Math.min(action.maxIndex, state.settingsIndex + action.delta));
+      if (newIdx === state.settingsIndex) return state;
+      return { ...state, settingsIndex: newIdx };
+    }
+
+    case 'SCAN_START':
+      return { ...state, scanning: true };
+
+    case 'SCAN_COMPLETE':
+      return { ...state, scanning: false, projects: action.projects };
+
+    case 'SCAN_CANCEL':
+      return { ...state, scanning: false };
+
+    case 'SET_LEFT_SECTION': {
+      if (state.leftSection === action.section && action.convIndex === undefined) return state;
+      return {
+        ...state,
+        leftSection: action.section,
+        conversationIndex: action.convIndex ?? (action.section === 'conversations' ? state.conversationIndex : 0),
+        expandedConversation: false,
+        focusPane: 'projects', // ensure left pane has focus
+      };
+    }
+
+    case 'CONV_NAVIGATE': {
+      const newIdx = Math.max(0, Math.min(action.maxIndex, state.conversationIndex + action.delta));
+      if (newIdx === state.conversationIndex) return state;
+      return { ...state, conversationIndex: newIdx, expandedConversation: false };
+    }
+
+    case 'CONV_EXPAND':
+      if (state.expandedConversation === action.expanded) return state;
+      return { ...state, expandedConversation: action.expanded };
+
     default: {
       const _exhaustive: never = action;
       return state;
@@ -187,12 +236,13 @@ function reducer(state: AppState, action: Action): AppState {
 
 function initState(): AppState {
   if (isDemoMode()) {
+    const projects = demoProjects();
     return {
-      config: DEMO_CONFIG,
-      projects: DEMO_PROJECTS,
+      config: demoConfig(),
+      projects,
       selectedIndex: 0,
       focusPane: 'projects',
-      mode: 'normal',
+      mode: demoIsNewUser() || projects.length === 0 ? 'welcome' : 'normal',
       filterText: '',
       promptText: '',
       scrollOffset: 0,
@@ -200,10 +250,17 @@ function initState(): AppState {
       detailSection: 'sessions',
       activeGame: null,
       helpIndex: 0,
+      settingsIndex: 0,
+      scanning: false,
+      leftSection: 'projects',
+      conversationIndex: 0,
+      expandedConversation: false,
     };
   }
   const { config, isNew } = loadConfig();
-  const initialProjects = buildProjectList(config);
+  // Use fast path (cached names, no git spawns) for instant first paint.
+  // Background refresh in App.tsx will fill in full names later.
+  const initialProjects = buildProjectListFast(config);
   return {
     config,
     projects: initialProjects,
@@ -217,6 +274,11 @@ function initState(): AppState {
     detailSection: 'sessions',
     activeGame: null,
     helpIndex: 0,
+    settingsIndex: 0,
+    scanning: false,
+    leftSection: 'projects',
+    conversationIndex: 0,
+    expandedConversation: false,
   };
 }
 
@@ -225,15 +287,15 @@ function initState(): AppState {
 export function useAppState() {
   const [state, dispatch] = useReducer(reducer, null, initState);
 
-  // Flush pending config saves asynchronously (not in reducer)
+  // Flush pending config saves asynchronously (not in reducer).
+  // Only runs when state.config changes (TOGGLE_PIN, HIDE_PROJECT, SET_CONFIG).
   useEffect(() => {
     if (pendingConfigSave) {
       const config = pendingConfigSave;
       pendingConfigSave = null;
-      // Fire-and-forget async save
       try { saveConfig(config); } catch { /* logged in saveConfig */ }
     }
-  });
+  }, [state.config]);
 
   return { state, dispatch };
 }

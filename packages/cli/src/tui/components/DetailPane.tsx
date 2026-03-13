@@ -6,11 +6,16 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { formatGitStatus } from '../../core/git.js';
 import { formatTokenCount } from '../../core/sessions.js';
+import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pricing.js';
+import { isFeatureEnabled } from '../../config.js';
 import { INK_COLORS, CHARS } from '../../constants.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ActivityTrace } from './ActivityTrace.js';
 import { ActiveBadge } from './ActiveBadge.js';
-import type { Project, GitStatus, Session, Issue, GitCommit, ActiveSession, SessionActivity, DailyUsage } from '../../types.js';
+import { usePulse, useAnimatedCounter, useSpinner } from '../hooks/useAnimations.js';
+import { formatFileSize } from '../../core/filetree.js';
+import type { FlatNode } from '../hooks/useFileTree.js';
+import type { Config, Project, GitStatus, Session, Issue, GitCommit, ActiveSession, SessionActivity, DailyUsage } from '../../types.js';
 
 // ── Scroll window utility ──────────────────────────────────
 
@@ -32,13 +37,16 @@ function computeScrollWindow(selectedIndex: number, itemCount: number, maxVisibl
 
 // ── Session list with scroll ───────────────────────────────
 
-function SessionList({ sessions, selectedIndex, focused, active, width, maxVisible = 6 }: {
+function SessionList({ sessions, selectedIndex, focused, active, width, maxVisible = 6, activeSessionId, activeTokens, showCost = true }: {
   sessions: Session[];
   selectedIndex: number;
   focused: boolean;
   active: boolean;
   width: number;
   maxVisible?: number;
+  activeSessionId?: string;
+  activeTokens?: number;
+  showCost?: boolean;
 }) {
   const { offset, hasAbove, hasBelow } = computeScrollWindow(
     active ? selectedIndex : 0,
@@ -46,6 +54,10 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
     maxVisible,
   );
   const visible = sessions.slice(offset, offset + maxVisible);
+  const pulse = usePulse(800);
+
+  // Animated token counter for the live session
+  const animTokens = useAnimatedCounter(activeTokens ?? 0, 1200);
 
   return (
     <>
@@ -57,10 +69,16 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
       {visible.map((session, vi) => {
         const realIndex = offset + vi;
         const isSelected = focused && active && realIndex === selectedIndex;
+        const isLive = activeSessionId != null && session.id === activeSessionId;
         const dateCol = session.dateLabel.padEnd(7);
-        const tokenStr = session.stats ? formatTokenCount(session.stats.tokens) : '';
-        const tokenCol = tokenStr.padStart(6);
-        const summaryMax = Math.max(10, width - 25);
+        // For the live session, show the animated token count
+        const tokValue = isLive && activeTokens != null ? animTokens : (session.stats?.tokens ?? 0);
+        const tokenStr = formatTokenCount(tokValue);
+        const costStr = showCost && isCostRelevant() && tokValue > 0 ? ` ~${formatCost(estimateCostBlended(tokValue))}` : '';
+        const tokenCol = `${tokenStr}${costStr}`.padStart(6 + costStr.length);
+        // Reserve space for live dot indicator
+        const livePrefix = isLive ? '● ' : '  ';
+        const summaryMax = Math.max(10, width - 27 - costStr.length);
         const summary = session.summary.length > summaryMax
           ? session.summary.slice(0, summaryMax - 3) + '...'
           : session.summary.padEnd(summaryMax);
@@ -68,11 +86,28 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
         return (
           <Box key={session.id} paddingX={1}>
             <Text
-              color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
+              color={isSelected ? INK_COLORS.text : isLive ? INK_COLORS.green : INK_COLORS.textDim}
+              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+              bold={isSelected || isLive}
+            >
+              {pointer}{' '}
+            </Text>
+            {isLive && (
+              <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim} bold>● </Text>
+            )}
+            {!isLive && <Text>  </Text>}
+            <Text
+              color={isSelected ? INK_COLORS.text : isLive ? INK_COLORS.text : INK_COLORS.textDim}
               backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
               bold={isSelected}
             >
-              {pointer} {dateCol} "{summary}" {tokenCol}
+              {dateCol} "{summary}"
+            </Text>
+            <Text
+              color={isLive ? INK_COLORS.green : INK_COLORS.accent}
+              bold={isLive}
+            >
+              {' '}{tokenCol}
             </Text>
           </Box>
         );
@@ -154,12 +189,15 @@ function IssueList({ issues, selectedIndex, focused, active, width, maxVisible =
   width: number;
   maxVisible?: number;
 }) {
+  // Issues with richSummary render 2 rows; adjust maxVisible to prevent vertical overflow
+  const hasSummaries = issues.some(i => i.richSummary);
+  const effectiveMaxVisible = hasSummaries ? Math.max(1, Math.floor(maxVisible * 0.6)) : maxVisible;
   const { offset, hasAbove, hasBelow } = computeScrollWindow(
     active ? selectedIndex : 0,
     issues.length,
-    maxVisible,
+    effectiveMaxVisible,
   );
-  const visible = issues.slice(offset, offset + maxVisible);
+  const visible = issues.slice(offset, offset + effectiveMaxVisible);
 
   return (
     <>
@@ -208,6 +246,85 @@ function IssueList({ issues, selectedIndex, focused, active, width, maxVisible =
   );
 }
 
+// ── File tree list with scroll ────────────────────────────────
+
+function FileTreeList({ flatNodes, selectedIndex, focused, active, width, maxVisible = 6 }: {
+  flatNodes: FlatNode[];
+  selectedIndex: number;
+  focused: boolean;
+  active: boolean;
+  width: number;
+  maxVisible?: number;
+}) {
+  const { offset, hasAbove, hasBelow } = computeScrollWindow(
+    active ? selectedIndex : 0,
+    flatNodes.length,
+    maxVisible,
+  );
+  const visible = flatNodes.slice(offset, offset + maxVisible);
+
+  return (
+    <>
+      {hasAbove && (
+        <Box paddingX={2}>
+          <Text color={INK_COLORS.textDim}>{CHARS.arrow_up} {offset} more above</Text>
+        </Box>
+      )}
+      {visible.map((flat, vi) => {
+        const realIndex = offset + vi;
+        const isSelected = focused && active && realIndex === selectedIndex;
+        const pointer = isSelected ? CHARS.pointer : ' ';
+        const indent = '  '.repeat(flat.depth);
+        const expandIcon = flat.hasChildren
+          ? (flat.expanded ? CHARS.arrow_down : CHARS.pointer)
+          : ' ';
+        const nameColor = flat.node.isClaude ? INK_COLORS.accent
+          : flat.node.type === 'directory' ? INK_COLORS.blue
+          : INK_COLORS.text;
+        const sizeStr = flat.node.type === 'file' && flat.node.size != null
+          ? ` ${formatFileSize(flat.node.size)}`
+          : flat.node.type === 'directory' && flat.node.childCount != null
+            ? ` (${flat.node.childCount})`
+            : '';
+        const maxName = Math.max(8, width - 12 - flat.depth * 2 - sizeStr.length);
+        const displayName = flat.node.name.length > maxName
+          ? flat.node.name.slice(0, maxName - 1) + '~'
+          : flat.node.name;
+
+        return (
+          <Box key={flat.node.relativePath || flat.node.name} paddingX={1}>
+            <Text
+              color={isSelected ? INK_COLORS.text : nameColor}
+              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+              bold={isSelected || flat.node.isClaude}
+            >
+              {pointer} {indent}{expandIcon} </Text>
+            <Text
+              color={isSelected ? INK_COLORS.text : (flat.node.iconColor ?? INK_COLORS.textDim)}
+              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+            >
+              {flat.node.fileIcon}
+            </Text>
+            <Text
+              color={isSelected ? INK_COLORS.text : nameColor}
+              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+              bold={isSelected || flat.node.isClaude}
+            >
+              {' '}{displayName}
+            </Text>
+            <Text color={INK_COLORS.textDim}>{sizeStr}</Text>
+          </Box>
+        );
+      })}
+      {hasBelow && (
+        <Box paddingX={2}>
+          <Text color={INK_COLORS.textDim}>{CHARS.arrow_down} {flatNodes.length - offset - maxVisible} more below</Text>
+        </Box>
+      )}
+    </>
+  );
+}
+
 function formatTimeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -229,14 +346,95 @@ interface DetailPaneProps {
   issues: Issue[];
   focused: boolean;
   selectedSessionIndex?: number;
-  detailSection: 'sessions' | 'issues' | 'commits';
+  detailSection: 'sessions' | 'issues' | 'commits' | 'files';
   selectedIssueIndex?: number;
   selectedCommitIndex?: number;
+  selectedFileIndex?: number;
   commits?: GitCommit[];
   activeProcess?: ActiveSession;
   sessionActivity?: SessionActivity | null;
   usageHistory?: DailyUsage[];
   commitActivity?: DailyUsage[];
+  isSummarizing?: boolean;
+  fileTreeNodes?: FlatNode[];
+  filePreview?: string[] | null;
+  config?: Config;
+}
+
+// ── Pending summary with spinner ─────────────────────────────
+
+function SessionPendingSummary({ session, isLive, isSummarizing, maxChars, roundSummaries, currentAction }: {
+  session: Session;
+  isLive: boolean;
+  isSummarizing: boolean;
+  maxChars: number;
+  roundSummaries?: string[];
+  currentAction?: string;
+}) {
+  const spinner = useSpinner(isSummarizing || isLive);
+  const pulse = usePulse(600);
+
+  // For live sessions, show AI-generated round summaries
+  if (isLive) {
+    const maxLineChars = Math.max(10, Math.floor(maxChars / 6));
+    return (
+      <>
+        {roundSummaries && roundSummaries.length > 0 && (
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold color={INK_COLORS.green}>
+              ● Completed:
+            </Text>
+            {roundSummaries.slice(-5).map((summary, i) => (
+              <Text key={i} color={i === roundSummaries.length - 1 ? INK_COLORS.text : INK_COLORS.textDim} wrap="wrap">
+                {CHARS.bullet} {truncateText(summary, maxLineChars)}
+              </Text>
+            ))}
+          </Box>
+        )}
+        {currentAction && (
+          <Box marginTop={1}>
+            <Text color={INK_COLORS.accent}>
+              {spinner} {currentAction}
+            </Text>
+          </Box>
+        )}
+        {!roundSummaries?.length && !currentAction && (
+          <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim}>
+            ● Live session
+          </Text>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Text color={INK_COLORS.text} wrap="wrap">
+        {truncateText(session.summary, maxChars)}
+      </Text>
+      {session.firstPrompt && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color={INK_COLORS.textDim}>First prompt:</Text>
+          <Text color={INK_COLORS.textDim} wrap="wrap">
+            {truncateText(session.firstPrompt, maxChars)}
+          </Text>
+        </Box>
+      )}
+      {isLive ? (
+        <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim}>
+          ● Live session — summary generates after completion
+        </Text>
+      ) : isSummarizing ? (
+        <Text color={INK_COLORS.accent}>
+          {spinner} Generating summary...
+        </Text>
+      ) : (
+        <Text color={INK_COLORS.textDim} dimColor>
+          (summary pending...)
+        </Text>
+      )}
+    </>
+  );
 }
 
 // ── Preview area ─────────────────────────────────────────────
@@ -246,8 +444,8 @@ function truncateText(text: string, maxChars: number): string {
   return text.slice(0, maxChars - 3) + '...';
 }
 
-function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, selectedIssueIndex, commits, selectedCommitIndex, sessionActivity, width, height }: {
-  detailSection: 'sessions' | 'issues' | 'commits';
+function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, selectedIssueIndex, commits, selectedCommitIndex, sessionActivity, width, height, activeSessionId, isSummarizing, activeRoundSummaries, activeCurrentAction, fileTreeNodes, selectedFileIndex, filePreview }: {
+  detailSection: 'sessions' | 'issues' | 'commits' | 'files';
   sessions: Session[];
   selectedSessionIndex: number;
   issues: Issue[];
@@ -257,6 +455,13 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
   sessionActivity?: SessionActivity | null;
   width: number;
   height?: number;
+  activeSessionId?: string;
+  isSummarizing?: boolean;
+  activeRoundSummaries?: string[];
+  activeCurrentAction?: string;
+  fileTreeNodes?: FlatNode[];
+  selectedFileIndex?: number;
+  filePreview?: string[] | null;
 }) {
   const previewWidth = Math.max(10, width - 6);
   const maxLineChars = Math.max(10, previewWidth);
@@ -269,10 +474,10 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
     const tc = sessionActivity?.toolCalls;
     const toolStr = tc
       ? [
-          tc.writes > 0 ? `${tc.writes}w` : '',
-          tc.reads > 0 ? `${tc.reads}r` : '',
-          tc.bash > 0 ? `${tc.bash}bash` : '',
-        ].filter(Boolean).join(' ')
+          tc.writes > 0 ? `${tc.writes} edits` : '',
+          tc.reads > 0 ? `${tc.reads} reads` : '',
+          tc.bash > 0 ? `${tc.bash} cmds` : '',
+        ].filter(Boolean).join(' · ')
       : '';
     const modelStr = sessionActivity
       ? Object.entries(sessionActivity.models).map(([m, c]) => {
@@ -285,19 +490,40 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
       <Box paddingX={1} marginTop={1} flexDirection="column">
         <Box><Text color={INK_COLORS.textDim}>{CHARS.separator.repeat(Math.max(1, width - 4))}</Text></Box>
         <Box flexDirection="column" paddingX={1}>
-          <Text bold color={INK_COLORS.text}>
-            {s.dateLabel}
-            {s.stats
-              ? ` · ${formatTokenCount(s.stats.tokens)} tok · ${s.stats.messages} msgs`
-              : ''}
-            {toolStr ? ` · ${toolStr}` : ''}
-            {sessionActivity?.agentSpawns ? ` · ${sessionActivity.agentSpawns} agents` : ''}
-            {modelStr ? ` · ${modelStr}` : ''}
+          {/* Color-coded session stats header */}
+          <Text>
+            <Text bold color={INK_COLORS.accent}>{s.dateLabel}</Text>
+            {s.stats && (
+              <>
+                <Text color={INK_COLORS.textDim}> · </Text>
+                <Text bold color={INK_COLORS.green}>{formatTokenCount(s.stats.tokens)} tok</Text>
+                <Text color={INK_COLORS.textDim}> · </Text>
+                <Text bold color={INK_COLORS.blue}>{s.stats.messages} msgs</Text>
+              </>
+            )}
+            {toolStr && (
+              <>
+                <Text color={INK_COLORS.textDim}> · </Text>
+                <Text color={INK_COLORS.yellow}>{toolStr}</Text>
+              </>
+            )}
+            {sessionActivity?.agentSpawns ? (
+              <>
+                <Text color={INK_COLORS.textDim}> · </Text>
+                <Text color={INK_COLORS.accent}>{sessionActivity.agentSpawns} agents</Text>
+              </>
+            ) : null}
+            {modelStr && (
+              <>
+                <Text color={INK_COLORS.textDim}> · </Text>
+                <Text color={INK_COLORS.textDim}>{modelStr}</Text>
+              </>
+            )}
           </Text>
           {/* MCP server usage */}
           {sessionActivity && Object.keys(sessionActivity.mcpCalls).length > 0 && (
             <Box flexDirection="column">
-              {Object.values(sessionActivity.mcpCalls).map(server => {
+              {Object.values(sessionActivity.mcpCalls).slice(0, 3).map(server => {
                 const topTools = Object.entries(server.tools)
                   .sort((a, b) => b[1] - a[1])
                   .slice(0, 3)
@@ -316,22 +542,14 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
               {truncateText(s.richSummary, maxPromptChars)}
             </Text>
           ) : (
-            <>
-              <Text color={INK_COLORS.text} wrap="wrap">
-                {truncateText(s.summary, maxPromptChars)}
-              </Text>
-              {s.firstPrompt && (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text bold color={INK_COLORS.textDim}>First prompt:</Text>
-                  <Text color={INK_COLORS.textDim} wrap="wrap">
-                    {truncateText(s.firstPrompt, maxPromptChars)}
-                  </Text>
-                </Box>
-              )}
-              <Text color={INK_COLORS.textDim} dimColor>
-                (summary pending...)
-              </Text>
-            </>
+            <SessionPendingSummary
+              session={s}
+              isLive={activeSessionId != null && s.id === activeSessionId}
+              isSummarizing={!!isSummarizing}
+              maxChars={maxPromptChars}
+              roundSummaries={activeSessionId != null && s.id === activeSessionId ? activeRoundSummaries : undefined}
+              currentAction={activeSessionId != null && s.id === activeSessionId ? activeCurrentAction : undefined}
+            />
           )}
         </Box>
       </Box>
@@ -350,7 +568,11 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
         <Box><Text color={INK_COLORS.textDim}>{CHARS.separator.repeat(Math.max(1, width - 4))}</Text></Box>
         <Box flexDirection="column" paddingX={1}>
           <Text bold color={INK_COLORS.text}>{truncateText(commit.subject, previewWidth)}</Text>
-          <Text color={INK_COLORS.textDim}>{commit.hash.slice(0, 8)} · {formatTimeAgo(commit.date)}</Text>
+          <Text>
+            <Text color={INK_COLORS.accent}>{commit.hash.slice(0, 8)}</Text>
+            <Text color={INK_COLORS.textDim}> · </Text>
+            <Text color={INK_COLORS.blue}>{formatTimeAgo(commit.date)}</Text>
+          </Text>
           <Box marginTop={1}>
             <Text color={INK_COLORS.green}>+{commit.additions}</Text>
             <Text color={INK_COLORS.textDim}> / </Text>
@@ -407,6 +629,39 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
     );
   }
 
+  if (detailSection === 'files' && fileTreeNodes && fileTreeNodes[(selectedFileIndex ?? 0)]) {
+    const flat = fileTreeNodes[selectedFileIndex ?? 0];
+    const node = flat.node;
+    const previewLines = Math.max(4, (height ?? 8) - 4);
+
+    return (
+      <Box paddingX={1} marginTop={1} flexDirection="column">
+        <Box><Text color={INK_COLORS.textDim}>{CHARS.separator.repeat(Math.max(1, width - 4))}</Text></Box>
+        <Box flexDirection="column" paddingX={1}>
+          <Text bold color={node.isClaude ? INK_COLORS.accent : INK_COLORS.text}>
+            {node.name}
+          </Text>
+          <Text color={INK_COLORS.textDim}>
+            {node.type === 'file' ? formatFileSize(node.size) : `${node.childCount ?? 0} items`}
+            {node.modified ? ` · ${formatTimeAgo(node.modified.toISOString())}` : ''}
+          </Text>
+          <Text color={INK_COLORS.textDim} dimColor>
+            {node.relativePath}
+          </Text>
+          {filePreview && filePreview.length > 0 && (
+            <Box marginTop={1} flexDirection="column">
+              {filePreview.slice(0, previewLines).map((line, i) => (
+                <Text key={i} color={INK_COLORS.textDim}>
+                  {truncateText(line, Math.max(10, width - 8))}
+                </Text>
+              ))}
+            </Box>
+          )}
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box paddingX={1} marginTop={1} flexDirection="column">
       <Box><Text color={INK_COLORS.textDim}>{CHARS.separator.repeat(Math.max(1, width - 4))}</Text></Box>
@@ -436,6 +691,11 @@ export const DetailPane = React.memo(function DetailPane({
   sessionActivity,
   usageHistory,
   commitActivity,
+  isSummarizing,
+  fileTreeNodes = [],
+  filePreview,
+  selectedFileIndex = 0,
+  config,
 }: DetailPaneProps) {
   if (!project) {
     return (
@@ -453,21 +713,27 @@ export const DetailPane = React.memo(function DetailPane({
     );
   }
 
+  const showCalendar = !config || isFeatureEnabled(config, 'calendar_heatmap');
+  const showCostEstimates = !config || isFeatureEnabled(config, 'cost_estimates');
+
   const gitStr = formatGitStatus(gitStatus);
   const issueCountStr = issues.length > 0 ? `${issues.length} open issues` : 'no issues';
 
   // Pick calendar data based on active tab
-  const calendarData = detailSection === 'commits' ? (commitActivity ?? []) : (usageHistory ?? []);
+  const calendarData = showCalendar ? (detailSection === 'commits' ? (commitActivity ?? []) : (usageHistory ?? [])) : [];
   const calendarTitle = detailSection === 'commits'
     ? `Commits — ${project.name}`
     : `Usage — ${project.name}`;
 
-  // Calculate dynamic max visible rows for lists
-  // Cap at 8 items so the preview/summary area gets space as the window grows
-  let usedRows = 5; // name + path/calendar + git + actions + tabs (minimum)
-  if (calendarData.length > 0 && height >= 20) usedRows += 6; // calendar ~6 rows
-  if (activeProcess) usedRows += 2;
-  const listMaxVisible = Math.min(8, Math.max(2, Math.floor((height - usedRows - 10) / 1)));
+  // Calculate dynamic max visible rows for lists.
+  // Inner height = height - 2 (border top/bottom).
+  // Fixed rows: name(1) + path(1) + git(1) + marginTop+actions(2) + marginTop+tabs+underline(3) + 1 safety = 10
+  const innerHeight = height - 2;
+  let fixedRows = 10;
+  if (calendarData.length > 0 && height >= 20) fixedRows += 5; // calendar replaces 1-row path with ~6 rows
+  if (activeProcess) fixedRows += 2;
+  // Reserve 6 rows for preview when focused, cap list at 8
+  const listMaxVisible = Math.min(8, Math.max(1, innerHeight - fixedRows - 6));
 
   return (
     <Box
@@ -554,22 +820,34 @@ export const DetailPane = React.memo(function DetailPane({
           >
             <Text color={INK_COLORS.accent}>[i]</Text> Issues ({issues.length})
           </Text>
+          <Text color={INK_COLORS.textDim}>{'  '}</Text>
+          <Text
+            bold={detailSection === 'files'}
+            color={detailSection === 'files' ? INK_COLORS.accent : INK_COLORS.textDim}
+          >
+            <Text color={INK_COLORS.accent}>[f]</Text> Files
+          </Text>
         </Box>
         <Box>
           {(() => {
             const sLabel = `[s] Sessions (${sessions.length})`;
             const cLabel = `${focused ? '[c] ' : ''}Commits (${commits.length})`;
             const iLabel = `[i] Issues (${issues.length})`;
+            const fLabel = `[f] Files`;
             const sLen = sLabel.length;
             const cLen = cLabel.length;
             const iLen = iLabel.length;
-            const pad = '  '; // matches gap between tabs
+            const fLen = fLabel.length;
+            const pad = '  ';
+            const total = sLen + pad.length + cLen + pad.length + iLen + pad.length + fLen;
             if (detailSection === 'sessions') {
-              return <Text color={INK_COLORS.accent}>{'═'.repeat(sLen)}{' '.repeat(pad.length + cLen + pad.length + iLen)}</Text>;
+              return <Text color={INK_COLORS.accent}>{'═'.repeat(sLen)}{' '.repeat(total - sLen)}</Text>;
             } else if (detailSection === 'commits') {
-              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length)}{'═'.repeat(cLen)}{' '.repeat(pad.length + iLen)}</Text>;
+              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length)}{'═'.repeat(cLen)}{' '.repeat(total - sLen - pad.length - cLen)}</Text>;
+            } else if (detailSection === 'issues') {
+              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length + cLen + pad.length)}{'═'.repeat(iLen)}{' '.repeat(pad.length + fLen)}</Text>;
             } else {
-              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length + cLen + pad.length)}{'═'.repeat(iLen)}</Text>;
+              return <Text color={INK_COLORS.accent}>{' '.repeat(total - fLen)}{'═'.repeat(fLen)}</Text>;
             }
           })()}
         </Box>
@@ -589,6 +867,9 @@ export const DetailPane = React.memo(function DetailPane({
             active
             width={width}
             maxVisible={listMaxVisible}
+            activeSessionId={activeProcess?.sessionId}
+            activeTokens={activeProcess?.stats.tokens}
+            showCost={showCostEstimates}
           />
         )
       ) : detailSection === 'commits' ? (
@@ -606,7 +887,7 @@ export const DetailPane = React.memo(function DetailPane({
             maxVisible={listMaxVisible}
           />
         )
-      ) : (
+      ) : detailSection === 'issues' ? (
         issues.length === 0 ? (
           <Box paddingX={2}>
             <Text color={INK_COLORS.textDim}>No open issues</Text>
@@ -615,6 +896,21 @@ export const DetailPane = React.memo(function DetailPane({
           <IssueList
             issues={issues}
             selectedIndex={selectedIssueIndex}
+            focused={focused}
+            active
+            width={width}
+            maxVisible={listMaxVisible}
+          />
+        )
+      ) : (
+        fileTreeNodes.length === 0 ? (
+          <Box paddingX={2}>
+            <Text color={INK_COLORS.textDim}>No files found</Text>
+          </Box>
+        ) : (
+          <FileTreeList
+            flatNodes={fileTreeNodes}
+            selectedIndex={selectedFileIndex}
             focused={focused}
             active
             width={width}
@@ -634,7 +930,14 @@ export const DetailPane = React.memo(function DetailPane({
         selectedCommitIndex={selectedCommitIndex}
         sessionActivity={sessionActivity}
         width={width}
-        height={Math.max(6, height - usedRows - listMaxVisible - 4)}
+        height={Math.max(4, innerHeight - fixedRows - listMaxVisible)}
+        activeSessionId={activeProcess?.sessionId}
+        isSummarizing={isSummarizing}
+        activeRoundSummaries={activeProcess?.roundSummaries}
+        activeCurrentAction={activeProcess?.currentAction}
+        fileTreeNodes={fileTreeNodes}
+        selectedFileIndex={selectedFileIndex}
+        filePreview={filePreview}
       />}
     </Box>
   );

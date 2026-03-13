@@ -9,6 +9,8 @@ import {
   useGitStatuses,
   useIssues,
   useUsageStats,
+  useUsageBudget,
+  useClaudeTier,
   useActiveProcesses,
   useRecentCommits,
   useCommitActivity,
@@ -19,18 +21,32 @@ import {
   useCommandUsage,
 } from './hooks/useBackgroundData.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
+import { useFileTree } from './hooks/useFileTree.js';
 import { getRecentSessions } from '../core/sessions.js';
-import { isDemoMode, DEMO_SESSIONS, DEMO_SKILLS_DATA, DEMO_ISSUE_COUNTS } from '../core/demo-data.js';
+import { buildProjectList } from '../core/projects.js';
+import { scanForProjects, mergeScannedProjects } from '../core/scanner.js';
+import { readDaemonCache } from '../core/background.js';
+import { isDemoMode, demoSessions, demoIssueCounts, DEMO_SKILLS_DATA } from '../core/demo-data.js';
 import { ProjectPane } from './components/ProjectPane.js';
 import { DetailPane } from './components/DetailPane.js';
+import { ConversationDetail } from './components/ConversationDetail.js';
 import { FilterBar } from './components/FilterBar.js';
 import { PromptBar } from './components/PromptBar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Welcome } from './components/Welcome.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
+import { SettingsPane } from './components/SettingsPane.js';
 import { MatrixGlitch, useMatrixGlitch } from './components/MatrixGlitch.js';
 import { useClock, usePulse } from './hooks/useAnimations.js';
+
+/** Tiny component: 1s re-render scoped to clock text only */
+const ClockDisplay = React.memo(function ClockDisplay() {
+  const clock = useClock();
+  return <Text color={INK_COLORS.textDim}>{clock}  v{VERSION}</Text>;
+});
 import { GameScreen } from './games/GameScreen.js';
+import { isFeatureEnabled } from '../config.js';
+import { focusWindowByTitle } from '../core/platform.js';
 import { DEFAULTS, INK_COLORS, APP_NAME, VERSION } from '../constants.js';
 import { getSkillsSummary } from '../core/skills.js';
 import { supportsSixel, getRocketSixel } from '../core/sixel.js';
@@ -70,6 +86,20 @@ function App() {
     return () => { stdout?.off('resize', onResize); };
   }, [stdout]);
 
+
+  // Background refresh: run full project list (with git name extraction)
+  // after initial fast paint, then update state once
+  useEffect(() => {
+    if (isDemoMode()) return;
+    let cancelled = false;
+    // Use setTimeout to defer past first render cycle
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      const full = buildProjectList(state.config);
+      dispatch({ type: 'SET_PROJECTS', projects: full });
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Skills/commands discovery (lazy — avoid sync FS reads during first render)
   const [skillsData, setSkillsData] = useState(() =>
@@ -119,19 +149,21 @@ function App() {
   const gitStatuses = useGitStatuses(filteredProjects, visibleStart, visibleEnd);
   const issues = useIssues(settledPath);
   const usageStats = useUsageStats();
+  const usageBudget = useUsageBudget(usageStats, state.config.daily_budget_tokens);
 
   // New hooks — use settledPath for expensive per-project data fetching
-  const { map: activeProcesses, totalCount: liveSessionCount } = useActiveProcesses(filteredProjects);
+  const { map: activeProcesses, allSessions, totalCount: liveSessionCount } = useActiveProcesses(filteredProjects);
   const commits = useRecentCommits(settledPath);
   const commitActivity = useCommitActivity(settledPath);
   const usageHistory = useUsageHistory();
   const commandUsage = useCommandUsage();
 
   // Live session tailing for the settled project
+  const liveTailingEnabled = isFeatureEnabled(state.config, 'live_session_tailing');
   const selectedActive = settledProject ? activeProcesses.get(settledProject.path) : undefined;
   const liveSession = useLiveSession(
     settledPath,
-    !!selectedActive,
+    liveTailingEnabled && !!selectedActive,
   );
 
   // Merge live tailing data into activeProcesses for display
@@ -141,11 +173,17 @@ function App() {
     const existing = activeProcesses.get(settledProject.path);
     if (!existing) return activeProcesses;
 
-    const newSessionId = liveSession.sessionId ?? existing.sessionId;
-    // Skip allocation if nothing meaningful changed
-    if (existing.stats === liveSession.activity
-      && existing.currentAction === liveSession.currentAction
-      && existing.sessionId === newSessionId) {
+    // Keep the filename-based sessionId (matches session list IDs).
+    // The tailer's sessionId is the internal UUID from JSONL content, which differs.
+    const newSessionId = existing.sessionId;
+    // Skip allocation if nothing meaningful changed (compare values, not refs)
+    if (existing.currentAction === liveSession.currentAction
+      && existing.sessionId === newSessionId
+      && existing.stats.tokens === liveSession.activity.tokens
+      && existing.stats.messages === liveSession.activity.messages
+      && existing.stats.toolCalls.writes === liveSession.activity.toolCalls.writes
+      && existing.stats.toolCalls.reads === liveSession.activity.toolCalls.reads
+      && existing.stats.toolCalls.bash === liveSession.activity.toolCalls.bash) {
       return activeProcesses;
     }
 
@@ -155,13 +193,14 @@ function App() {
       stats: liveSession.activity,
       currentAction: liveSession.currentAction,
       sessionId: newSessionId,
+      roundSummaries: liveSession.roundSummaries,
     });
     return enriched;
   }, [activeProcesses, liveSession, settledProject]);
 
   // Issue counts per project (for badges) — accumulates across selections
   const [issueCounts, setIssueCounts] = useState(() =>
-    isDemoMode() ? DEMO_ISSUE_COUNTS : new Map<string, number>()
+    isDemoMode() ? demoIssueCounts() : new Map<string, number>()
   );
   useEffect(() => {
     if (isDemoMode()) return;
@@ -183,13 +222,13 @@ function App() {
   }, []);
 
   // Auto-summarize: sweep all projects at startup, issues on selection
-  const summaryRevision = useAutoSummarize(state.projects, settledPath, issues);
+  const { revision: summaryRevision, isSummarizing } = useAutoSummarize(state.projects, settledPath, issues);
 
   // Recent sessions for settled project (re-fetches when summaries are generated)
   const [sessions, setSessions] = useState<Session[]>([]);
   useEffect(() => {
     if (isDemoMode()) {
-      setSessions(settledPath ? (DEMO_SESSIONS[settledPath] ?? []) : []);
+      setSessions(settledPath ? demoSessions(settledPath) : []);
       return;
     }
     if (!settledPath) {
@@ -265,9 +304,15 @@ function App() {
     : null;
   const sessionActivity = useSessionActivity(selectedSessionFile);
 
+  // Read daemon commit activity once on mount (avoids sync file I/O inside useMemo)
+  const [daemonCommitActivity] = useState(() => {
+    try { return readDaemonCache()?.commitActivity; } catch { return undefined; }
+  });
+
   // Aggregate usage history into a flat array for left pane calendar
   const allUsageHistory = useMemo(() => {
     const dailyMap = new Map<string, DailyUsage>();
+    // Merge session usage (tokens/messages)
     for (const projectUsage of Object.values(usageHistory)) {
       for (const day of projectUsage) {
         const existing = dailyMap.get(day.date);
@@ -279,11 +324,92 @@ function App() {
         }
       }
     }
+    // Merge commit activity (additions/deletions/commits) from daemon cache
+    if (daemonCommitActivity) {
+      for (const days of Object.values(daemonCommitActivity)) {
+        for (const day of days) {
+          const existing = dailyMap.get(day.date);
+          if (existing) {
+            existing.commits = (existing.commits ?? 0) + (day.commits ?? 0);
+            existing.additions = (existing.additions ?? 0) + (day.additions ?? 0);
+            existing.deletions = (existing.deletions ?? 0) + (day.deletions ?? 0);
+          } else {
+            dailyMap.set(day.date, { ...day });
+          }
+        }
+      }
+    }
     return Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [usageHistory]);
+  }, [usageHistory, daemonCommitActivity]);
 
-  // Animations
-  const clock = useClock();
+  // File tree for settled project
+  const fileTree = useFileTree(settledPath);
+  const filePreview = useMemo(
+    () => state.detailSection === 'files' ? fileTree.getPreview(state.detailIndex) : null,
+    [state.detailSection, state.detailIndex, fileTree],
+  );
+
+  // Stable refs for values used in callbacks (avoids recreating callbacks on every state change)
+  const projectsRef = useRef(state.projects);
+  projectsRef.current = state.projects;
+  const configRef = useRef(state.config);
+  configRef.current = state.config;
+  const detailIndexRef = useRef(state.detailIndex);
+  detailIndexRef.current = state.detailIndex;
+  const fileTreeRef = useRef(fileTree);
+  fileTreeRef.current = fileTree;
+
+  // Stable file tree callbacks (never change identity)
+  const onFileExpand = useCallback(() => fileTreeRef.current.expand(detailIndexRef.current), []);
+  const onFileCollapse = useCallback(() => fileTreeRef.current.collapse(detailIndexRef.current), []);
+  const onFileOpen = useCallback(() => fileTreeRef.current.openFile(detailIndexRef.current), []);
+
+  // Project scanner
+  const scanControllerRef = useRef<AbortController | null>(null);
+  const startScan = useCallback(() => {
+    if (isDemoMode()) return;
+    scanControllerRef.current?.abort();
+    const controller = new AbortController();
+    scanControllerRef.current = controller;
+    dispatch({ type: 'SCAN_START' });
+    onLaunchFeedback('Scanning for projects...');
+
+    // Run scan in a microtask to not block render
+    Promise.resolve().then(() => {
+      try {
+        const results = scanForProjects({ signal: controller.signal });
+        if (!controller.signal.aborted) {
+          const merged = mergeScannedProjects(projectsRef.current, results, configRef.current);
+          dispatch({ type: 'SCAN_COMPLETE', projects: merged });
+          const newCount = merged.length - projectsRef.current.length;
+          onLaunchFeedback(newCount > 0 ? `Found ${newCount} new project${newCount === 1 ? '' : 's'}` : 'No new projects found');
+        }
+      } catch {
+        dispatch({ type: 'SCAN_CANCEL' });
+      }
+    });
+  }, [dispatch, onLaunchFeedback]);
+
+  // Sorted conversations for conversations mode (sorted by tokens desc)
+  // Uses enrichedProcesses (not raw allSessions) so the settled project
+  // gets live-tailed stats instead of all-zero process-detection data.
+  const sortedConversations = useMemo(
+    () => [...enrichedProcesses.values()].sort((a, b) => b.stats.tokens - a.stats.tokens),
+    [enrichedProcesses],
+  );
+
+  // Focus a conversation's terminal window
+  const onFocusConversation = useCallback(() => {
+    const sorted = sortedConversations;
+    const session = sorted[state.conversationIndex];
+    if (!session) return;
+    const name = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+    // Try multiple title patterns: "CLD | name" (launched from cc) or just the project name
+    const focused = focusWindowByTitle(`CLD | ${name}`) || focusWindowByTitle(name);
+    onLaunchFeedback(focused ? `Focused: ${name}` : `Could not focus window for ${name}`);
+  }, [sortedConversations, state.conversationIndex, onLaunchFeedback]);
+
+  // Animations (clock extracted to ClockDisplay component to avoid full-tree re-renders)
   const pulse = usePulse(800);
   const matrixGlitch = useMatrixGlitch();
 
@@ -299,6 +425,13 @@ function App() {
     commits: displaySnapshot.commits,
     onLaunchFeedback,
     skillsData,
+    fileTreeNodeCount: fileTree.flatNodes.length,
+    onFileExpand,
+    onFileCollapse,
+    onFileOpen,
+    onStartScan: startScan,
+    conversationCount: sortedConversations.length,
+    onFocusConversation: onFocusConversation,
   });
 
   // ── Minimum terminal size guard ──────────────────────────
@@ -329,6 +462,21 @@ function App() {
     return <Welcome />;
   }
 
+  // ── Settings editor ─────────────────────────────────────
+  if (state.mode === 'settings') {
+    return (
+      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+        <SettingsPane
+          config={state.config}
+          selectedIndex={state.settingsIndex}
+          width={dims.cols}
+          height={dims.rows}
+          onConfigChange={(c) => dispatch({ type: 'SET_CONFIG', config: c })}
+        />
+      </Box>
+    );
+  }
+
   // ── Help overlay ────────────────────────────────────────
   if (state.mode === 'help') {
     return (
@@ -355,7 +503,7 @@ function App() {
               <Text color={INK_COLORS.textDim}>  </Text>
             </Text>
           )}
-          <Text color={INK_COLORS.textDim}>{clock}  v{VERSION}</Text>
+          <ClockDisplay />
         </Box>
       </Box>
 
@@ -372,29 +520,49 @@ function App() {
           filterText={state.mode === 'filter' ? state.filterText : undefined}
           activeProcesses={enrichedProcesses}
           usageHistory={allUsageHistory}
-          dailyBudget={state.config.daily_budget_tokens}
           usageStats={usageStats}
+          usageBudget={usageBudget}
           skillsData={skillsData}
           commandUsage={commandUsage}
+          config={state.config}
+          conversations={sortedConversations}
+          conversationIndex={state.conversationIndex}
+          leftSection={state.leftSection}
         />
-        <DetailPane
-          project={selectedProject}
-          width={rightWidth}
-          height={bodyHeight}
-          gitStatus={selectedProject ? gitStatuses.get(selectedProject.path) : undefined}
-          sessions={displaySnapshot.sessions}
-          issues={displaySnapshot.issues}
-          focused={state.focusPane === 'details'}
-          selectedSessionIndex={state.detailSection === 'sessions' ? state.detailIndex : undefined}
-          detailSection={state.detailSection}
-          selectedIssueIndex={state.detailSection === 'issues' ? state.detailIndex : undefined}
-          selectedCommitIndex={state.detailSection === 'commits' ? state.detailIndex : undefined}
-          commits={displaySnapshot.commits}
-          activeProcess={selectedProject ? enrichedProcesses.get(selectedProject.path) : undefined}
-          sessionActivity={sessionActivity}
-          usageHistory={displaySnapshot.usageHistory}
-          commitActivity={displaySnapshot.commitActivity}
-        />
+        {state.leftSection === 'conversations' ? (
+          <ConversationDetail
+            conversations={sortedConversations}
+            selectedIndex={state.conversationIndex}
+            expanded={state.expandedConversation}
+            width={rightWidth}
+            height={bodyHeight}
+            usageBudget={usageBudget}
+          />
+        ) : (
+          <DetailPane
+            project={selectedProject}
+            width={rightWidth}
+            height={bodyHeight}
+            gitStatus={selectedProject ? gitStatuses.get(selectedProject.path) : undefined}
+            sessions={displaySnapshot.sessions}
+            issues={displaySnapshot.issues}
+            focused={state.focusPane === 'details'}
+            selectedSessionIndex={state.detailSection === 'sessions' ? state.detailIndex : undefined}
+            detailSection={state.detailSection}
+            selectedIssueIndex={state.detailSection === 'issues' ? state.detailIndex : undefined}
+            selectedCommitIndex={state.detailSection === 'commits' ? state.detailIndex : undefined}
+            commits={displaySnapshot.commits}
+            activeProcess={selectedProject ? enrichedProcesses.get(selectedProject.path) : undefined}
+            sessionActivity={sessionActivity}
+            usageHistory={displaySnapshot.usageHistory}
+            commitActivity={displaySnapshot.commitActivity}
+            isSummarizing={isSummarizing}
+            fileTreeNodes={fileTree.flatNodes}
+            filePreview={filePreview}
+            selectedFileIndex={state.detailSection === 'files' ? state.detailIndex : undefined}
+            config={state.config}
+          />
+        )}
       </Box>
 
       {/* Filter bar / Prompt bar (mutually exclusive) */}
@@ -416,7 +584,9 @@ function App() {
         width={dims.cols}
         focusPane={state.focusPane}
         launchMsg={launchMsg}
-        dailyBudget={state.config.daily_budget_tokens}
+        usageBudget={usageBudget}
+        scanning={state.scanning}
+        leftPaneMode={state.leftSection}
       />
 
       {/* Matrix glitch Easter egg — rare, brief, subtle */}
@@ -429,13 +599,40 @@ function App() {
  * Render the TUI app with alternate screen buffer.
  */
 export async function renderApp(): Promise<void> {
-  // Enable differential rendering to eliminate flicker
-  const { enableDiffRendering } = await import('./diffRenderer.js');
-  const disableDiff = enableDiffRendering();
+  const { isSafeMode } = await import('../core/platform.js');
+  let disableDiff: (() => void) | null = null;
 
-  // Set tab title and enter alternate screen buffer
+  // Enable differential rendering FIRST — it patches stdout.write and
+  // detects \x1b[?1049h to activate. Writing alt screen before the patch
+  // means the diff renderer never sees it, stays inactive, and all Ink
+  // writes pass through raw → flicker.
+  // Safe mode skips this entirely — Ink renders directly (more flicker, zero corruption).
+  if (!isSafeMode()) {
+    const { enableDiffRendering } = await import('./diffRenderer.js');
+    disableDiff = enableDiffRendering();
+  }
+
+  // Now set tab title and enter alternate screen through the patched write
+  // so the diff renderer detects alt screen entry and activates.
   process.stdout.write('\x1b]0;CLD CTRL\x07');
   process.stdout.write('\x1b[?1049h');
+
+  // Terminal cleanup: discard buffered frames, show cursor, exit alt screen, reset attrs
+  function cleanupTerminal() {
+    try {
+      disableDiff?.(); // discards pending buffer so it doesn't dump onto normal screen
+      process.stdout.write(
+        '\x1b[?25h'    // show cursor
+        + '\x1b[?1049l' // exit alternate screen buffer (restores previous screen)
+        + '\x1b]0;\x07' // reset window title
+        + '\x1b[0m'     // reset text attributes
+        + '\n'           // newline so shell prompt appears cleanly
+      );
+    } catch { /* stdout may be closed */ }
+  }
+
+  // Safety net: clean up on unexpected termination
+  process.on('exit', cleanupTerminal);
 
   const instance = render(<App />, {
     exitOnCtrlC: true,
@@ -444,9 +641,7 @@ export async function renderApp(): Promise<void> {
   try {
     await instance.waitUntilExit();
   } finally {
-    disableDiff();
-    // Restore tab title and exit alternate screen buffer
-    process.stdout.write('\x1b]0;\x07');
-    process.stdout.write('\x1b[?1049l');
+    process.off('exit', cleanupTerminal);
+    cleanupTerminal();
   }
 }

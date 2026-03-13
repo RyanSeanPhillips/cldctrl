@@ -49,7 +49,46 @@ function formatTime(): string {
  */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-export function useSpinner(active: boolean, ms = 80): string {
+/**
+ * Animated counter that smoothly counts up from previous value to target.
+ * Uses ease-out curve for a natural deceleration effect.
+ */
+export function useAnimatedCounter(target: number, durationMs = 1200): number {
+  const [display, setDisplay] = useState(0);
+  const startRef = useRef({ value: 0, target: 0, startTime: 0 });
+  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Skip animation for zero or same value
+    if (target === startRef.current.target && display === target) return;
+
+    const from = display;
+    startRef.current = { value: from, target, startTime: Date.now() };
+
+    const tick = () => {
+      const elapsed = Date.now() - startRef.current.startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      // Ease-out cubic: decelerates naturally
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const current = Math.round(from + (target - from) * eased);
+      setDisplay(current);
+
+      if (progress < 1) {
+        rafRef.current = setTimeout(tick, 32); // ~30fps
+      }
+    };
+    tick();
+
+    return () => {
+      if (rafRef.current) clearTimeout(rafRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, durationMs]);
+
+  return display;
+}
+
+export function useSpinner(active: boolean, ms = 150): string {
   const [frame, setFrame] = useState(0);
   const activeRef = useRef(active);
   activeRef.current = active;

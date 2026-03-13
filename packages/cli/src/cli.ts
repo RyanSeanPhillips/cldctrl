@@ -9,7 +9,7 @@ import path from 'node:path';
 import { VERSION, APP_NAME, CHARS } from './constants.js';
 import { loadConfig, saveConfig, getConfigDir, getConfigPath } from './config.js';
 import { buildProjectList, getProjectSlug } from './core/projects.js';
-import { getRecentSessions, formatTokenCount, getRollingUsageStats } from './core/sessions.js';
+import { formatTokenCount, getRollingUsageStats } from './core/sessions.js';
 import { getGitStatus, formatGitStatus } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl, sanitizeIssueTitle } from './core/github.js';
 import { launchClaude } from './core/launcher.js';

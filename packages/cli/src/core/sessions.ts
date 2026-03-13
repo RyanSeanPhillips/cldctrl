@@ -332,41 +332,6 @@ export async function getRecentSessions(
 
 // ── Session preview (first N user messages) ─────────────────
 
-export async function getSessionPreview(
-  sessionFilePath: string,
-  maxMessages = 3
-): Promise<string[]> {
-  try {
-    const stat = fs.statSync(sessionFilePath);
-    if (stat.size > DEFAULTS.maxSessionFileSize) return [];
-
-    const previews: string[] = [];
-    const stream = fs.createReadStream(sessionFilePath, { encoding: 'utf-8' });
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-
-    try {
-      for await (const line of rl) {
-        if (previews.length >= maxMessages) break;
-        if (USER_TYPE_RE.test(line) && USER_ROLE_RE.test(line)) {
-          const match = line.match(/"content"\s*:\s*"([^"]{1,300})/);
-          if (match) {
-            let msg = match[1].replace(/\\n/g, ' ').replace(/\\t/g, ' ');
-            if (msg.length > 200) msg = msg.substring(0, 197) + '...';
-            previews.push(msg);
-          }
-        }
-      }
-    } finally {
-      rl.close();
-      stream.destroy();
-    }
-
-    return previews;
-  } catch {
-    return [];
-  }
-}
-
 // ── Rolling usage stats (5-hour window) ─────────────────────
 
 const ROLLING_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours

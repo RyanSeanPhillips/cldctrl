@@ -1,15 +1,15 @@
 /**
  * Mini TUI state: simple reducer for the 3-phase wizard flow.
- * Phases: projects → actions → sessions | issues
+ * Phases: projects → actions → sessions
  */
 
 import { useReducer } from 'react';
 import { loadConfig } from '../../config.js';
 import { buildProjectListFast } from '../../core/projects.js';
-import { isDemoMode, DEMO_CONFIG, DEMO_PROJECTS } from '../../core/demo-data.js';
+import { isDemoMode, demoConfig, demoProjects } from '../../core/demo-data.js';
 import type { Config, Project } from '../../types.js';
 
-export type MiniPhase = 'projects' | 'actions' | 'sessions' | 'issues';
+export type MiniPhase = 'projects' | 'actions' | 'sessions';
 export type MiniMode = 'normal' | 'filter' | 'prompt';
 
 export interface MiniState {
@@ -18,6 +18,8 @@ export interface MiniState {
   phase: MiniPhase;
   mode: MiniMode;
   selectedIndex: number;
+  /** Persists the project selection across phase transitions (by path, not index) */
+  selectedProjectPath: string | null;
   filterText: string;
   promptText: string;
 }
@@ -25,7 +27,7 @@ export interface MiniState {
 export type MiniAction =
   | { type: 'NAVIGATE'; delta: number; maxIndex: number }
   | { type: 'SELECT_INDEX'; index: number }
-  | { type: 'SET_PHASE'; phase: MiniPhase }
+  | { type: 'SET_PHASE'; phase: MiniPhase; projectPath?: string }
   | { type: 'SET_MODE'; mode: MiniMode }
   | { type: 'SET_FILTER'; text: string }
   | { type: 'SET_PROMPT'; text: string }
@@ -42,8 +44,10 @@ function reducer(state: MiniState, action: MiniAction): MiniState {
     case 'SELECT_INDEX':
       return state.selectedIndex === action.index ? state : { ...state, selectedIndex: action.index };
 
-    case 'SET_PHASE':
-      return { ...state, phase: action.phase, selectedIndex: 0 };
+    case 'SET_PHASE': {
+      const projPath = action.projectPath ?? state.selectedProjectPath;
+      return { ...state, phase: action.phase, selectedIndex: 0, selectedProjectPath: projPath };
+    }
 
     case 'SET_MODE':
       return {
@@ -61,7 +65,7 @@ function reducer(state: MiniState, action: MiniAction): MiniState {
       return { ...state, promptText: action.text };
 
     case 'BACK': {
-      if (state.phase === 'sessions' || state.phase === 'issues') {
+      if (state.phase === 'sessions') {
         return { ...state, phase: 'actions', selectedIndex: 0 };
       }
       if (state.phase === 'actions') {
@@ -78,11 +82,12 @@ function reducer(state: MiniState, action: MiniAction): MiniState {
 function initState(): MiniState {
   if (isDemoMode()) {
     return {
-      config: DEMO_CONFIG,
-      projects: DEMO_PROJECTS,
+      config: demoConfig(),
+      projects: demoProjects(),
       phase: 'projects',
       mode: 'normal',
       selectedIndex: 0,
+      selectedProjectPath: null,
       filterText: '',
       promptText: '',
     };
@@ -95,6 +100,7 @@ function initState(): MiniState {
     phase: 'projects',
     mode: 'normal',
     selectedIndex: 0,
+    selectedProjectPath: null,
     filterText: '',
     promptText: '',
   };

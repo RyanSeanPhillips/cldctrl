@@ -8,6 +8,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import spawn from 'cross-spawn';
 
+let _safeMode = false;
+export function setSafeMode(v: boolean) { _safeMode = v; }
+export function isSafeMode(): boolean { return _safeMode; }
+
 export type Platform = 'windows' | 'macos' | 'linux';
 
 export function getPlatform(): Platform {
@@ -100,24 +104,6 @@ export function isTTY(): boolean {
 }
 
 /**
- * Detect terminal for color capability warnings.
- */
-export function getTerminalInfo(): { supportsAnsi: boolean; name: string } {
-  const term = process.env.TERM ?? '';
-  const termProgram = process.env.TERM_PROGRAM ?? '';
-
-  if (termProgram) {
-    return { supportsAnsi: true, name: termProgram };
-  }
-
-  if (getPlatform() === 'windows' && !term && !process.env.WT_SESSION) {
-    return { supportsAnsi: false, name: 'cmd.exe' };
-  }
-
-  return { supportsAnsi: true, name: term || 'unknown' };
-}
-
-/**
  * Open a path in the system file explorer.
  */
 export function openInExplorer(dirPath: string): boolean {
@@ -159,6 +145,87 @@ export function detectLinuxTerminal(): string | null {
     if (isCommandAvailable(cmd)) return cmd;
   }
   return null;
+}
+
+/**
+ * Focus a terminal window by title substring. Cross-platform.
+ * Returns true if a window was found and focused.
+ */
+export function focusWindowByTitle(title: string): boolean {
+  const platform = getPlatform();
+  try {
+    switch (platform) {
+      case 'windows':
+        // PowerShell: find window by title and bring to front
+        execFileSync('powershell', ['-NoProfile', '-Command', `
+          Add-Type @"
+          using System; using System.Runtime.InteropServices;
+          public class WinFocus {
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+            delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+            [DllImport("user32.dll", CharSet=CharSet.Auto)] static extern int GetWindowText(IntPtr h, System.Text.StringBuilder t, int c);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+            public static IntPtr Find(string title) {
+              IntPtr found = IntPtr.Zero;
+              EnumWindows((h, l) => {
+                if (!IsWindowVisible(h)) return true;
+                var sb = new System.Text.StringBuilder(256);
+                GetWindowText(h, sb, 256);
+                if (sb.ToString().Contains(title)) { found = h; return false; }
+                return true;
+              }, IntPtr.Zero);
+              return found;
+            }
+          }
+"@
+          $h = [WinFocus]::Find("${title}")
+          if ($h -ne [IntPtr]::Zero) { [WinFocus]::ShowWindow($h, 9); [WinFocus]::SetForegroundWindow($h); exit 0 }
+          exit 1
+        `], { stdio: 'pipe', timeout: 3000 });
+        return true;
+
+      case 'macos':
+        // AppleScript: search Terminal and iTerm2
+        execFileSync('osascript', ['-e', `
+          tell application "System Events"
+            set allProcs to every process whose visible is true
+            repeat with p in allProcs
+              try
+                set wins to every window of p
+                repeat with w in wins
+                  if name of w contains "${title}" then
+                    set frontmost of p to true
+                    perform action "AXRaise" of w
+                    return
+                  end if
+                end repeat
+              end try
+            end repeat
+          end tell
+        `], { stdio: 'pipe', timeout: 3000 });
+        return true;
+
+      case 'linux':
+        // Try wmctrl first, then xdotool
+        try {
+          execFileSync('wmctrl', ['-a', title], { stdio: 'pipe', timeout: 2000 });
+          return true;
+        } catch {
+          try {
+            const wid = execFileSync('xdotool', ['search', '--name', title], { stdio: 'pipe', timeout: 2000 }).toString().trim().split('\n')[0];
+            if (wid) {
+              execFileSync('xdotool', ['windowactivate', wid], { stdio: 'pipe', timeout: 2000 });
+              return true;
+            }
+          } catch { /* fallthrough */ }
+        }
+        return false;
+    }
+  } catch {
+    return false;
+  }
 }
 
 /**

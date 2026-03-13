@@ -8,8 +8,9 @@ import { launchClaude, openVSCode, buildIssueFixPrompt } from '../../core/launch
 import { openInExplorer } from '../../core/platform.js';
 import { trackSession } from '../../core/tracker.js';
 import { getHelpItemCount } from '../helpItems.js';
+import { getSettingsItemCount, toggleSetting } from '../components/SettingsPane.js';
 import type { SkillsData } from '../helpItems.js';
-import type { AppState, Project, Session, Issue, GitCommit } from '../../types.js';
+import type { AppState, Config, Project, Session, Issue, GitCommit } from '../../types.js';
 import type { AppDispatch } from './useAppState.js';
 
 const KONAMI = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right'];
@@ -25,6 +26,15 @@ interface UseKeyboardOptions {
   commits: GitCommit[];
   onLaunchFeedback?: (msg: string) => void;
   skillsData?: SkillsData;
+  fileTreeNodeCount?: number;
+  onFileExpand?: () => void;
+  onFileCollapse?: () => void;
+  onFileOpen?: () => void;
+  onStartScan?: () => void;
+  /** Number of active conversations for CONV_NAVIGATE maxIndex */
+  conversationCount?: number;
+  /** Callback when Enter is pressed on a conversation (focus its window) */
+  onFocusConversation?: () => void;
 }
 
 export function useKeyboard(opts: UseKeyboardOptions): void {
@@ -178,6 +188,31 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
+    // ── Settings editor ──────────────────────────────────
+    if (state.mode === 'settings') {
+      if (key.escape || input === ',') {
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      const maxSettings = Math.max(0, getSettingsItemCount(state.config) - 1);
+      if (input === 'j' || key.downArrow) {
+        dispatch({ type: 'SETTINGS_NAVIGATE', delta: 1, maxIndex: maxSettings });
+        return;
+      }
+      if (input === 'k' || key.upArrow) {
+        dispatch({ type: 'SETTINGS_NAVIGATE', delta: -1, maxIndex: maxSettings });
+        return;
+      }
+      if (key.return) {
+        const newConfig = toggleSetting(state.config, state.settingsIndex);
+        if (newConfig) {
+          dispatch({ type: 'SET_CONFIG', config: newConfig });
+        }
+        return;
+      }
+      return;
+    }
+
     // ── Welcome screen ───────────────────────────────────
     if (state.mode === 'welcome') {
       if (key.escape || input === 'q') {
@@ -230,6 +265,12 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
+    // Settings
+    if (input === ',') {
+      dispatch({ type: 'SET_MODE', mode: 'settings' });
+      return;
+    }
+
     // Filter
     if (input === '/') {
       dispatch({ type: 'SET_MODE', mode: 'filter' });
@@ -242,10 +283,13 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       const issueCount = issues.length;
       const commitCount = commits.length;
 
+      const fileNodeCount = opts.fileTreeNodeCount ?? 0;
+
       // Up/down: navigate within the active section
       if (input === 'j' || key.downArrow) {
         const max = state.detailSection === 'sessions' ? sessionCount - 1
           : state.detailSection === 'commits' ? commitCount - 1
+          : state.detailSection === 'files' ? fileNodeCount - 1
           : issueCount - 1;
         dispatch({ type: 'DETAIL_NAVIGATE', delta: 1, maxIndex: max });
         return;
@@ -253,12 +297,26 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       if (input === 'k' || key.upArrow) {
         const max = state.detailSection === 'sessions' ? sessionCount - 1
           : state.detailSection === 'commits' ? commitCount - 1
+          : state.detailSection === 'files' ? fileNodeCount - 1
           : issueCount - 1;
         dispatch({ type: 'DETAIL_NAVIGATE', delta: -1, maxIndex: max });
         return;
       }
-      // Left/right: cycle through 3 tabs (sessions → commits → issues)
-      const tabOrder: Array<'sessions' | 'commits' | 'issues'> = ['sessions', 'commits', 'issues'];
+
+      // File tree: right to expand, left to collapse, Enter to open
+      if (state.detailSection === 'files') {
+        if (key.rightArrow) {
+          opts.onFileExpand?.();
+          return;
+        }
+        if (key.leftArrow) {
+          opts.onFileCollapse?.();
+          return;
+        }
+      }
+
+      // Left/right: cycle through tabs (sessions → commits → issues → files)
+      const tabOrder: Array<'sessions' | 'commits' | 'issues' | 'files'> = ['sessions', 'commits', 'issues', 'files'];
       if (key.leftArrow) {
         const currentIdx = tabOrder.indexOf(state.detailSection);
         if (currentIdx <= 0) {
@@ -296,6 +354,8 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
           if (issueResult.success && issueResult.pid) {
             trackSession(issueResult.pid, selectedProject!.path);
           }
+        } else if (state.detailSection === 'files') {
+          opts.onFileOpen?.();
         }
         return;
       }
@@ -312,10 +372,59 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         dispatch({ type: 'DETAIL_SECTION', section: 'commits' });
         return;
       }
+      if (input === 'f') {
+        dispatch({ type: 'DETAIL_SECTION', section: 'files' });
+        return;
+      }
       if (key.escape || key.tab) {
         dispatch({ type: 'SET_FOCUS', pane: 'projects' });
         return;
       }
+    }
+
+    // Jump to conversations section (lowercase l)
+    if (input === 'l' && (opts.conversationCount ?? 0) > 0) {
+      dispatch({ type: 'SET_LEFT_SECTION', section: 'conversations' });
+      return;
+    }
+
+    // Conversations section navigation (inline in left pane)
+    if (state.leftSection === 'conversations' && state.focusPane === 'projects') {
+      const maxConv = Math.max(0, (opts.conversationCount ?? 0) - 1);
+      if (input === 'j' || key.downArrow) {
+        if (state.conversationIndex >= maxConv) {
+          // Cross boundary: move from last conversation → first project
+          dispatch({ type: 'SET_LEFT_SECTION', section: 'projects' });
+          dispatch({ type: 'SELECT_INDEX', index: 0 });
+        } else {
+          dispatch({ type: 'CONV_NAVIGATE', delta: 1, maxIndex: maxConv });
+        }
+        return;
+      }
+      if (input === 'k' || key.upArrow) {
+        dispatch({ type: 'CONV_NAVIGATE', delta: -1, maxIndex: maxConv });
+        return;
+      }
+      if (key.rightArrow || key.tab) {
+        dispatch({ type: 'CONV_EXPAND', expanded: true });
+        return;
+      }
+      if (key.return) {
+        opts.onFocusConversation?.();
+        return;
+      }
+      if (key.escape) {
+        if (state.expandedConversation) {
+          dispatch({ type: 'CONV_EXPAND', expanded: false });
+        } else {
+          dispatch({ type: 'SET_LEFT_SECTION', section: 'projects' });
+        }
+        return;
+      }
+      if (input === 'q') { exit(); return; }
+      if (input === '?') { dispatch({ type: 'SET_MODE', mode: 'help' }); return; }
+      if (input === ',') { dispatch({ type: 'SET_MODE', mode: 'settings' }); return; }
+      return;
     }
 
     // Navigation (projects pane)
@@ -324,6 +433,12 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
     if (input === 'k' || key.upArrow) {
+      // Cross boundary: at first project, go up to last conversation
+      const convCount = opts.conversationCount ?? 0;
+      if (state.selectedIndex === 0 && convCount > 0 && state.focusPane === 'projects') {
+        dispatch({ type: 'SET_LEFT_SECTION', section: 'conversations', convIndex: convCount - 1 });
+        return;
+      }
       dispatch({ type: 'NAVIGATE', delta: -1 });
       return;
     }
@@ -367,22 +482,17 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
-    // Actions (normal mode, projects pane)
-    if (state.focusPane === 'projects' && selectedProject) {
-      if (input === 'n') {
-        dispatch({ type: 'SET_MODE', mode: 'prompt' });
-        return;
-      }
-      if (input === 'c') {
-        onLaunchFeedback?.(`Continuing: ${selectedProject.name}...`);
-        const contResult = launchClaude({ projectPath: selectedProject.path });
-        if (contResult.success && contResult.pid) {
-          trackSession(contResult.pid, selectedProject.path);
-        }
-        return;
-      }
-      if (input === 'i') {
-        dispatch({ type: 'SET_FOCUS', pane: 'details' });
+    // New session prompt (works from either pane)
+    if (input === 'n' && selectedProject) {
+      dispatch({ type: 'SET_MODE', mode: 'prompt' });
+      return;
+    }
+
+    // Project actions (work from either pane when a project is selected)
+    if (selectedProject) {
+      if (input === 'o') {
+        const opened = openInExplorer(selectedProject.path);
+        onLaunchFeedback?.(opened ? `Opened: ${selectedProject.name}` : `Path not found: ${selectedProject.path}`);
         return;
       }
       if (input === 'p') {
@@ -393,17 +503,30 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         dispatch({ type: 'HIDE_PROJECT', index: state.selectedIndex });
         return;
       }
-      if (input === 'r') {
-        dispatch({ type: 'REFRESH_PROJECTS' });
+    }
+
+    // General actions (work from either pane)
+    if (input === 'r') {
+      dispatch({ type: 'REFRESH_PROJECTS' });
+      return;
+    }
+    if (input === 'S') {
+      opts.onStartScan?.();
+      return;
+    }
+
+    // Actions (projects pane only — these conflict with detail pane tab shortcuts)
+    if (state.focusPane === 'projects' && selectedProject) {
+      if (input === 'c') {
+        onLaunchFeedback?.(`Continuing: ${selectedProject.name}...`);
+        const contResult = launchClaude({ projectPath: selectedProject.path });
+        if (contResult.success && contResult.pid) {
+          trackSession(contResult.pid, selectedProject.path);
+        }
         return;
       }
-      if (input === 'o') {
-        const opened = openInExplorer(selectedProject.path);
-        onLaunchFeedback?.(opened ? `Opened: ${selectedProject.name}` : `Path not found: ${selectedProject.path}`);
-        return;
-      }
-      if (input === 'a') {
-        // TODO: prompt for path in filter bar
+      if (input === 'i') {
+        dispatch({ type: 'SET_FOCUS', pane: 'details' });
         return;
       }
     }

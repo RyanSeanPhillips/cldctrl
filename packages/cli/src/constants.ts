@@ -89,6 +89,56 @@ export const CHARS = {
   cross_char: '┼',
 } as const;
 
+// ── Conversation tab colors (for Windows Terminal tab coloring) ──
+
+/** Palette of distinct, readable tab colors for terminal windows */
+export const TAB_COLOR_PALETTE = [
+  '#e87632', // CLD orange
+  '#2dd4bf', // teal
+  '#388cff', // blue
+  '#a78bfa', // violet
+  '#f59e0b', // amber
+  '#ec4899', // pink
+  '#10b981', // emerald
+  '#f97316', // deep orange
+  '#6366f1', // indigo
+  '#14b8a6', // cyan
+] as const;
+
+/** Rotating counter — each launched conversation gets the next color */
+let _colorIndex = 0;
+
+/**
+ * Get the next conversation color (rotating through the palette).
+ * Each call advances the index, so concurrent conversations get distinct colors.
+ */
+export function nextConversationColor(): string {
+  const color = TAB_COLOR_PALETTE[_colorIndex % TAB_COLOR_PALETTE.length];
+  _colorIndex++;
+  return color;
+}
+
+/**
+ * Get a deterministic color for a project name (used for TUI dots).
+ */
+export function getProjectColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  return TAB_COLOR_PALETTE[Math.abs(hash) % TAB_COLOR_PALETTE.length];
+}
+
+// ── Utility formatters ─────────────────────────────────────
+
+export function formatDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
+}
+
 // ── Defaults ────────────────────────────────────────────────
 
 export const DEFAULTS = {

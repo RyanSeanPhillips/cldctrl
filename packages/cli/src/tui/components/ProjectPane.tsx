@@ -6,19 +6,13 @@ import React, { useRef } from 'react';
 import { Box, Text } from 'ink';
 import { formatGitStatus } from '../../core/git.js';
 import { formatTokenCount } from '../../core/sessions.js';
-import { INK_COLORS, CHARS } from '../../constants.js';
+import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pricing.js';
+import { isFeatureEnabled } from '../../config.js';
+import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
 import { usePulse } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
-
-function formatDuration(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
-}
-import type { Project, GitStatus, ActiveSession, DailyUsage, UsageStats } from '../../types.js';
+import type { Config, Project, GitStatus, ActiveSession, DailyUsage, UsageStats, UsageBudget, LeftSection } from '../../types.js';
 import type { ClaudeCommand, ClaudeSkill } from '../../core/skills.js';
 import type { CommandUsageCounts } from '../../core/command-usage.js';
 
@@ -34,10 +28,17 @@ interface ProjectPaneProps {
   loading?: boolean;
   activeProcesses?: Map<string, ActiveSession>;
   usageHistory?: DailyUsage[];
-  dailyBudget?: number;
   usageStats?: UsageStats;
+  usageBudget?: UsageBudget | null;
   skillsData?: { commands: ClaudeCommand[]; skills: ClaudeSkill[] };
   commandUsage?: CommandUsageCounts;
+  config?: Config;
+  /** Sorted active conversations (for inline conversations section) */
+  conversations?: ActiveSession[];
+  /** Selected conversation index */
+  conversationIndex?: number;
+  /** Which section of the left pane has the cursor */
+  leftSection?: LeftSection;
 }
 
 export const ProjectPane = React.memo(function ProjectPane({
@@ -52,14 +53,27 @@ export const ProjectPane = React.memo(function ProjectPane({
   loading,
   activeProcesses,
   usageHistory,
-  dailyBudget,
   usageStats,
   skillsData,
   commandUsage,
+  usageBudget,
+  config,
+  conversations,
+  conversationIndex,
+  leftSection,
 }: ProjectPaneProps) {
-  const pulse = usePulse(800);
+  const rawPulse = usePulse(800);
+  const pulse = config && !isFeatureEnabled(config, 'animations') ? true : rawPulse;
   // Persistent scroll offset — survives re-renders
   const scrollRef = useRef(0);
+  const convs = conversations ?? [];
+  const convIdx = conversationIndex ?? 0;
+  const inConvSection = leftSection === 'conversations';
+  // Rows used by conversations section (header + items + separator, or 0 if none)
+  const convSectionRows = convs.length > 0 ? Math.min(convs.length, 5) + 2 : 0;
+
+  // Feature flag helpers
+  const feat = (key: string) => !config || isFeatureEnabled(config, key);
 
   // Detect separator point between pinned and discovered
   let lastPinnedIdx = -1;
@@ -67,32 +81,67 @@ export const ProjectPane = React.memo(function ProjectPane({
     if (projects[i].pinned) lastPinnedIdx = i;
   }
 
-  // Subtract stats panel height when visible
-  const statsRows = height >= 25 && (usageHistory || usageStats || dailyBudget) ? 5 : 0;
+  // Subtract stats panel height when visible — count every conditional row
+  const showRateBars = feat('rate_limit_bars');
+  const showCalendar = feat('calendar_heatmap');
+  const showCostEstimates = feat('cost_estimates');
+  const showCodeStats = feat('code_stats');
+  const showCommands = feat('commands_section');
+  const hasStatsPanel = height >= 25 && (usageHistory || usageStats || usageBudget);
+  const hasExtraWarning = showRateBars && (usageBudget?.rateLimits?.usingExtraTokens ?? false);
+  const hasOverageBar = hasExtraWarning;
+  // Calendar: title(1) + header(1) + ~5 week rows = 7 (shown when height >= 30)
+  const calendarRows = showCalendar && usageHistory && usageHistory.length > 0 && height >= 30 ? 7 : 0;
+  // Code stats line (shown conditionally inside the stats section)
+  const codeStatsRow = showCodeStats ? 1 : 0;
+  const statsRows = hasStatsPanel
+    ? (usageBudget?.rateLimits && showRateBars
+      ? 1 + calendarRows + 1 + codeStatsRow + (hasExtraWarning ? 1 : 0) + 1 + (height >= 22 ? 1 : 0) + (hasOverageBar && height >= 24 ? 1 : 0) + (height >= 20 ? 1 : 0)
+      // separator(1) + calendarRows + stats(1) + codeStats(0-1) + extraWarn(0-1) + 5hBar(1) + 7dBar(0-1) + overageBar(0-1) + reset(0-1)
+      : 1 + calendarRows + 1 + codeStatsRow)
+      // separator(1) + calendarRows + stats(1) + codeStats(0-1)
+    : 0;
+  const innerBarWidth = Math.max(8, width - 6); // borders(2) + paddingX(2) + safety(2)
   // Reserve rows for commands section when visible (header + items + "+N more" + "? full list")
-  const cmdCount = skillsData ? skillsData.commands.length + skillsData.skills.length : 0;
+  const cmdCount = showCommands && skillsData ? skillsData.commands.length + skillsData.skills.length : 0;
   const cmdSectionRows = height >= 20 && cmdCount > 0
     ? Math.min(cmdCount + 3, Math.max(5, Math.floor((height - statsRows) * 0.3)))
     : 0;
-  const baseViewport = Math.max(1, height - 4 - statsRows - cmdSectionRows);
+  // height budget: border(2) + header(1) + scrollIndicators(up to 1) = 4 reserved
+  // Scroll indicators: we show at most 1 combined indicator line to avoid overflow
+  const baseViewport = Math.max(1, height - 4 - statsRows - cmdSectionRows - convSectionRows);
 
-  // Subtract extra rows for separators
+  // Two-pass scroll: first calculate scroll offset with baseViewport,
+  // then check if the separator falls within the actual visible range.
+  // The old code estimated separators using the stale scrollRef, which
+  // caused mismatches when scrolling moved past the separator boundary.
+  let scrollOffset = scrollRef.current;
+  if (selectedIndex >= scrollOffset + baseViewport) {
+    scrollOffset = selectedIndex - baseViewport + 1;
+  }
+  if (selectedIndex < scrollOffset) {
+    scrollOffset = selectedIndex;
+  }
+  scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, projects.length - baseViewport)));
+
+  // Now count separator rows in the actual visible range
   let extraRows = 0;
-  const estimatedEnd = Math.min(projects.length, scrollRef.current + baseViewport);
-  for (let i = scrollRef.current; i < estimatedEnd; i++) {
+  const visibleEnd = Math.min(projects.length, scrollOffset + baseViewport);
+  for (let i = scrollOffset; i < visibleEnd; i++) {
     if (i > 0 && i === lastPinnedIdx + 1 && projects[i].discovered) extraRows++;
   }
-  const viewportHeight = Math.max(1, baseViewport - extraRows);
+  // Reserve 1 row for scroll indicator if list is scrollable
+  const needsScrollIndicator = projects.length > baseViewport - extraRows;
+  const scrollReserve = needsScrollIndicator ? 1 : 0;
+  const viewportHeight = Math.max(1, baseViewport - extraRows - scrollReserve);
 
-  // Adjust scroll offset to keep selectedIndex visible
-  let scrollOffset = scrollRef.current;
+  // Re-adjust scroll offset with the correct viewport size
   if (selectedIndex >= scrollOffset + viewportHeight) {
     scrollOffset = selectedIndex - viewportHeight + 1;
   }
   if (selectedIndex < scrollOffset) {
     scrollOffset = selectedIndex;
   }
-  // Clamp to valid range
   scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, projects.length - viewportHeight)));
   scrollRef.current = scrollOffset;
 
@@ -124,6 +173,54 @@ export const ProjectPane = React.memo(function ProjectPane({
         {loading && <Text color={INK_COLORS.textDim}> ...</Text>}
       </Box>
 
+      {/* Inline conversations section */}
+      {convs.length > 0 && (
+        <Box flexDirection="column">
+          <Box paddingX={1}>
+            <Text color={INK_COLORS.textDim}>
+              {(() => {
+                const prefix = `${CHARS.separator.repeat(2)} Live (${convs.length}) `;
+                const remaining = Math.max(1, usableWidth - prefix.length);
+                return prefix + CHARS.separator.repeat(remaining);
+              })()}
+            </Text>
+          </Box>
+          {convs.slice(0, 5).map((session, i) => {
+            const isSelected = inConvSection && i === convIdx;
+            const isIdle = session.tracked && session.idle;
+            const dotColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
+            const parts = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
+            const name = parts[parts.length - 1] || '';
+            const dur = formatDuration(Date.now() - session.startTime.getTime());
+            const tok = formatTokenCount(session.stats.tokens);
+            // Fit within usableWidth: pointer(2) + dot(1) + space(1) + name + space(1) + dur + space(1) + tok
+            const fixedChars = 6 + dur.length + 1 + tok.length;
+            const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars));
+
+            return (
+              <Box key={session.projectPath} paddingX={1}>
+                <Text
+                  color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
+                  backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+                  bold={isSelected}
+                >
+                  {isSelected ? CHARS.pointer : ' '}{' '}
+                  <Text color={pulse ? dotColor : INK_COLORS.textDim}>{'●'}</Text>
+                  {' '}{name.slice(0, convNameWidth).padEnd(convNameWidth)}{' '}
+                  <Text color={INK_COLORS.textDim}>{dur} </Text>
+                  <Text color={INK_COLORS.accent}>{tok}</Text>
+                </Text>
+              </Box>
+            );
+          })}
+          <Box paddingX={1}>
+            <Text color={INK_COLORS.textDim}>
+              {CHARS.separator.repeat(Math.max(1, usableWidth))}
+            </Text>
+          </Box>
+        </Box>
+      )}
+
       {/* No matches message */}
       {projects.length === 0 && (
         <Box paddingX={1}>
@@ -153,16 +250,22 @@ export const ProjectPane = React.memo(function ProjectPane({
         if (activeSession) {
           const isIdle = activeSession.tracked && activeSession.idle;
           badgeColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
-          const action = activeSession.currentAction || (isIdle ? 'idle' : 'active');
+          let action = activeSession.currentAction || (isIdle ? 'idle' : 'active');
+          // Strip long file paths from action text — show only the filename
+          if (action.length > 20) {
+            const lastSep = Math.max(action.lastIndexOf('/'), action.lastIndexOf('\\'));
+            if (lastSep > 0) action = action.slice(0, action.indexOf(' ') + 1) + action.slice(lastSep + 1);
+          }
           const dur = formatDuration(Date.now() - activeSession.startTime.getTime());
           const tok = formatTokenCount(activeSession.stats.tokens);
           activeBadge = `${action} ${dur} ${tok}`;
         }
 
-        // When active, shrink name to make room for badge
+        // When active, shrink name to make room for badge (account for issue badge too)
+        const issueBadgeLen = issueCount > 0 ? 3 : 0; // " ⚠N"
         const badgeLen = activeBadge ? activeBadge.length + 3 : 0; // "● " + badge + " "
         const effectiveNameWidth = activeSession
-          ? Math.max(6, nameWidth - Math.max(0, badgeLen - gitWidth))
+          ? Math.max(6, nameWidth - Math.max(0, badgeLen + issueBadgeLen - gitWidth))
           : nameWidth;
 
         return (
@@ -186,7 +289,7 @@ export const ProjectPane = React.memo(function ProjectPane({
                   <>
                     <Text color={pulse ? badgeColor : INK_COLORS.textDim}>{'●'}</Text>
                     <Text color={INK_COLORS.textDim}>
-                      {' '}{activeBadge.slice(0, Math.max(4, usableWidth - effectiveNameWidth - 6))}{' '}
+                      {' '}{activeBadge.slice(0, Math.max(4, usableWidth - effectiveNameWidth - 6 - issueBadgeLen))}{' '}
                     </Text>
                   </>
                 )}
@@ -204,20 +307,19 @@ export const ProjectPane = React.memo(function ProjectPane({
         );
       })}
 
-      {/* Scroll indicators */}
-      {hasAbove && (
+      {/* Scroll indicator — single line to avoid overflow */}
+      {(hasAbove || hasBelow) && (
         <Box paddingX={1}>
-          <Text color={INK_COLORS.textDim}>{CHARS.arrow_up} more above</Text>
-        </Box>
-      )}
-      {hasBelow && (
-        <Box paddingX={1}>
-          <Text color={INK_COLORS.textDim}>{CHARS.arrow_down} more below</Text>
+          <Text color={INK_COLORS.textDim}>
+            {hasAbove ? `${CHARS.arrow_up} ${scrollOffset} above` : ''}
+            {hasAbove && hasBelow ? '  ' : ''}
+            {hasBelow ? `${CHARS.arrow_down} ${projects.length - scrollOffset - viewportHeight} below` : ''}
+          </Text>
         </Box>
       )}
 
       {/* Commands summary */}
-      {height >= 20 && skillsData && (skillsData.commands.length + skillsData.skills.length) > 0 && (() => {
+      {showCommands && height >= 20 && skillsData && (skillsData.commands.length + skillsData.skills.length) > 0 && (() => {
         const allCmds = skillsData.commands;
         const innerWidth = Math.max(10, width - 4);
         // How many command rows we can fit (leave 3 for header + "+N more" + "? full list")
@@ -241,7 +343,7 @@ export const ProjectPane = React.memo(function ProjectPane({
         return (
           <Box flexDirection="column" marginTop={1} paddingX={1}>
             <Text color={INK_COLORS.textDim}>
-              {CHARS.separator.repeat(3)} Commands {CHARS.separator.repeat(Math.max(1, innerWidth - 12))}
+              {CHARS.separator.repeat(3)} Commands {CHARS.separator.repeat(Math.max(1, innerWidth - 13))}
             </Text>
             {sorted.slice(0, maxCmds).map(c => {
               const uses = commandUsage?.[c.name] ?? 0;
@@ -266,8 +368,8 @@ export const ProjectPane = React.memo(function ProjectPane({
       })()}
 
       {/* Bottom stats panel */}
-      {height >= 25 && (usageHistory || usageStats || dailyBudget) && (
-        <Box flexDirection="column" flexGrow={1} justifyContent="flex-end">
+      {height >= 25 && (usageHistory || usageStats || usageBudget) && (
+        <Box flexDirection="column">
           <Box paddingX={1}>
             <Text color={INK_COLORS.textDim}>
               {CHARS.separator.repeat(Math.max(1, width - 4))}
@@ -275,7 +377,7 @@ export const ProjectPane = React.memo(function ProjectPane({
           </Box>
 
           {/* Calendar heatmap (hide if height < 25) */}
-          {usageHistory && usageHistory.length > 0 && height >= 30 && (
+          {showCalendar && usageHistory && usageHistory.length > 0 && height >= 30 && (
             <Box paddingX={1}>
               <CalendarHeatmap
                 title="Usage"
@@ -286,23 +388,93 @@ export const ProjectPane = React.memo(function ProjectPane({
             </Box>
           )}
 
-          {/* Today's stats */}
-          {usageStats && height >= 18 && (
+          {/* Session stats line */}
+          {usageStats && height >= 18 && (() => {
+            // Today's code stats from usage history
+            const today = new Date().toISOString().slice(0, 10);
+            const todayData = usageHistory?.find(d => d.date === today);
+            const hasCode = showCodeStats && todayData && ((todayData.additions ?? 0) > 0 || (todayData.deletions ?? 0) > 0);
+            const dailyCost = showCostEstimates && isCostRelevant() && usageStats.tokens > 0 ? formatCost(estimateCostBlended(usageStats.tokens)) : '';
+
+            return (
+              <Box paddingX={1} flexDirection="column">
+                <Text color={INK_COLORS.textDim}>
+                  {usageStats.messages} msgs {CHARS.bullet} {formatTokenCount(usageStats.tokens)} tok
+                  {dailyCost ? ` ${CHARS.bullet} ~${dailyCost}` : ''}
+                  {usageBudget?.tierLabel ? ` ${CHARS.bullet} ${usageBudget.tierLabel}` : ''}
+                </Text>
+                {hasCode && (
+                  <Text>
+                    <Text color={INK_COLORS.green}>+{todayData!.additions}</Text>
+                    <Text color={INK_COLORS.red}> -{todayData!.deletions}</Text>
+                    <Text color={INK_COLORS.textDim}> lines today</Text>
+                  </Text>
+                )}
+              </Box>
+            );
+          })()}
+
+          {/* Extra tokens warning */}
+          {showRateBars && usageBudget?.rateLimits?.usingExtraTokens && (
             <Box paddingX={1}>
-              <Text color={INK_COLORS.textDim}>
-                {usageStats.messages} msgs {CHARS.bullet} {formatTokenCount(usageStats.tokens)} tok
+              <Text color={INK_COLORS.yellow}>
+                {CHARS.warning} Using extra tokens (paid)
               </Text>
             </Box>
           )}
 
-          {/* Budget progress bar */}
-          {dailyBudget && usageStats && (
+          {/* 5-hour usage bar */}
+          {showRateBars && usageBudget?.rateLimits && (
             <Box paddingX={1}>
               <ProgressBar
-                percent={(usageStats.tokens / dailyBudget) * 100}
-                width={Math.max(8, width - 6)}
-                label="Budget"
+                percent={usageBudget.rateLimits.fiveHourPercent}
+                width={Math.max(8, innerBarWidth)}
+                label="5h"
               />
+            </Box>
+          )}
+          {/* Fallback: estimated budget bar (when no live data) */}
+          {showRateBars && usageBudget && !usageBudget.rateLimits && usageBudget.limit > 0 && usageStats && (
+            <Box paddingX={1}>
+              <ProgressBar
+                percent={usageBudget.percent}
+                width={Math.max(8, innerBarWidth)}
+                label={usageBudget.tierLabel || 'Budget'}
+              />
+            </Box>
+          )}
+
+          {/* 7-day usage bar */}
+          {showRateBars && usageBudget?.rateLimits && height >= 22 && (
+            <Box paddingX={1}>
+              <ProgressBar
+                percent={usageBudget.rateLimits.sevenDayPercent}
+                width={Math.max(8, innerBarWidth)}
+                label="7d"
+              />
+            </Box>
+          )}
+
+          {/* Extra tokens (overage) bar — only when actively using paid credits */}
+          {showRateBars && usageBudget?.rateLimits?.usingExtraTokens && height >= 24 && (
+            <Box paddingX={1}>
+              <ProgressBar
+                percent={usageBudget.rateLimits.overagePercent}
+                width={Math.max(8, innerBarWidth)}
+                label="Extra"
+              />
+            </Box>
+          )}
+
+          {/* Reset times */}
+          {showRateBars && usageBudget?.rateLimits && height >= 20 && (
+            <Box paddingX={1}>
+              <Text color={INK_COLORS.textDim}>
+                resets {usageBudget.rateLimits.fiveHourResetIn}
+                {usageBudget.rateLimits.overageEnabled && usageBudget.rateLimits.overageResetIn
+                  ? ` ${CHARS.bullet} extra resets ${usageBudget.rateLimits.overageResetIn}`
+                  : ''}
+              </Text>
             </Box>
           )}
         </Box>

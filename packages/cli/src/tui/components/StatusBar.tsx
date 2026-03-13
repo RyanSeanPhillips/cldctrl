@@ -1,12 +1,13 @@
 /**
- * Bottom bar: keyboard hints + daily usage stats.
+ * Bottom bar: keyboard hints + animated daily usage stats + tier badge + rate limits.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import { formatTokenCount } from '../../core/sessions.js';
+import { useAnimatedCounter } from '../hooks/useAnimations.js';
 import { INK_COLORS } from '../../constants.js';
-import type { UsageStats } from '../../types.js';
+import type { UsageStats, UsageBudget } from '../../types.js';
 
 interface StatusBarProps {
   mode: string;
@@ -14,10 +15,16 @@ interface StatusBarProps {
   width: number;
   focusPane?: string;
   launchMsg?: string;
-  dailyBudget?: number;
+  usageBudget?: UsageBudget | null;
+  scanning?: boolean;
+  leftPaneMode?: string;
 }
 
-export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, dailyBudget }: StatusBarProps) {
+export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, leftPaneMode }: StatusBarProps) {
+  // Animated counters — count up smoothly when stats change
+  const animatedTokens = useAnimatedCounter(stats?.tokens ?? 0, 1500);
+  const animatedMessages = useAnimatedCounter(stats?.messages ?? 0, 800);
+
   // Show launch feedback when present, otherwise normal hints
   if (launchMsg) {
     return (
@@ -32,44 +39,50 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
       ? 'Type to filter | Enter:select | Esc:cancel'
       : mode === 'prompt'
         ? 'Type prompt | Enter:launch | Esc:cancel'
-        : focusPane === 'details'
-          ? 'j/k:nav sessions  Enter:resume  Esc:back  q:quit'
-          : 'j/k:nav  /:filter  n:new+prompt  Enter:launch  o:folder  p:pin  ?:help  q:quit';
+        : leftPaneMode === 'conversations'
+          ? 'j/k:nav  Enter:focus  Tab:expand  Esc:projects  ?:help  q:quit'
+          : focusPane === 'details'
+            ? 'j/k:nav sessions  Enter:resume  Esc:back  q:quit'
+            : 'j/k:nav /:filter n:new Enter:launch l:live ,:settings ?:help q:quit';
 
-  const showBudgetBar = stats && dailyBudget && dailyBudget > 0;
-  const budget = dailyBudget ?? 0;
+  // Compact right-side: [Tier] X% or basic stats (full bars live in ProjectPane)
+  const hasLiveData = usageBudget?.rateLimits != null;
+  const hasBudget = usageBudget && usageBudget.limit > 0;
 
-  const statsStr = stats
-    ? `${stats.messages} msgs · ${formatTokenCount(stats.tokens)} tok`
-    : '';
+  let rightSide = '';
+  let rightColor: string = INK_COLORS.accent;
+  let tierPrefix = '';
 
-  // Build compact budget bar: ██████░░ 62%
-  let budgetBar = '';
-  let budgetColor = INK_COLORS.green;
-  if (showBudgetBar) {
-    const percent = Math.max(0, Math.min(100, (stats.tokens / budget) * 100));
-    const barWidth = 8;
-    const filled = Math.round((percent / 100) * barWidth);
-    budgetBar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
-    budgetColor = percent >= 90 ? INK_COLORS.red : percent >= 70 ? INK_COLORS.yellow : INK_COLORS.green;
-    const pctStr = `${Math.round(percent)}%`;
-
-    return (
-      <Box width={width} paddingX={1} justifyContent="space-between">
-        <Text color={INK_COLORS.textDim}>{hints}</Text>
-        <Text>
-          <Text color={budgetColor}>{budgetBar}</Text>
-          <Text color={INK_COLORS.textDim}> {pctStr} · </Text>
-          <Text color={INK_COLORS.accent}>{statsStr}</Text>
-        </Text>
-      </Box>
-    );
+  if (hasBudget && hasLiveData) {
+    const pct = Math.round(usageBudget.percent);
+    const extraTag = usageBudget.rateLimits!.usingExtraTokens ? ' · EXTRA' : '';
+    rightSide = `5h:${Math.round(usageBudget.rateLimits!.fiveHourPercent)}%  7d:${Math.round(usageBudget.rateLimits!.sevenDayPercent)}%${extraTag}`;
+    rightColor = usageBudget.rateLimits!.usingExtraTokens ? INK_COLORS.yellow
+      : pct >= 90 ? INK_COLORS.red : pct >= 70 ? INK_COLORS.yellow : INK_COLORS.accent;
+    if (usageBudget.tierLabel) tierPrefix = `[${usageBudget.tierLabel}] `;
+  } else if (hasBudget) {
+    const pct = Math.round(usageBudget.percent);
+    rightSide = `${pct}% · ${animatedMessages} msgs · ${formatTokenCount(animatedTokens)} tok`;
+    rightColor = pct >= 90 ? INK_COLORS.red : pct >= 70 ? INK_COLORS.yellow : INK_COLORS.accent;
+    if (usageBudget.tierLabel) tierPrefix = `[${usageBudget.tierLabel}] `;
+  } else if (stats) {
+    rightSide = `${animatedMessages} msgs · ${formatTokenCount(animatedTokens)} tok`;
   }
+
+  // Truncate hints if they'd overlap with rightSide
+  const rightLen = rightSide ? tierPrefix.length + rightSide.length + 2 : 0;
+  const maxHintLen = Math.max(10, width - 2 - rightLen);
+  const displayHints = hints.length > maxHintLen ? hints.slice(0, maxHintLen - 1) + '…' : hints;
 
   return (
     <Box width={width} paddingX={1} justifyContent="space-between">
-      <Text color={INK_COLORS.textDim}>{hints}</Text>
-      {statsStr && <Text color={INK_COLORS.accent}>{statsStr}</Text>}
+      <Text color={INK_COLORS.textDim}>{displayHints}</Text>
+      {rightSide && (
+        <Text>
+          {tierPrefix && <Text color={INK_COLORS.blue}>{tierPrefix}</Text>}
+          <Text color={rightColor}>{rightSide}</Text>
+        </Text>
+      )}
     </Box>
   );
 });

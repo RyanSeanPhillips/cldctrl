@@ -11,6 +11,7 @@ import spawn from 'cross-spawn';
 import { getPlatform, isCommandAvailable, isInTmux, detectLinuxTerminal, pathIsSafe } from './platform.js';
 import { trackSession } from './tracker.js';
 import { log } from './logger.js';
+import { nextConversationColor } from '../constants.js';
 
 // ── Input validation ────────────────────────────────────────
 
@@ -184,17 +185,34 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
 
     switch (platform) {
       case 'windows': {
-        const child = spawn.spawn('cmd', ['/k', scriptPath], {
-          detached: true,
-          stdio: 'ignore',
-          env,
-        });
+        // Use Windows Terminal (wt.exe) with tab color when available
+        const useWt = isCommandAvailable('wt');
+        let child;
+        if (useWt) {
+          const color = nextConversationColor();
+          const projectName = path.basename(opts.projectPath);
+          child = spawn.spawn('wt', [
+            '--tabColor', color,
+            '--title', `CLD | ${projectName}`,
+            'cmd', '/k', scriptPath,
+          ], {
+            detached: true,
+            stdio: 'ignore',
+            env,
+          });
+        } else {
+          child = spawn.spawn('cmd', ['/k', scriptPath], {
+            detached: true,
+            stdio: 'ignore',
+            env,
+          });
+        }
         const pid = child.pid;
         child.unref();
         cleanupTempScript(scriptPath);
 
-        log('launch', { method: 'cmd', path: opts.projectPath });
-        return { success: true, message: 'Launched in new cmd window', pid };
+        log('launch', { method: useWt ? 'wt' : 'cmd', path: opts.projectPath });
+        return { success: true, message: `Launched in ${useWt ? 'Windows Terminal' : 'cmd'}`, pid };
       }
 
       case 'macos': {

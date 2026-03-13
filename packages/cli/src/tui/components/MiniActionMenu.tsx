@@ -1,6 +1,6 @@
 /**
  * Mini TUI: action menu for selected project.
- * Shows Launch, New, Sessions, Issues, Open folder, VS Code.
+ * Shows Launch, New, Sessions, Open folder, VS Code.
  */
 
 import React from 'react';
@@ -14,7 +14,7 @@ export interface ActionItem {
   drillable?: boolean; // shows → arrow
 }
 
-export function buildActions(sessionCount: number, issueCount: number): ActionItem[] {
+export function buildActions(sessionCount: number): ActionItem[] {
   const items: ActionItem[] = [
     { id: 'launch', label: sessionCount > 0 ? 'Launch (continue last)' : 'Launch (new session)' },
     { id: 'new', label: 'New session' },
@@ -22,12 +22,8 @@ export function buildActions(sessionCount: number, issueCount: number): ActionIt
   if (sessionCount > 0) {
     items.push({ id: 'sessions', label: `Sessions (${sessionCount})`, drillable: true });
   }
-  if (issueCount > 0) {
-    items.push({ id: 'issues', label: `Issues (${issueCount})`, drillable: true });
-  }
   items.push({ id: 'folder', label: 'Open folder' });
   items.push({ id: 'vscode', label: 'Open in VS Code' });
-  items.push({ id: 'full', label: 'Open full CLD CTRL' });
   return items;
 }
 

@@ -53,11 +53,15 @@ export function MatrixGlitch({ width, height, active }: MatrixGlitchProps) {
       let x: number;
       do { x = Math.floor(Math.random() * width); } while (usedX.has(x));
       usedX.add(x);
+      // Random start row anywhere in the viewport (not always from top)
+      const startRow = Math.floor(Math.random() * height);
+      // Random trail length: 2 to ~40% of height
+      const trailLen = 2 + Math.floor(Math.random() * Math.max(2, height * 0.4));
       cols.push({
         x,
-        head: -Math.floor(Math.random() * 5),
+        head: startRow,
         speed: 1 + Math.random() * 0.5,
-        length: 4 + Math.floor(Math.random() * 8),
+        length: trailLen,
       });
     }
     columnsRef.current = cols;
@@ -83,7 +87,7 @@ export function MatrixGlitch({ width, height, active }: MatrixGlitchProps) {
       }
 
       setDrops(visible);
-    }, 80);
+    }, 150);
 
     return () => clearInterval(timer);
   }, [active, width, height]);
@@ -119,6 +123,7 @@ export function MatrixGlitch({ width, height, active }: MatrixGlitchProps) {
 export function useMatrixGlitch(): boolean {
   const [active, setActive] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const innerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     function scheduleNext() {
@@ -128,7 +133,7 @@ export function useMatrixGlitch(): boolean {
         setActive(true);
         // Glitch lasts 2–3 seconds
         const duration = 2000 + Math.random() * 1000;
-        setTimeout(() => {
+        innerTimeoutRef.current = setTimeout(() => {
           setActive(false);
           scheduleNext();
         }, duration);
@@ -139,6 +144,7 @@ export function useMatrixGlitch(): boolean {
 
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (innerTimeoutRef.current) clearTimeout(innerTimeoutRef.current);
     };
   }, []);
 
