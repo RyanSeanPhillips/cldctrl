@@ -297,7 +297,7 @@ export const ProjectPane = React.memo(function ProjectPane({
         // Small indicator: ✶ for active, ○ for idle, space for none
         const isActiveSession = activeSession && !activeSession.idle;
         const sessionIndicator = activeSession
-          ? (isActiveSession ? '✶' : '○')
+          ? (isActiveSession ? '●' : '○')
           : ' ';
         const indicatorColor = isActiveSession ? INK_COLORS.green : INK_COLORS.textDim;
 
