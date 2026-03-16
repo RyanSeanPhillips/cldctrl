@@ -322,11 +322,18 @@ export function buildProjectList(config: Config): Project[] {
   }
 
   // Add indexed projects (from previous filesystem scans) — these may not have Claude sessions yet
+  // Skip entries that are subdirectories of already-seen projects (stale index data)
   const indexed = readProjectIndex();
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
+    // Skip if this path is a child of an already-seen project
+    let isSubdir = false;
+    for (const seen of seenPaths) {
+      if (key.startsWith(seen + path.sep.toLowerCase())) { isSubdir = true; break; }
+    }
+    if (isSubdir) continue;
     seenPaths.add(key);
 
     let displayName: string;
@@ -402,11 +409,17 @@ export function buildProjectListFast(config: Config): Project[] {
   }
 
   // Add indexed projects (from previous filesystem scans)
+  // Skip entries that are subdirectories of already-seen projects
   const indexed = readProjectIndex();
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
+    let isSubdir = false;
+    for (const seen of seenPaths) {
+      if (key.startsWith(seen + path.sep.toLowerCase())) { isSubdir = true; break; }
+    }
+    if (isSubdir) continue;
     seenPaths.add(key);
 
     const displayName = nameCache[entry.path] ?? entry.name;
