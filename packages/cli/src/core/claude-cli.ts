@@ -35,6 +35,8 @@ export function runClaudePrint(prompt: string, timeout = 60_000): Promise<string
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      // Restore tab title — Windows Terminal changes it to "claude" while the child runs
+      process.stdout.write('\x1b]0;CLD CTRL\x07');
       if (code === 0) resolve(stdout.trim());
       else reject(new Error(`claude --print failed (code ${code}): ${stderr}`));
     });
