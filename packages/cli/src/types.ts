@@ -278,4 +278,5 @@ export interface AppState {
   leftSection: LeftSection;  // which section of the left pane has the cursor
   conversationIndex: number;  // selected conversation in conversations section
   expandedConversation: boolean;  // true = show single conversation detail in right pane
+  showHidden: boolean;  // true = include hidden projects in the project list
 }

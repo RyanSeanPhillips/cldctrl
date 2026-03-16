@@ -158,7 +158,8 @@ function App() {
   const usageBudget = useUsageBudget(usageStats, state.config.daily_budget_tokens, windowedUsage);
 
   // New hooks — use settledPath for expensive per-project data fetching
-  const { map: activeProcesses, allSessions, totalCount: liveSessionCount } = useActiveProcesses(filteredProjects);
+  const { map: activeProcesses, allSessions, totalCount: totalSessionCount } = useActiveProcesses(filteredProjects, state.config.hidden_projects);
+  const liveSessionCount = useMemo(() => allSessions.filter(s => !s.idle).length, [allSessions]);
   const commits = useRecentCommits(settledPath);
   const commitActivity = useCommitActivity(settledPath);
   const usageHistory = useUsageHistory();
@@ -206,12 +207,22 @@ function App() {
 
   // Auto-add projects when a new active session appears for an unknown path.
   // This ensures projects launched outside cldctrl show up in real-time.
+  // Also auto-unhides hidden projects that have active sessions.
+  // Uses projectsRef to avoid stale closure over state.projects.
   useEffect(() => {
     if (isDemoMode() || allSessions.length === 0) return;
-    const knownPaths = new Set(state.projects.map(p => normalizePathForCompare(p.path)));
-    const newProjects: typeof state.projects = [];
+    const currentProjects = projectsRef.current;
+    const knownPaths = new Set(currentProjects.map(p => normalizePathForCompare(p.path)));
+    const hiddenSet = new Set(configRef.current.hidden_projects.map(p => normalizePathForCompare(p)));
+    const newProjects: typeof currentProjects = [];
+    const unhidePaths: string[] = [];
     for (const s of allSessions) {
       const key = normalizePathForCompare(s.projectPath);
+      // Auto-unhide: active session for a hidden project
+      if (hiddenSet.has(key)) {
+        unhidePaths.push(s.projectPath);
+        hiddenSet.delete(key); // avoid duplicates
+      }
       if (knownPaths.has(key)) continue;
       knownPaths.add(key); // avoid duplicates within the batch
       let name: string;
@@ -224,8 +235,11 @@ function App() {
         discovered: true,
       });
     }
+    if (unhidePaths.length > 0) {
+      dispatch({ type: 'UNHIDE_PATHS', paths: unhidePaths });
+    }
     if (newProjects.length > 0) {
-      dispatch({ type: 'SET_PROJECTS', projects: [...state.projects, ...newProjects] });
+      dispatch({ type: 'SET_PROJECTS', projects: [...currentProjects, ...newProjects] });
     }
   }, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -440,8 +454,9 @@ function App() {
   const sortedConversations = useMemo(() => {
     const mapWinner = settledProject ? enrichedProcesses.get(settledProject.path) : undefined;
     const enriched = allSessions.map(s => {
-      // Replace the session that matches the map winner (same PID) with enriched version
-      if (mapWinner && s.pid === mapWinner.pid && s.projectPath === mapWinner.projectPath) {
+      // Replace the session that matches the map winner with enriched version.
+      // Match on sessionId (not pid — mtime-detected sessions all have pid=0)
+      if (mapWinner && s.sessionId === mapWinner.sessionId && s.projectPath === mapWinner.projectPath) {
         return mapWinner;
       }
       return s;
@@ -558,10 +573,12 @@ function App() {
           {'  '}<Text bold color={INK_COLORS.accent}>CLD</Text><Text bold color={INK_COLORS.accentLight}> CTRL</Text>
         </Text>
         <Box>
-          {liveSessionCount > 0 && (
+          {totalSessionCount > 0 && (
             <Text>
               <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim} bold>● </Text>
-              <Text color={INK_COLORS.text}>{liveSessionCount} live</Text>
+              {liveSessionCount > 0 && <Text color={INK_COLORS.text}>{liveSessionCount} live</Text>}
+              {liveSessionCount > 0 && totalSessionCount > liveSessionCount && <Text color={INK_COLORS.textDim}> · </Text>}
+              {totalSessionCount > liveSessionCount && <Text color={INK_COLORS.textDim}>{totalSessionCount - liveSessionCount} idle</Text>}
               <Text color={INK_COLORS.textDim}>  </Text>
             </Text>
           )}

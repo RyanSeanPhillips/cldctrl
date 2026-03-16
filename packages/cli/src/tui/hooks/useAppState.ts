@@ -47,7 +47,9 @@ type Action =
   | { type: 'CONV_NAVIGATE'; delta: number; maxIndex: number }
   | { type: 'CONV_EXPAND'; expanded: boolean }
   | { type: 'SETTINGS_TAB'; tab: 'general' | 'permissions' }
-  | { type: 'PERMISSIONS_NAVIGATE'; delta: number; maxIndex: number };
+  | { type: 'PERMISSIONS_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'TOGGLE_SHOW_HIDDEN' }
+  | { type: 'UNHIDE_PATHS'; paths: string[] };
 
 // Track pending config saves (side-effect-free reducer)
 let pendingConfigSave: Config | null = null;
@@ -172,6 +174,21 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, config, projects, selectedIndex: Math.max(0, newIdx) };
     }
 
+    case 'TOGGLE_SHOW_HIDDEN':
+      return { ...state, showHidden: !state.showHidden };
+
+    case 'UNHIDE_PATHS': {
+      if (action.paths.length === 0) return state;
+      const lower = new Set(action.paths.map(p => p.toLowerCase()));
+      const config = { ...state.config };
+      config.hidden_projects = config.hidden_projects.filter(
+        p => !lower.has(p.toLowerCase())
+      );
+      pendingConfigSave = config;
+      pendingConfigRevision++;
+      return { ...state, config };
+    }
+
     case 'REFRESH_PROJECTS': {
       const projects = buildProjectListFast(state.config);
       return { ...state, projects };
@@ -271,6 +288,7 @@ function initState(): AppState {
       leftSection: 'projects',
       conversationIndex: 0,
       expandedConversation: false,
+      showHidden: false,
     };
   }
   const { config, isNew } = loadConfig();
@@ -297,6 +315,7 @@ function initState(): AppState {
     leftSection: 'projects',
     conversationIndex: 0,
     expandedConversation: false,
+    showHidden: false,
   };
 }
 

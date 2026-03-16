@@ -42,7 +42,7 @@ export const ActiveBadge = React.memo(function ActiveBadge({
 
   const tokenStr = formatTokenCount(session.stats.tokens);
 
-  const isIdle = session.tracked && session.idle;
+  const isIdle = !!session.idle;
   const isThinking = !isIdle && !!session.currentAction;
   const pulse = usePulse(800);
   const spinner = useSpinner(isThinking);

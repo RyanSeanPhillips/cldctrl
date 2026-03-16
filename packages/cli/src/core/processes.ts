@@ -19,8 +19,11 @@ import { readSessionMarkers } from './launcher.js';
 import { getTrackedSessions, isProcessRunning } from './tracker.js';
 import type { ActiveSession, SessionActivity } from '../types.js';
 
-/** How recently a JSONL must have been modified to count as "active" (mtime fallback) */
-const ACTIVE_THRESHOLD_MS = 5 * 60_000; // 5 minutes
+/** How recently a JSONL must have been modified to appear in conversations list */
+const ACTIVE_THRESHOLD_MS = 5 * 60 * 60_000; // 5 hours (matches rate limit window)
+
+/** Threshold for marking a session as "idle" (still shown, but dimmed) */
+const IDLE_THRESHOLD_MS = 5 * 60_000; // 5 minutes
 
 const EMPTY_ACTIVITY: SessionActivity = {
   messages: 0,
@@ -62,7 +65,7 @@ export async function getActiveClaudeProcesses(
       // Find the JSONL file for this session
       const recentFiles = getRecentSessionFiles(m.projectPath, now - m.launchTime + 60_000);
       const sessionFile = recentFiles.find(f => !claimedFiles.has(f.filePath)) ?? recentFiles[0] ?? null;
-      const isRecentJsonl = sessionFile && (now - sessionFile.mtimeMs) < ACTIVE_THRESHOLD_MS;
+      const isRecentJsonl = sessionFile && (now - sessionFile.mtimeMs) < IDLE_THRESHOLD_MS;
 
       if (sessionFile) claimedFiles.add(sessionFile.filePath);
 
@@ -94,7 +97,7 @@ export async function getActiveClaudeProcesses(
 
       const recentFiles = getRecentSessionFiles(t.projectPath, ACTIVE_THRESHOLD_MS);
       const sessionFile = recentFiles.find(f => !claimedFiles.has(f.filePath)) ?? recentFiles[0] ?? null;
-      const isRecentJsonl = sessionFile && (now - sessionFile.mtimeMs) < ACTIVE_THRESHOLD_MS;
+      const isRecentJsonl = sessionFile && (now - sessionFile.mtimeMs) < IDLE_THRESHOLD_MS;
 
       if (sessionFile) claimedFiles.add(sessionFile.filePath);
 
@@ -123,21 +126,24 @@ export async function getActiveClaudeProcesses(
       const recentFiles = getRecentSessionFiles(projPath, ACTIVE_THRESHOLD_MS);
       if (recentFiles.length === 0) continue;
 
-      const newest = recentFiles.find(f => !claimedFiles.has(f.filePath)) ?? recentFiles[0];
-      if (!newest) continue;
+      for (const file of recentFiles) {
+        if (claimedFiles.has(file.filePath)) continue;
+        claimedFiles.add(file.filePath);
 
-      const age = now - newest.mtimeMs;
-      const isIdle = age > 30_000;
+        const age = now - file.mtimeMs;
+        const isIdle = age > IDLE_THRESHOLD_MS;
 
-      sessions.push({
-        pid: 0,
-        sessionId: newest.sessionId,
-        projectPath: projPath,
-        startTime: new Date(newest.mtimeMs),
-        lastActivity: new Date(newest.mtimeMs),
-        stats: { ...EMPTY_ACTIVITY },
-        idle: isIdle,
-      });
+        sessions.push({
+          pid: 0,
+          sessionId: file.sessionId,
+          sessionFilePath: file.filePath,
+          projectPath: projPath,
+          startTime: new Date(file.mtimeMs),
+          lastActivity: new Date(file.mtimeMs),
+          stats: { ...EMPTY_ACTIVITY },
+          idle: isIdle,
+        });
+      }
     } catch (err) {
       log('error', { function: 'getActiveClaudeProcesses', message: String(err) });
     }

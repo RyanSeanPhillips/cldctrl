@@ -303,6 +303,12 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
+    // Toggle hidden projects
+    if (input === 'H') {
+      dispatch({ type: 'TOGGLE_SHOW_HIDDEN' });
+      return;
+    }
+
     // Help
     if (input === '?') {
       dispatch({ type: 'SET_MODE', mode: 'help' });

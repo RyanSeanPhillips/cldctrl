@@ -74,7 +74,7 @@ export const ConversationPane = React.memo(function ConversationPane({
       {/* Conversation list */}
       {visibleConversations.map((session, i) => {
         const isSelected = i === selectedIndex;
-        const isIdle = session.tracked && session.idle;
+        const isIdle = !!session.idle;
         const dotColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
         const name = projectName(session.projectPath);
         const action = session.currentAction || (isIdle ? 'idle' : 'active');

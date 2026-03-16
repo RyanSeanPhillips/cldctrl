@@ -518,11 +518,13 @@ export function useRateLimits(): RateLimitInfo | null {
 // ── Active processes ─────────────────────────────────────────
 
 export function useActiveProcesses(
-  projects: Project[]
+  projects: Project[],
+  hiddenPaths: string[] = [],
 ): { map: Map<string, ActiveSession>; allSessions: ActiveSession[]; totalCount: number } {
   const demo = isDemoMode();
-  const pathsRef = useRef(projects.map(p => p.path));
-  pathsRef.current = projects.map(p => p.path);
+  // Include hidden project paths so mtime detection can find externally-launched sessions
+  const pathsRef = useRef([...projects.map(p => p.path), ...hiddenPaths]);
+  pathsRef.current = [...projects.map(p => p.path), ...hiddenPaths];
 
   // Keep a stable reference to the previous result to avoid unnecessary re-renders
   const prevResultRef = useRef<{ map: Map<string, ActiveSession>; allSessions: ActiveSession[]; totalCount: number } | null>(null);
@@ -562,10 +564,15 @@ export function useActiveProcesses(
       const prev = prevResultRef.current;
       if (prev && prev.totalCount === next.totalCount) {
         let same = true;
+        // Build lookup map for O(n) comparison (instead of O(n²) .find() loop)
+        const prevMap = new Map<string, ActiveSession>();
+        for (const s of prev.allSessions) {
+          prevMap.set(`${s.sessionId}:${s.projectPath}`, s);
+        }
         // Compare all sessions (not just the deduped map) so multi-session changes are detected
         for (let i = 0; i < next.allSessions.length && same; i++) {
           const session = next.allSessions[i];
-          const old = prev.allSessions.find(s => s.pid === session.pid && s.projectPath === session.projectPath);
+          const old = prevMap.get(`${session.sessionId}:${session.projectPath}`);
           if (!old || old.sessionId !== session.sessionId
             || old.currentAction !== session.currentAction
             || old.idle !== session.idle || old.tracked !== session.tracked

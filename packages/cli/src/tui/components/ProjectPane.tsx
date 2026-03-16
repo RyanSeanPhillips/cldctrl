@@ -187,7 +187,7 @@ export const ProjectPane = React.memo(function ProjectPane({
           </Box>
           {convs.slice(0, 5).map((session, i) => {
             const isSelected = inConvSection && i === convIdx;
-            const isIdle = session.tracked && session.idle;
+            const isIdle = !!session.idle;
             const dotColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
             const parts = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
             const name = parts[parts.length - 1] || '';
@@ -248,7 +248,7 @@ export const ProjectPane = React.memo(function ProjectPane({
         let activeBadge = '';
         let badgeColor = '';
         if (activeSession) {
-          const isIdle = activeSession.tracked && activeSession.idle;
+          const isIdle = !!activeSession.idle;
           badgeColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
           let action = activeSession.currentAction || (isIdle ? 'idle' : 'active');
           // Strip long file paths from action text — show only the filename

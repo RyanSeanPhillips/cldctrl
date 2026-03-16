@@ -294,7 +294,7 @@ function Overview({ conversations, width, height, usageBudget }: {
             const health = contextHealth(session);
             const sType = classifySessionType(session.stats);
             const compactions = countCompactions(session.stats.inputPerMessage);
-            const isIdle = session.tracked && session.idle;
+            const isIdle = !!session.idle;
             const color = CONV_COLORS[ci % CONV_COLORS.length];
             if (isIdle) {
               const idleDur = formatDuration(Date.now() - session.lastActivity.getTime());
@@ -333,7 +333,7 @@ function Overview({ conversations, width, height, usageBudget }: {
 /** Expanded mode: single conversation deep dive */
 function Expanded({ session, width, height, sessionTasks }: { session: ActiveSession; width: number; height: number; sessionTasks?: SessionTasks | null }) {
   const name = projectName(session.projectPath);
-  const isIdle = session.tracked && session.idle;
+  const isIdle = !!session.idle;
   const dur = formatDuration(Date.now() - session.startTime.getTime());
   const bd = session.stats.tokenBreakdown;
   const total = session.stats.tokens;

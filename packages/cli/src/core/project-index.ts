@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getConfigDir } from '../config.js';
-import { normalizePathForCompare } from './platform.js';
+import { normalizePathForCompare, pathIsSafe } from './platform.js';
 import { log } from './logger.js';
 import type { ScanResult } from './scanner.js';
 
@@ -38,14 +38,32 @@ function getIndexPath(): string {
   return path.join(getConfigDir(), 'project-index.json');
 }
 
+// ── Module-level cache ───────────────────────────────────────
+// Invalidated on writes and when the file mtime changes.
+
+let _indexCache: { entries: IndexEntry[]; lastScan: string | null; mtime: number } | null = null;
+
+function invalidateCache(): void {
+  _indexCache = null;
+}
+
 // ── Read / Write ─────────────────────────────────────────────
 
 export function readProjectIndex(): IndexEntry[] {
+  const indexPath = getIndexPath();
   try {
-    const data = fs.readFileSync(getIndexPath(), 'utf-8');
+    const stat = fs.statSync(indexPath);
+    // Return cached result if file hasn't changed
+    if (_indexCache && _indexCache.mtime === stat.mtimeMs) {
+      return _indexCache.entries;
+    }
+    const data = fs.readFileSync(indexPath, 'utf-8');
     const parsed = JSON.parse(data) as ProjectIndex;
     if (parsed.version !== 1) return [];
-    return parsed.entries;
+    // Validate paths on read
+    const entries = parsed.entries.filter(e => pathIsSafe(e.path));
+    _indexCache = { entries, lastScan: parsed.lastScan ?? null, mtime: stat.mtimeMs };
+    return entries;
   } catch {
     return [];
   }
@@ -58,9 +76,21 @@ export function writeProjectIndex(entries: IndexEntry[]): void {
     entries,
   };
   try {
+    const indexPath = getIndexPath();
     const dir = getConfigDir();
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(getIndexPath(), JSON.stringify(index, null, 2));
+    // Atomic write: write to temp file then rename
+    const tmpPath = indexPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(index, null, 2));
+    try {
+      fs.renameSync(tmpPath, indexPath);
+    } catch {
+      // Rename may fail on Windows if target is locked (Dropbox, antivirus);
+      // fall back to copy + delete
+      fs.copyFileSync(tmpPath, indexPath);
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+    invalidateCache();
   } catch (err) {
     log('error', { function: 'writeProjectIndex', message: String(err) });
   }
@@ -68,13 +98,9 @@ export function writeProjectIndex(entries: IndexEntry[]): void {
 
 /** Returns ISO timestamp of last scan, or null if never scanned */
 export function getLastScanTime(): string | null {
-  try {
-    const data = fs.readFileSync(getIndexPath(), 'utf-8');
-    const parsed = JSON.parse(data) as ProjectIndex;
-    return parsed.lastScan ?? null;
-  } catch {
-    return null;
-  }
+  // Leverage the cache populated by readProjectIndex
+  readProjectIndex();
+  return _indexCache?.lastScan ?? null;
 }
 
 // ── Merge scan results into index ────────────────────────────
@@ -83,11 +109,14 @@ export function getLastScanTime(): string | null {
  * Merge new scan results into the existing index.
  * - New paths are added
  * - Existing paths are updated (indicators may change)
- * - Paths that no longer exist on disk are pruned
+ * - Stale entries are pruned in a deferred microtask (doesn't block render)
  */
 export function mergeIntoIndex(scanResults: ScanResult[]): IndexEntry[] {
   const existing = readProjectIndex();
   const now = new Date().toISOString();
+
+  // Track which paths were just scanned (known-fresh, no existence check needed)
+  const scannedPaths = new Set(scanResults.map(r => normalizePathForCompare(r.path)));
 
   // Build map of existing entries keyed by normalized path
   const byPath = new Map<string, IndexEntry>();
@@ -109,19 +138,35 @@ export function mergeIntoIndex(scanResults: ScanResult[]): IndexEntry[] {
     });
   }
 
-  // Prune entries whose paths no longer exist
-  const pruned: IndexEntry[] = [];
-  for (const entry of byPath.values()) {
-    try {
-      if (fs.existsSync(entry.path)) {
-        pruned.push(entry);
-      }
-    } catch {
-      // Skip entries we can't check (permission errors, etc.)
-      pruned.push(entry);
-    }
-  }
+  const entries = Array.from(byPath.values());
+  writeProjectIndex(entries);
 
-  writeProjectIndex(pruned);
-  return pruned;
+  // Defer pruning of stale entries — check existence in background
+  // to avoid blocking the event loop during scan completion
+  setImmediate(() => {
+    let pruned = false;
+    const validEntries: IndexEntry[] = [];
+    for (const entry of entries) {
+      // Skip existence check for entries that were just scanned
+      if (scannedPaths.has(normalizePathForCompare(entry.path))) {
+        validEntries.push(entry);
+        continue;
+      }
+      try {
+        if (fs.existsSync(entry.path)) {
+          validEntries.push(entry);
+        } else {
+          pruned = true;
+        }
+      } catch {
+        // Skip entries we can't check (permission errors, etc.)
+        validEntries.push(entry);
+      }
+    }
+    if (pruned) {
+      writeProjectIndex(validEntries);
+    }
+  });
+
+  return entries;
 }
