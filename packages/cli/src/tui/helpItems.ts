@@ -31,6 +31,7 @@ export const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
   ['Tab          ', 'Focus details pane'],
   ['Esc          ', 'Back / exit pane'],
   [',            ', 'Settings'],
+  ['\u2190/\u2192 (settings)', 'Switch General/Permissions tab'],
   ['q            ', 'Quit'],
   ['?            ', 'Toggle this help'],
   ['--safe       ', 'Bypass diff renderer (flag)'],

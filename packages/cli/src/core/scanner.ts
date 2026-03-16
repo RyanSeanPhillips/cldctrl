@@ -179,11 +179,22 @@ export function scanForProjects(opts: ScanOptions = {}): ScanResult[] {
     // Descend into subdirectories
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (entry.isSymbolicLink()) continue;
       if (SKIP_DIRS.has(entry.name)) continue;
       if (entry.name.startsWith('.') && entry.name !== '.git') continue;
 
-      scanDir(path.join(dirPath, entry.name), depth + 1);
+      const childPath = path.join(dirPath, entry.name);
+
+      // Skip true symlinks, but NOT reparse points (Dropbox/OneDrive use NTFS
+      // reparse points for smart sync — Dirent.isSymbolicLink() incorrectly
+      // reports these as symlinks on Windows, so verify with lstat)
+      if (entry.isSymbolicLink()) {
+        try {
+          const stat = fs.lstatSync(childPath);
+          if (stat.isSymbolicLink()) continue; // true symlink
+        } catch { continue; }
+      }
+
+      scanDir(childPath, depth + 1);
     }
   }
 }

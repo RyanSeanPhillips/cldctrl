@@ -8,7 +8,7 @@ import { launchClaude, openVSCode, buildIssueFixPrompt } from '../../core/launch
 import { openInExplorer } from '../../core/platform.js';
 import { trackSession } from '../../core/tracker.js';
 import { getHelpItemCount } from '../helpItems.js';
-import { getSettingsItemCount, toggleSetting } from '../components/SettingsPane.js';
+import { getSettingsItemCount, getPermissionsItemCount, toggleSetting, cyclePermission, deletePermission } from '../components/SettingsPane.js';
 import type { SkillsData } from '../helpItems.js';
 import type { AppState, Config, Project, Session, Issue, GitCommit } from '../../types.js';
 import type { AppDispatch } from './useAppState.js';
@@ -194,21 +194,65 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         dispatch({ type: 'SET_MODE', mode: 'normal' });
         return;
       }
-      const maxSettings = Math.max(0, getSettingsItemCount(state.config) - 1);
-      if (input === 'j' || key.downArrow) {
-        dispatch({ type: 'SETTINGS_NAVIGATE', delta: 1, maxIndex: maxSettings });
-        return;
-      }
-      if (input === 'k' || key.upArrow) {
-        dispatch({ type: 'SETTINGS_NAVIGATE', delta: -1, maxIndex: maxSettings });
-        return;
-      }
-      if (key.return) {
-        const newConfig = toggleSetting(state.config, state.settingsIndex);
-        if (newConfig) {
-          dispatch({ type: 'SET_CONFIG', config: newConfig });
+      // Tab switching with left/right arrows
+      if (key.leftArrow) {
+        if (state.settingsTab === 'permissions') {
+          dispatch({ type: 'SETTINGS_TAB', tab: 'general' });
         }
         return;
+      }
+      if (key.rightArrow) {
+        if (state.settingsTab === 'general') {
+          dispatch({ type: 'SETTINGS_TAB', tab: 'permissions' });
+        }
+        return;
+      }
+
+      if (state.settingsTab === 'general') {
+        const maxSettings = Math.max(0, getSettingsItemCount(state.config) - 1);
+        if (input === 'j' || key.downArrow) {
+          dispatch({ type: 'SETTINGS_NAVIGATE', delta: 1, maxIndex: maxSettings });
+          return;
+        }
+        if (input === 'k' || key.upArrow) {
+          dispatch({ type: 'SETTINGS_NAVIGATE', delta: -1, maxIndex: maxSettings });
+          return;
+        }
+        if (key.return) {
+          const newConfig = toggleSetting(state.config, state.settingsIndex);
+          if (newConfig) {
+            dispatch({ type: 'SET_CONFIG', config: newConfig });
+          }
+          return;
+        }
+      } else {
+        // Permissions tab
+        const maxPerms = Math.max(0, getPermissionsItemCount() - 1);
+        if (input === 'j' || key.downArrow) {
+          dispatch({ type: 'PERMISSIONS_NAVIGATE', delta: 1, maxIndex: maxPerms });
+          return;
+        }
+        if (input === 'k' || key.upArrow) {
+          dispatch({ type: 'PERMISSIONS_NAVIGATE', delta: -1, maxIndex: maxPerms });
+          return;
+        }
+        if (key.return) {
+          cyclePermission(state.permissionsIndex);
+          // Clamp index after potential list shrinkage
+          const newMax = Math.max(0, getPermissionsItemCount() - 1);
+          if (state.permissionsIndex > newMax) {
+            dispatch({ type: 'PERMISSIONS_NAVIGATE', delta: 0, maxIndex: newMax });
+          }
+          return;
+        }
+        if (input === 'd' || key.delete) {
+          deletePermission(state.permissionsIndex);
+          const newMax = Math.max(0, getPermissionsItemCount() - 1);
+          if (state.permissionsIndex > newMax) {
+            dispatch({ type: 'PERMISSIONS_NAVIGATE', delta: 0, maxIndex: newMax });
+          }
+          return;
+        }
       }
       return;
     }
@@ -482,9 +526,16 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
-    // New session prompt (works from either pane)
+    // New session (works from either pane)
     if (input === 'n' && selectedProject) {
-      dispatch({ type: 'SET_MODE', mode: 'prompt' });
+      onLaunchFeedback?.(`New session: ${selectedProject.name}...`);
+      const newResult = launchClaude({
+        projectPath: selectedProject.path,
+        isNew: true,
+      });
+      if (newResult.success && newResult.pid) {
+        trackSession(newResult.pid, selectedProject.path);
+      }
       return;
     }
 

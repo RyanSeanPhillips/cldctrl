@@ -96,6 +96,9 @@ export interface Session {
   richSummary?: string;
   dateLabel: string;
   stats?: SessionStats;
+  gitBranch?: string;
+  /** Actual USD cost from Claude's stats (not estimated). */
+  cost?: number;
 }
 
 export interface SessionStats {
@@ -169,6 +172,8 @@ export interface ActiveSession {
   pid: number;
   sessionId: string;
   projectPath: string;
+  /** Full path to the session's JSONL file (for per-session enrichment). */
+  sessionFilePath?: string;
   startTime: Date;
   lastActivity: Date;
   currentAction?: string;
@@ -268,6 +273,8 @@ export interface AppState {
   activeGame: string | null;
   helpIndex: number;  // selected item index in help overlay
   settingsIndex: number;  // selected item index in settings editor
+  settingsTab: 'general' | 'permissions';  // which tab is active in settings
+  permissionsIndex: number;  // selected item index in permissions tab
   leftSection: LeftSection;  // which section of the left pane has the cursor
   conversationIndex: number;  // selected conversation in conversations section
   expandedConversation: boolean;  // true = show single conversation detail in right pane

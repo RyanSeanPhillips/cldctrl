@@ -263,7 +263,7 @@ function readAccessToken(): string | null {
   }
 }
 
-function formatResetEpoch(epochSeconds: number): string {
+export function formatResetEpoch(epochSeconds: number): string {
   const resetDate = new Date(epochSeconds * 1000);
   const diffMs = resetDate.getTime() - Date.now();
   if (diffMs <= 0) return 'now';
@@ -384,4 +384,53 @@ export async function probeRateLimits(): Promise<RateLimitInfo | null> {
 /** Get the cached rate limit info without making a new probe. */
 export function getCachedRateLimits(): RateLimitInfo | null {
   return _rateLimitCache;
+}
+
+// ── Global state (~/.claude.json) — per-project cost data ─────
+
+let _globalStateCache: Record<string, unknown> | null = null;
+let _globalStateMtime = 0;
+
+function readGlobalState(): Record<string, unknown> | null {
+  const p = path.join(getHomeDir(), '.claude.json');
+  try {
+    const stat = fs.statSync(p);
+    if (_globalStateCache && stat.mtimeMs === _globalStateMtime) return _globalStateCache;
+    _globalStateCache = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    _globalStateMtime = stat.mtimeMs;
+    return _globalStateCache;
+  } catch {
+    return null;
+  }
+}
+
+export interface ProjectCostInfo {
+  /** Actual USD cost for the most recent session on this project. */
+  cost: number;
+  /** Per-model token breakdown (model → { input, output, cacheRead, cacheWrite }). */
+  modelUsage: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>;
+}
+
+/**
+ * Get the last cost + model usage for a project from ~/.claude.json.
+ * Returns null if data not available.
+ */
+export function getProjectLastCost(projectPath: string): ProjectCostInfo | null {
+  const state = readGlobalState();
+  if (!state || typeof state !== 'object') return null;
+
+  const projects = state.projects as Record<string, Record<string, unknown>> | undefined;
+  if (!projects || typeof projects !== 'object') return null;
+
+  // Claude uses forward-slash normalized paths as keys, try multiple variants
+  const normalized = projectPath.replace(/\\/g, '/');
+  const entry = projects[normalized] || projects[projectPath];
+  if (!entry || typeof entry !== 'object') return null;
+
+  const lastCost = entry.lastCost;
+  if (typeof lastCost !== 'number' || lastCost <= 0) return null;
+
+  const modelUsage = (entry.lastModelUsage ?? {}) as ProjectCostInfo['modelUsage'];
+
+  return { cost: lastCost, modelUsage };
 }

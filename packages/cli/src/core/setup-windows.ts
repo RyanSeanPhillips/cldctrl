@@ -76,7 +76,7 @@ export function setupWindows(): SetupResult {
     '\'Brief delay for system startup (PATH resolution)',
     'WScript.Sleep 2000',
     'Set WshShell = CreateObject("WScript.Shell")',
-    `WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${hotkeyScript}""", 0, False`,
+    `WshShell.Run "powershell -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""${hotkeyScript}""", 0, False`,
   ].join('\r\n');
 
   fs.writeFileSync(vbsPath, vbsContent, 'utf-8');

@@ -13,7 +13,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import pLimit from 'p-limit';
 import { getGitStatus } from '../../core/git.js';
 import { getIssues } from '../../core/github.js';
-import { getRollingUsageStats } from '../../core/sessions.js';
+import { getRollingUsageWindowed } from '../../core/sessions.js';
+import type { WindowedUsageStats } from '../../core/sessions.js';
 import { loadIssueSummaryCache, generateMissingSummaries, generateMissingIssueSummaries } from '../../core/summaries.js';
 import { issueKey, readDaemonCache } from '../../core/background.js';
 import { getClaudeProjectsDir } from '../../core/platform.js';
@@ -26,7 +27,9 @@ import { getDailyUsageByProject } from '../../core/usage.js';
 import { getActiveSessionFile, tailSessionFile } from '../../core/tailer.js';
 import { getActiveSessionInfo } from '../../core/activity.js';
 import { scanAllSessions, getCachedUsage } from '../../core/command-usage.js';
-import { readClaudeTier, getEffectiveDailyBudget, getTierLabel, probeRateLimits } from '../../core/claude-usage.js';
+import { readClaudeTier, getEffectiveDailyBudget, getTierLabel, probeRateLimits, formatResetEpoch } from '../../core/claude-usage.js';
+import { getSessionTasks } from '../../core/tasks.js';
+import type { SessionTasks } from '../../core/tasks.js';
 import type { ClaudeTier, RateLimitInfo } from '../../core/claude-usage.js';
 import type { CommandUsageCounts } from '../../core/command-usage.js';
 import type { TailState } from '../../core/tailer.js';
@@ -344,16 +347,31 @@ export function useIssues(projectPath: string | null): Issue[] | undefined {
 
 // ── Usage stats ─────────────────────────────────────────────
 
-export function useUsageStats(): UsageStats | undefined {
+/**
+ * Get both 5h and 7d windowed usage stats in a single pass.
+ * Called once in App.tsx; result feeds both usageStats and useUsageBudget.
+ */
+export function useWindowedUsageStats(): WindowedUsageStats | undefined {
   const demo = isDemoMode();
-  const cached = getDaemonCache()?.usageStats;
   const result = usePolling(
-    async () => demo ? undefined as any : getRollingUsageStats(getClaudeProjectsDir()),
+    async () => demo ? undefined as any : getRollingUsageWindowed(getClaudeProjectsDir()),
     DEFAULTS.pollIntervalMs,
     []
   );
-  if (demo) return demoUsageStats();
-  return result ?? cached;
+  if (demo) {
+    const stats = demoUsageStats();
+    return {
+      fiveHour: stats,
+      sevenDay: { tokens: stats.tokens * 3, messages: stats.messages * 5, date: new Date().toISOString() },
+    };
+  }
+  return result ?? undefined;
+}
+
+/** @deprecated Use useWindowedUsageStats().fiveHour instead. Kept for daemon cache fallback. */
+export function useUsageStats(): UsageStats | undefined {
+  const cached = getDaemonCache()?.usageStats;
+  return cached;
 }
 
 // ── Claude tier + usage budget ──────────────────────────────
@@ -374,10 +392,15 @@ export function useClaudeTier(): ClaudeTier | null {
 /**
  * Compute a unified usage budget from stats + tier + config + live rate limits.
  * Combines auto-detected tier limits with user config override.
+ *
+ * When the API probe succeeds, uses real utilization percentages.
+ * When probe fails (e.g. OAuth auth broken), falls back to local JSONL-based
+ * estimates for both 5h and 7d windows so both bars are always shown.
  */
 export function useUsageBudget(
   usageStats: UsageStats | undefined,
   configBudget: number | undefined,
+  windowed?: WindowedUsageStats,
 ): UsageBudget | null {
   const tier = useClaudeTier();
   const rateLimitInfo = useRateLimits();
@@ -399,15 +422,19 @@ export function useUsageBudget(
     let rateLimits: UsageBudget['rateLimits'] = null;
 
     if (rateLimitInfo && rateLimitInfo.fiveHourUtil >= 0) {
+      // API probe succeeded — use real utilization
       percent = rateLimitInfo.fiveHourUtil * 100;
-      // Extra tokens: overage utilization > 0 means actively spending paid credits
       const usingExtra = rateLimitInfo.overageUtil > 0;
 
       rateLimits = {
         fiveHourPercent: rateLimitInfo.fiveHourUtil * 100,
         sevenDayPercent: rateLimitInfo.sevenDayUtil * 100,
-        fiveHourResetIn: rateLimitInfo.fiveHourResetIn,
-        sevenDayResetIn: rateLimitInfo.sevenDayResetIn,
+        fiveHourResetIn: rateLimitInfo.fiveHourReset > 0
+          ? formatResetEpoch(rateLimitInfo.fiveHourReset)
+          : rateLimitInfo.fiveHourResetIn,
+        sevenDayResetIn: rateLimitInfo.sevenDayReset > 0
+          ? formatResetEpoch(rateLimitInfo.sevenDayReset)
+          : rateLimitInfo.sevenDayResetIn,
         status: rateLimitInfo.overallStatus,
         fallbackAvailable: rateLimitInfo.fallbackAvailable,
         usingExtraTokens: usingExtra,
@@ -416,12 +443,37 @@ export function useUsageBudget(
         overageEnabled: rateLimitInfo.overageStatus === 'allowed',
         overageResetIn: rateLimitInfo.overageResetIn,
       };
+    } else if (windowed && tier) {
+      // API probe failed — compute local 5h/7d estimates from JSONL data.
+      // Use the tier's 5h window limit for the 5h bar, and scale for 7d.
+      const windowLimit = tier.windowLimit;
+      // 7d limit: rough estimate — 7d window allows ~(7*24/5) = ~33.6x the 5h window
+      // but usage is bursty, so use a more conservative multiplier
+      const sevenDayLimit = windowLimit * 20;
+
+      const fiveHourPct = windowLimit > 0 ? (windowed.fiveHour.tokens / windowLimit) * 100 : 0;
+      const sevenDayPct = sevenDayLimit > 0 ? (windowed.sevenDay.tokens / sevenDayLimit) * 100 : 0;
+
+      percent = fiveHourPct;
+      rateLimits = {
+        fiveHourPercent: fiveHourPct,
+        sevenDayPercent: sevenDayPct,
+        fiveHourResetIn: '~5h rolling',
+        sevenDayResetIn: '~7d rolling',
+        status: '',
+        fallbackAvailable: false,
+        usingExtraTokens: false,
+        fallbackThreshold: 0,
+        overagePercent: 0,
+        overageEnabled: false,
+        overageResetIn: '',
+      };
     } else {
       percent = budgetLimit > 0 ? (used / budgetLimit) * 100 : 0;
     }
 
     return { limit: budgetLimit, used, percent, tierLabel, autoDetected, rateLimits };
-  }, [usageStats, configBudget, tier, rateLimitInfo]);
+  }, [usageStats, configBudget, tier, rateLimitInfo, windowed]);
 }
 
 /**
@@ -483,7 +535,8 @@ export function useActiveProcesses(
       // Enrich each session with JSONL-parsed stats (cached — only re-parses on file change)
       for (const session of sessions) {
         try {
-          const jsonlFile = getActiveSessionFile(session.projectPath);
+          // Use session-specific file if available, fall back to newest file for project
+          const jsonlFile = session.sessionFilePath ?? getActiveSessionFile(session.projectPath);
           if (jsonlFile) {
             const info = await getActiveSessionInfo(jsonlFile);
             if (info) {
@@ -494,9 +547,10 @@ export function useActiveProcesses(
         } catch { /* skip enrichment on error */ }
       }
 
+      // Per-project map: keeps the most recently active session per project
+      // (used for project badges, live tailing target, detail pane)
       const map = new Map<string, ActiveSession>();
       for (const s of sessions) {
-        // If multiple sessions on same project, keep the most recently active
         const existing = map.get(s.projectPath);
         if (!existing || s.lastActivity > existing.lastActivity) {
           map.set(s.projectPath, s);
@@ -506,11 +560,13 @@ export function useActiveProcesses(
 
       // Compare with previous result — reuse if structurally equal to keep refs stable
       const prev = prevResultRef.current;
-      if (prev && prev.totalCount === next.totalCount && prev.map.size === next.map.size) {
+      if (prev && prev.totalCount === next.totalCount) {
         let same = true;
-        for (const [path, session] of next.map) {
-          const old = prev.map.get(path);
-          if (!old || old.pid !== session.pid || old.sessionId !== session.sessionId
+        // Compare all sessions (not just the deduped map) so multi-session changes are detected
+        for (let i = 0; i < next.allSessions.length && same; i++) {
+          const session = next.allSessions[i];
+          const old = prev.allSessions.find(s => s.pid === session.pid && s.projectPath === session.projectPath);
+          if (!old || old.sessionId !== session.sessionId
             || old.currentAction !== session.currentAction
             || old.idle !== session.idle || old.tracked !== session.tracked
             || old.lastActivity.getTime() !== session.lastActivity.getTime()
@@ -524,7 +580,6 @@ export function useActiveProcesses(
             || old.stats.toolUseTurns !== session.stats.toolUseTurns
             || !shallowEqual(old.stats.mcpCalls, session.stats.mcpCalls)) {
             same = false;
-            break;
           }
         }
         if (same) return prev; // Return same ref — shallowEqual will match
@@ -756,6 +811,47 @@ export function useAutoSummarize(
 
   if (demo) return { revision: 0, isSummarizing: false };
   return { revision, isSummarizing };
+}
+
+// ── Live session tasks/todos ─────────────────────────────
+
+export type { SessionTasks } from '../../core/tasks.js';
+
+/**
+ * Poll for tasks/todos for the given session ID.
+ * Only polls when the conversation is expanded (avoids wasted I/O).
+ * Polls every 3 seconds since tasks update frequently during active work.
+ */
+export function useSessionTasks(
+  sessionId: string | null,
+  enabled: boolean,
+): SessionTasks | null {
+  const demo = isDemoMode();
+  const result = usePolling(
+    async () => {
+      if (demo || !sessionId || !enabled) return null;
+      const tasks = getSessionTasks(sessionId);
+      if (tasks.todos.length === 0 && tasks.tasks.length === 0) return null;
+      return tasks;
+    },
+    3000,
+    [sessionId, enabled],
+  );
+  if (demo) {
+    // Demo mode: return mock tasks when enabled
+    if (!enabled || !sessionId) return null;
+    return {
+      todos: [
+        { content: 'Set up project structure', status: 'completed' },
+        { content: 'Implement core logic', status: 'completed' },
+        { content: 'Add error handling', status: 'pending', activeForm: 'Adding error handling...' },
+        { content: 'Write tests', status: 'pending' },
+        { content: 'Update documentation', status: 'pending' },
+      ],
+      tasks: [],
+    };
+  }
+  return result ?? null;
 }
 
 /**

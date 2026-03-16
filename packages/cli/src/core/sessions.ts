@@ -11,15 +11,38 @@ import { getSessionDir } from './projects.js';
 import { getConfigDir } from '../config.js';
 import { log } from './logger.js';
 import { loadSummaryCache } from './summaries.js';
+import { getProjectLastCost } from './claude-usage.js';
 import type { Session, SessionStats, UsageStats } from '../types.js';
 
 // ── Pre-compiled regexes (avoid allocation in hot loops) ────
 
+/** All token types — used for full session stats display. */
 const TOKEN_REGEXES = [
   /"input_tokens"\s*:\s*(\d+)/g,
   /"output_tokens"\s*:\s*(\d+)/g,
   /"cache_read_input_tokens"\s*:\s*(\d+)/g,
   /"cache_creation_input_tokens"\s*:\s*(\d+)/g,
+];
+
+/**
+ * Rate-limit-weighted token regexes and weights.
+ * Anthropic's unified rate limit counts different token types at different weights.
+ * These match Anthropic's documented cost ratios (cache_read = 10% of input,
+ * cache_creation = 25% of input). Since rate limit utilization is compute-based,
+ * the cost ratios approximate the actual capacity weights well.
+ *
+ * Without weighting, cache_read (100M+) massively inflates the total (458%),
+ * while input+output alone (392K) undercounts (2%).
+ *
+ * NOTE: This is an approximation. The /usage dialog in Claude Code reads exact
+ * utilization from API response headers, which we can't access (OAuth tokens
+ * don't work for direct API calls). Local estimates will drift ±10%.
+ */
+const RATE_LIMIT_TOKEN_REGEXES: Array<{ re: RegExp; weight: number }> = [
+  { re: /"input_tokens"\s*:\s*(\d+)/g, weight: 1.0 },
+  { re: /"output_tokens"\s*:\s*(\d+)/g, weight: 1.0 },
+  { re: /"cache_read_input_tokens"\s*:\s*(\d+)/g, weight: 0.1 },
+  { re: /"cache_creation_input_tokens"\s*:\s*(\d+)/g, weight: 0.25 },
 ];
 
 const USER_TYPE_RE = /"type"\s*:\s*"user"/;
@@ -189,6 +212,7 @@ interface SessionIndexEntry {
   messageCount?: number;
   created?: string;
   modified?: string;
+  gitBranch?: string;
 }
 
 /**
@@ -201,7 +225,8 @@ function loadSessionIndex(sessionDir: string): Map<string, SessionIndexEntry> {
   try {
     if (!fs.existsSync(indexPath)) return map;
     const raw = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-    if (raw?.entries && Array.isArray(raw.entries)) {
+    // Only trust known version — fall back gracefully on unknown versions
+    if (raw?.version === 1 && Array.isArray(raw?.entries)) {
       for (const entry of raw.entries) {
         if (entry.sessionId) {
           map.set(entry.sessionId, entry);
@@ -278,10 +303,14 @@ export async function getRecentSessions(
 
     for (const file of files) {
       const sessionId = path.basename(file.name, '.jsonl');
-      const modified = file.stat.mtime;
+      const indexEntry = index.get(sessionId);
+
+      // Use created/modified from index when available (avoids statSync per file)
+      const modified = indexEntry?.modified
+        ? new Date(indexEntry.modified)
+        : file.stat.mtime;
 
       // Try sessions-index.json summary first, fall back to JSONL parsing
-      const indexEntry = index.get(sessionId);
       let summary = indexEntry?.summary || '';
       if (!summary) {
         summary = extractSummaryFromJSONL(file.path);
@@ -290,11 +319,15 @@ export async function getRecentSessions(
         summary = modified.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       }
 
-      // Use message count from index if available, otherwise stream-count
-      const stats = indexEntry?.messageCount
-        ? { messages: indexEntry.messageCount, tokens: 0 }
-        : null;
-      const fullStats = await getSessionStats(file.path);
+      // When index has messageCount, skip expensive JSONL streaming entirely
+      let stats: SessionStats | undefined;
+      if (indexEntry?.messageCount) {
+        stats = { messages: indexEntry.messageCount, tokens: 0 };
+      } else {
+        // No index entry — fall back to JSONL parsing
+        const fullStats = await getSessionStats(file.path);
+        stats = fullStats ?? undefined;
+      }
 
       const dateLabel = modified.toLocaleDateString('en-US', {
         month: 'short',
@@ -315,9 +348,17 @@ export async function getRecentSessions(
         firstPrompt: indexEntry?.firstPrompt || undefined,
         richSummary,
         dateLabel,
-        // Prefer full stats (has tokens), but use index messageCount as fallback
-        stats: fullStats ?? stats ?? undefined,
+        stats,
+        gitBranch: indexEntry?.gitBranch,
       });
+    }
+
+    // Attach actual cost from ~/.claude.json to the most recent session
+    if (sessions.length > 0) {
+      const costInfo = getProjectLastCost(projectPath);
+      if (costInfo) {
+        sessions[0].cost = costInfo.cost;
+      }
     }
 
     // Cache the result
@@ -338,8 +379,10 @@ const ROLLING_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
 const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
 
 /**
- * Count tokens/messages only from JSONL lines whose timestamp >= cutoffMs.
+ * Count weighted tokens/messages only from JSONL lines whose timestamp >= cutoffMs.
  * Lines without a parseable timestamp inherit the last seen timestamp.
+ * Uses RATE_LIMIT_TOKEN_REGEXES with weights that match Anthropic's unified rate limit
+ * calculation (cache_read at 5%, cache_creation at 25%, others at 100%).
  */
 async function getSessionStatsSince(
   sessionFilePath: string,
@@ -372,11 +415,11 @@ async function getSessionStatsSince(
         if (line.includes('"type":"user"') || line.includes('"type": "user"')) {
           messages++;
         }
-        for (const re of TOKEN_REGEXES) {
+        for (const { re, weight } of RATE_LIMIT_TOKEN_REGEXES) {
           re.lastIndex = 0;
           let match: RegExpExecArray | null;
           while ((match = re.exec(line)) !== null) {
-            tokens += parseInt(match[1], 10);
+            tokens += parseInt(match[1], 10) * weight;
           }
         }
       }
@@ -385,7 +428,7 @@ async function getSessionStatsSince(
       stream.destroy();
     }
 
-    return { messages, tokens };
+    return { messages, tokens: Math.round(tokens) };
   } catch (err) {
     log('error', { function: 'getSessionStatsSince', message: String(err) });
     return null;
@@ -434,4 +477,76 @@ export async function getRollingUsageStats(claudeProjectsDir: string): Promise<U
   }
 
   return { tokens: totalTokens, messages: totalMessages, date: new Date().toISOString() };
+}
+
+/** 7-day rolling window (for local 7d estimate when API probe unavailable). */
+const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export interface WindowedUsageStats {
+  fiveHour: UsageStats;
+  sevenDay: UsageStats;
+}
+
+/**
+ * Get both 5h and 7d rolling usage stats in a single pass.
+ * Used to provide local 5h/7d estimates when the API rate limit probe is unavailable.
+ */
+export async function getRollingUsageWindowed(claudeProjectsDir: string): Promise<WindowedUsageStats> {
+  const now = Date.now();
+  const cutoff5h = now - ROLLING_WINDOW_MS;
+  const cutoff7d = now - SEVEN_DAY_WINDOW_MS;
+  const date = new Date().toISOString();
+  let tok5h = 0, msg5h = 0, tok7d = 0, msg7d = 0;
+
+  if (!fs.existsSync(claudeProjectsDir)) {
+    return {
+      fiveHour: { tokens: 0, messages: 0, date },
+      sevenDay: { tokens: 0, messages: 0, date },
+    };
+  }
+
+  try {
+    const slugDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true });
+
+    for (const dir of slugDirs) {
+      if (!dir.isDirectory()) continue;
+      const slugPath = path.join(claudeProjectsDir, dir.name);
+
+      try {
+        const files = fs.readdirSync(slugPath).filter((f) => f.endsWith('.jsonl'));
+
+        for (const f of files) {
+          const filePath = path.join(slugPath, f);
+          try {
+            const stat = fs.statSync(filePath);
+            if (stat.mtimeMs < cutoff7d) continue; // Skip files untouched in 7d
+            if (stat.size > DEFAULTS.maxSessionFileSize) continue;
+
+            // Parse the file once but bucket tokens into both windows
+            const stats7d = await getSessionStatsSince(filePath, cutoff7d);
+            if (stats7d) {
+              tok7d += stats7d.tokens;
+              msg7d += stats7d.messages;
+            }
+
+            // Only parse for 5h if file was touched in the 5h window
+            if (stat.mtimeMs >= cutoff5h) {
+              const stats5h = await getSessionStatsSince(filePath, cutoff5h);
+              if (stats5h) {
+                tok5h += stats5h.tokens;
+                msg5h += stats5h.messages;
+              }
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
+  } catch (err) {
+    log('error', { function: 'getRollingUsageWindowed', message: String(err) });
+  }
+
+  return {
+    fiveHour: { tokens: tok5h, messages: msg5h, date },
+    sevenDay: { tokens: tok7d, messages: msg7d, date },
+  };
 }

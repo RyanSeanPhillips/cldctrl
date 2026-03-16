@@ -198,7 +198,7 @@ export const ProjectPane = React.memo(function ProjectPane({
             const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars));
 
             return (
-              <Box key={session.projectPath} paddingX={1}>
+              <Box key={`${session.pid}-${session.sessionId}`} paddingX={1}>
                 <Text
                   color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
                   backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
@@ -445,7 +445,7 @@ export const ProjectPane = React.memo(function ProjectPane({
           )}
 
           {/* 7-day usage bar */}
-          {showRateBars && usageBudget?.rateLimits && height >= 22 && (
+          {showRateBars && usageBudget?.rateLimits && height >= 18 && (
             <Box paddingX={1}>
               <ProgressBar
                 percent={usageBudget.rateLimits.sevenDayPercent}

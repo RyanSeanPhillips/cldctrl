@@ -11,6 +11,7 @@ import { getClaudeProjectsDir, normalizePathForCompare } from './platform.js';
 import { isFeatureEnabled } from '../config.js';
 import { log } from './logger.js';
 import { readProjectNameCache, writeProjectNameCache } from './project-cache.js';
+import { readProjectIndex } from './project-index.js';
 import type { Config, Project } from '../types.js';
 
 // ── Slug generation (MUST match PowerShell Get-ProjectSlug) ─
@@ -320,6 +321,27 @@ export function buildProjectList(config: Config): Project[] {
     });
   }
 
+  // Add indexed projects (from previous filesystem scans) — these may not have Claude sessions yet
+  const indexed = readProjectIndex();
+  for (const entry of indexed) {
+    const key = normalizePathForCompare(entry.path);
+    if (seenPaths.has(key)) continue;
+    if (hiddenSet.has(key)) continue;
+    seenPaths.add(key);
+
+    let displayName: string;
+    try { displayName = extractProjectName(entry.path); } catch { displayName = entry.name; }
+    nameCache[entry.path] = displayName;
+
+    projects.push({
+      name: displayName,
+      path: entry.path,
+      slug: getProjectSlug(entry.path),
+      pinned: false,
+      discovered: true,
+    });
+  }
+
   // Persist name cache for fast mini TUI lookups
   try { writeProjectNameCache(nameCache); } catch {}
 
@@ -377,6 +399,33 @@ export function buildProjectListFast(config: Config): Project[] {
       discovered: true,
       lastActivity: d.lastActivity,
     });
+  }
+
+  // Add indexed projects (from previous filesystem scans)
+  const indexed = readProjectIndex();
+  for (const entry of indexed) {
+    const key = normalizePathForCompare(entry.path);
+    if (seenPaths.has(key)) continue;
+    if (hiddenSet.has(key)) continue;
+    seenPaths.add(key);
+
+    const displayName = nameCache[entry.path] ?? entry.name;
+    if (!nameCache[entry.path]) {
+      nameCache[entry.path] = displayName;
+      cacheUpdated = true;
+    }
+
+    projects.push({
+      name: displayName,
+      path: entry.path,
+      slug: getProjectSlug(entry.path),
+      pinned: false,
+      discovered: true,
+    });
+  }
+
+  if (cacheUpdated) {
+    try { writeProjectNameCache(nameCache); } catch {}
   }
 
   return projects;
@@ -457,28 +506,44 @@ export function getNewestSessionFile(projectPath: string): {
   mtimeMs: number;
   sessionId: string;
 } | null {
+  const all = getRecentSessionFiles(projectPath, Infinity);
+  return all.length > 0 ? all[0] : null;
+}
+
+/**
+ * Get all .jsonl session files modified within maxAgeMs, sorted newest-first.
+ * Pass Infinity for maxAgeMs to get all files regardless of age.
+ */
+export function getRecentSessionFiles(projectPath: string, maxAgeMs: number): Array<{
+  filePath: string;
+  mtimeMs: number;
+  sessionId: string;
+}> {
   try {
     const sessionDir = getSessionDir(projectPath);
-    if (!fs.existsSync(sessionDir)) return null;
+    if (!fs.existsSync(sessionDir)) return [];
 
-    let newest: { filePath: string; mtimeMs: number; sessionId: string } | null = null;
+    const now = Date.now();
+    const results: Array<{ filePath: string; mtimeMs: number; sessionId: string }> = [];
     const files = fs.readdirSync(sessionDir);
     for (const f of files) {
       if (!f.endsWith('.jsonl')) continue;
       const fullPath = path.join(sessionDir, f);
       try {
         const stat = fs.statSync(fullPath);
-        if (!newest || stat.mtimeMs > newest.mtimeMs) {
-          newest = {
+        if (maxAgeMs === Infinity || (now - stat.mtimeMs) <= maxAgeMs) {
+          results.push({
             filePath: fullPath,
             mtimeMs: stat.mtimeMs,
             sessionId: path.basename(f, '.jsonl'),
-          };
+          });
         }
       } catch { /* skip unreadable files */ }
     }
-    return newest;
+    // Sort newest first
+    results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return results;
   } catch {
-    return null;
+    return [];
   }
 }

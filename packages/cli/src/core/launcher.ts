@@ -9,9 +9,55 @@ import path from 'node:path';
 import os from 'node:os';
 import spawn from 'cross-spawn';
 import { getPlatform, isCommandAvailable, isInTmux, detectLinuxTerminal, pathIsSafe } from './platform.js';
+import { getConfigDir } from '../config.js';
 import { trackSession } from './tracker.js';
 import { log } from './logger.js';
 import { nextConversationColor } from '../constants.js';
+
+// ── Session marker files ────────────────────────────────────
+
+/** Directory for active session marker files */
+function getPidsDir(): string {
+  const dir = path.join(getConfigDir(), 'pids');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Generate a unique launch ID */
+function newLaunchId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Get the marker file path for a launch ID */
+export function getMarkerPath(launchId: string): string {
+  return path.join(getPidsDir(), `${launchId}.json`);
+}
+
+/**
+ * Read all active session markers. Each file in pids/ represents
+ * a running Claude session. The file is created before launch and
+ * deleted by the launch script when Claude exits.
+ */
+export function readSessionMarkers(): Array<{ launchId: string; projectPath: string; launchTime: number }> {
+  try {
+    const dir = getPidsDir();
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    const markers: Array<{ launchId: string; projectPath: string; launchTime: number }> = [];
+    for (const f of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+        markers.push({
+          launchId: path.basename(f, '.json'),
+          projectPath: data.projectPath,
+          launchTime: data.launchTime,
+        });
+      } catch { /* skip corrupt files */ }
+    }
+    return markers;
+  } catch {
+    return [];
+  }
+}
 
 // ── Input validation ────────────────────────────────────────
 
@@ -94,29 +140,44 @@ function escapeBatArg(arg: string): string {
   return `"${escaped}"`;
 }
 
-function writeTempScript(projectPath: string, claudeArgs: string[]): string {
+function writeTempScript(projectPath: string, claudeArgs: string[]): { scriptPath: string; launchId: string } {
   const platform = getPlatform();
   const tmpDir = os.tmpdir();
+  const launchId = newLaunchId();
+  const markerPath = getMarkerPath(launchId);
+
+  // Write the marker file BEFORE creating the script — it exists while Claude runs
+  const marker = JSON.stringify({ projectPath, launchTime: Date.now() });
+  fs.writeFileSync(markerPath, marker);
 
   if (platform === 'windows') {
-    const scriptPath = path.join(tmpDir, `cldctrl-launch-${process.pid}.bat`);
+    const scriptPath = path.join(tmpDir, `cldctrl-launch-${launchId}.bat`);
     const lines = [
       '@echo off',
       `cd /d ${escapeBatArg(projectPath)}`,
       `claude ${claudeArgs.map(escapeBatArg).join(' ')}`,
+      // Clean up marker file when Claude exits
+      `del ${escapeBatArg(markerPath)} 2>nul`,
     ];
     fs.writeFileSync(scriptPath, lines.join('\r\n') + '\r\n');
-    return scriptPath;
+    return { scriptPath, launchId };
   } else {
-    const scriptPath = path.join(tmpDir, `cldctrl-launch-${process.pid}.sh`);
+    const scriptPath = path.join(tmpDir, `cldctrl-launch-${launchId}.sh`);
+    const markerEscaped = markerPath.replace(/'/g, "'\\''");
     const lines = [
       '#!/bin/sh',
+      // Trap ensures cleanup even on signals (but not SIGKILL)
+      `trap 'rm -f ${quote(markerPath)}' EXIT`,
       `cd '${projectPath.replace(/'/g, "'\\''")}'`,
-      // Shell-escape each arg properly
-      `exec claude ${claudeArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`,
+      // No exec — need the shell to stay alive for trap cleanup
+      `claude ${claudeArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`,
     ];
     fs.writeFileSync(scriptPath, lines.join('\n') + '\n', { mode: 0o755 });
-    return scriptPath;
+    return { scriptPath, launchId };
+  }
+
+  function quote(s: string): string {
+    return `'${s.replace(/'/g, "'\\''")}'`;
   }
 }
 
@@ -166,7 +227,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
   }
 
   try {
-    const scriptPath = writeTempScript(opts.projectPath, claudeArgs);
+    const { scriptPath, launchId } = writeTempScript(opts.projectPath, claudeArgs);
 
     // tmux takes priority if detected
     if (isInTmux()) {
@@ -179,7 +240,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
       child.unref();
       cleanupTempScript(scriptPath);
 
-      log('launch', { method: 'tmux', path: opts.projectPath });
+      log('launch', { method: 'tmux', path: opts.projectPath, launchId });
       return { success: true, message: 'Launched in tmux split', pid };
     }
 
@@ -211,7 +272,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         child.unref();
         cleanupTempScript(scriptPath);
 
-        log('launch', { method: useWt ? 'wt' : 'cmd', path: opts.projectPath });
+        log('launch', { method: useWt ? 'wt' : 'cmd', path: opts.projectPath, launchId });
         return { success: true, message: `Launched in ${useWt ? 'Windows Terminal' : 'cmd'}`, pid };
       }
 
@@ -228,7 +289,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         child.unref();
         cleanupTempScript(scriptPath);
 
-        log('launch', { method: 'Terminal.app', path: opts.projectPath });
+        log('launch', { method: 'Terminal.app', path: opts.projectPath, launchId });
         return { success: true, message: 'Launched in Terminal.app', pid };
       }
 
@@ -236,6 +297,8 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         const terminal = detectLinuxTerminal();
         if (!terminal) {
           cleanupTempScript(scriptPath);
+          // Clean up marker since we didn't actually launch
+          try { fs.unlinkSync(getMarkerPath(launchId)); } catch { /* ignore */ }
           return {
             success: false,
             message: `No terminal emulator found. Run manually:\n  cd "${opts.projectPath}" && claude`,
@@ -261,7 +324,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         child.unref();
         cleanupTempScript(scriptPath);
 
-        log('launch', { method: terminal, path: opts.projectPath });
+        log('launch', { method: terminal, path: opts.projectPath, launchId });
         return { success: true, message: `Launched in ${terminal}`, pid };
       }
 
@@ -269,6 +332,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
         // Exhaustive check
         const _never: never = platform;
         cleanupTempScript(scriptPath);
+        try { fs.unlinkSync(getMarkerPath(launchId)); } catch { /* ignore */ }
         return { success: false, message: `Unsupported platform: ${_never}` };
       }
     }

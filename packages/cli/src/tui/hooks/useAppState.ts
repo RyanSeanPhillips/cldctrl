@@ -45,7 +45,9 @@ type Action =
   | { type: 'SCAN_CANCEL' }
   | { type: 'SET_LEFT_SECTION'; section: LeftSection; convIndex?: number }
   | { type: 'CONV_NAVIGATE'; delta: number; maxIndex: number }
-  | { type: 'CONV_EXPAND'; expanded: boolean };
+  | { type: 'CONV_EXPAND'; expanded: boolean }
+  | { type: 'SETTINGS_TAB'; tab: 'general' | 'permissions' }
+  | { type: 'PERMISSIONS_NAVIGATE'; delta: number; maxIndex: number };
 
 // Track pending config saves (side-effect-free reducer)
 let pendingConfigSave: Config | null = null;
@@ -109,6 +111,8 @@ function reducer(state: AppState, action: Action): AppState {
         helpIndex: action.mode === 'help' ? 0 : state.helpIndex,
         // Reset settings selection when entering settings
         settingsIndex: action.mode === 'settings' ? 0 : state.settingsIndex,
+        settingsTab: action.mode === 'settings' ? 'general' : state.settingsTab,
+        permissionsIndex: action.mode === 'settings' ? 0 : state.permissionsIndex,
       };
 
     case 'SET_GAME':
@@ -225,6 +229,16 @@ function reducer(state: AppState, action: Action): AppState {
       if (state.expandedConversation === action.expanded) return state;
       return { ...state, expandedConversation: action.expanded };
 
+    case 'SETTINGS_TAB':
+      if (state.settingsTab === action.tab) return state;
+      return { ...state, settingsTab: action.tab, settingsIndex: 0, permissionsIndex: 0 };
+
+    case 'PERMISSIONS_NAVIGATE': {
+      const newIdx = Math.max(0, Math.min(action.maxIndex, state.permissionsIndex + action.delta));
+      if (newIdx === state.permissionsIndex) return state;
+      return { ...state, permissionsIndex: newIdx };
+    }
+
     default: {
       const _exhaustive: never = action;
       return state;
@@ -251,6 +265,8 @@ function initState(): AppState {
       activeGame: null,
       helpIndex: 0,
       settingsIndex: 0,
+      settingsTab: 'general',
+      permissionsIndex: 0,
       scanning: false,
       leftSection: 'projects',
       conversationIndex: 0,
@@ -275,6 +291,8 @@ function initState(): AppState {
     activeGame: null,
     helpIndex: 0,
     settingsIndex: 0,
+    settingsTab: 'general',
+    permissionsIndex: 0,
     scanning: false,
     leftSection: 'projects',
     conversationIndex: 0,

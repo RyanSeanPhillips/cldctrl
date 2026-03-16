@@ -18,19 +18,21 @@ export const ProgressBar = React.memo(function ProgressBar({
   width,
   label,
 }: ProgressBarProps) {
-  const clamped = Math.max(0, Math.min(100, percent));
+  // Bar fills to 100% max, but percentage text can show >100%
+  const barClamped = Math.max(0, Math.min(100, percent));
+  const displayPct = Math.max(0, Math.round(percent));
 
   // Account for all non-bar content:
   // label + " " + bar + " " + "100%" (4 chars max)
   const labelLen = label ? label.length + 1 : 0; // "Label "
   const pctLen = 5; // " 100%" (space + up to 4 chars)
   const barWidth = Math.max(4, width - labelLen - pctLen);
-  const filled = Math.round((clamped / 100) * barWidth);
+  const filled = Math.round((barClamped / 100) * barWidth);
   const empty = barWidth - filled;
 
   const bar = '█'.repeat(filled) + '░'.repeat(empty);
-  const color = clamped >= 90 ? INK_COLORS.red : clamped >= 70 ? INK_COLORS.yellow : INK_COLORS.green;
-  const pctStr = `${Math.round(clamped)}%`;
+  const color = percent >= 90 ? INK_COLORS.red : percent >= 70 ? INK_COLORS.yellow : INK_COLORS.green;
+  const pctStr = `${displayPct}%`;
 
   return (
     <Box width={width}>

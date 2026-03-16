@@ -74,7 +74,12 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
         // For the live session, show the animated token count
         const tokValue = isLive && activeTokens != null ? animTokens : (session.stats?.tokens ?? 0);
         const tokenStr = formatTokenCount(tokValue);
-        const costStr = showCost && isCostRelevant() && tokValue > 0 ? ` ~${formatCost(estimateCostBlended(tokValue))}` : '';
+        // Prefer actual cost (from ~/.claude.json) over blended estimate
+        const costStr = showCost && isCostRelevant() && tokValue > 0
+          ? (session.cost != null
+            ? ` ${formatCost(session.cost)}`
+            : ` ~${formatCost(estimateCostBlended(tokValue))}`)
+          : '';
         const tokenCol = `${tokenStr}${costStr}`.padStart(6 + costStr.length);
         // Reserve space for live dot indicator
         const livePrefix = isLive ? '● ' : '  ';

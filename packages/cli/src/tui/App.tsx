@@ -19,12 +19,16 @@ import {
   useLiveSession,
   useAutoSummarize,
   useCommandUsage,
+  useSessionTasks,
+  useWindowedUsageStats,
 } from './hooks/useBackgroundData.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { useFileTree } from './hooks/useFileTree.js';
 import { getRecentSessions } from '../core/sessions.js';
-import { buildProjectList } from '../core/projects.js';
+import { buildProjectList, extractProjectName, getProjectSlug } from '../core/projects.js';
+import { normalizePathForCompare } from '../core/platform.js';
 import { scanForProjects, mergeScannedProjects } from '../core/scanner.js';
+import { mergeIntoIndex, getLastScanTime } from '../core/project-index.js';
 import { readDaemonCache } from '../core/background.js';
 import { isDemoMode, demoSessions, demoIssueCounts, DEMO_SKILLS_DATA } from '../core/demo-data.js';
 import { ProjectPane } from './components/ProjectPane.js';
@@ -148,8 +152,10 @@ function App() {
 
   const gitStatuses = useGitStatuses(filteredProjects, visibleStart, visibleEnd);
   const issues = useIssues(settledPath);
-  const usageStats = useUsageStats();
-  const usageBudget = useUsageBudget(usageStats, state.config.daily_budget_tokens);
+  const windowedUsage = useWindowedUsageStats();
+  const cachedUsageStats = useUsageStats(); // daemon cache fallback (always called)
+  const usageStats = windowedUsage?.fiveHour ?? cachedUsageStats;
+  const usageBudget = useUsageBudget(usageStats, state.config.daily_budget_tokens, windowedUsage);
 
   // New hooks — use settledPath for expensive per-project data fetching
   const { map: activeProcesses, allSessions, totalCount: liveSessionCount } = useActiveProcesses(filteredProjects);
@@ -197,6 +203,31 @@ function App() {
     });
     return enriched;
   }, [activeProcesses, liveSession, settledProject]);
+
+  // Auto-add projects when a new active session appears for an unknown path.
+  // This ensures projects launched outside cldctrl show up in real-time.
+  useEffect(() => {
+    if (isDemoMode() || allSessions.length === 0) return;
+    const knownPaths = new Set(state.projects.map(p => normalizePathForCompare(p.path)));
+    const newProjects: typeof state.projects = [];
+    for (const s of allSessions) {
+      const key = normalizePathForCompare(s.projectPath);
+      if (knownPaths.has(key)) continue;
+      knownPaths.add(key); // avoid duplicates within the batch
+      let name: string;
+      try { name = extractProjectName(s.projectPath); } catch { name = s.projectPath.split(/[/\\]/).pop() ?? ''; }
+      newProjects.push({
+        name,
+        path: s.projectPath,
+        slug: getProjectSlug(s.projectPath),
+        pinned: false,
+        discovered: true,
+      });
+    }
+    if (newProjects.length > 0) {
+      dispatch({ type: 'SET_PROJECTS', projects: [...state.projects, ...newProjects] });
+    }
+  }, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Issue counts per project (for badges) — accumulates across selections
   const [issueCounts, setIssueCounts] = useState(() =>
@@ -379,6 +410,8 @@ function App() {
       try {
         const results = scanForProjects({ signal: controller.signal });
         if (!controller.signal.aborted) {
+          // Persist scan results to the project index
+          mergeIntoIndex(results);
           const merged = mergeScannedProjects(projectsRef.current, results, configRef.current);
           dispatch({ type: 'SCAN_COMPLETE', projects: merged });
           const newCount = merged.length - projectsRef.current.length;
@@ -390,12 +423,39 @@ function App() {
     });
   }, [dispatch, onLaunchFeedback]);
 
-  // Sorted conversations for conversations mode (sorted by tokens desc)
-  // Uses enrichedProcesses (not raw allSessions) so the settled project
-  // gets live-tailed stats instead of all-zero process-detection data.
-  const sortedConversations = useMemo(
-    () => [...enrichedProcesses.values()].sort((a, b) => b.stats.tokens - a.stats.tokens),
-    [enrichedProcesses],
+  // Auto-scan on first run (no previous index exists)
+  const autoScannedRef = useRef(false);
+  useEffect(() => {
+    if (isDemoMode() || autoScannedRef.current) return;
+    autoScannedRef.current = true;
+    if (!getLastScanTime()) {
+      // Defer to let first paint complete
+      const timer = setTimeout(() => startScan(), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [startScan]);
+
+  // Sorted conversations — ALL active sessions (not deduplicated by project).
+  // Enriches the settled project's map-winner with live-tailed stats.
+  const sortedConversations = useMemo(() => {
+    const mapWinner = settledProject ? enrichedProcesses.get(settledProject.path) : undefined;
+    const enriched = allSessions.map(s => {
+      // Replace the session that matches the map winner (same PID) with enriched version
+      if (mapWinner && s.pid === mapWinner.pid && s.projectPath === mapWinner.projectPath) {
+        return mapWinner;
+      }
+      return s;
+    });
+    return enriched.sort((a, b) => b.stats.tokens - a.stats.tokens);
+  }, [allSessions, enrichedProcesses, settledProject]);
+
+  // Live tasks/todos for expanded conversation
+  const expandedSession = state.expandedConversation
+    ? sortedConversations[state.conversationIndex]
+    : null;
+  const sessionTasks = useSessionTasks(
+    expandedSession?.sessionId ?? null,
+    state.expandedConversation,
   );
 
   // Focus a conversation's terminal window
@@ -472,6 +532,8 @@ function App() {
           width={dims.cols}
           height={dims.rows}
           onConfigChange={(c) => dispatch({ type: 'SET_CONFIG', config: c })}
+          settingsTab={state.settingsTab}
+          permissionsIndex={state.permissionsIndex}
         />
       </Box>
     );
@@ -537,6 +599,7 @@ function App() {
             width={rightWidth}
             height={bodyHeight}
             usageBudget={usageBudget}
+            sessionTasks={sessionTasks}
           />
         ) : (
           <DetailPane

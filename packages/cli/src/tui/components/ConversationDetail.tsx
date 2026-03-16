@@ -10,6 +10,7 @@ import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pric
 import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
 import { ActivitySparkline } from './ActivitySparkline.js';
 import type { ActiveSession, UsageBudget } from '../../types.js';
+import type { SessionTasks } from '../hooks/useBackgroundData.js';
 
 // Distinct colors for stacked bars (one per conversation, up to 6)
 const CONV_COLORS = [
@@ -30,6 +31,7 @@ interface ConversationDetailProps {
   width: number;
   height: number;
   usageBudget?: UsageBudget | null;
+  sessionTasks?: SessionTasks | null;
 }
 
 /** Extract short project name from path */
@@ -329,7 +331,7 @@ function Overview({ conversations, width, height, usageBudget }: {
 }
 
 /** Expanded mode: single conversation deep dive */
-function Expanded({ session, width, height }: { session: ActiveSession; width: number; height: number }) {
+function Expanded({ session, width, height, sessionTasks }: { session: ActiveSession; width: number; height: number; sessionTasks?: SessionTasks | null }) {
   const name = projectName(session.projectPath);
   const isIdle = session.tracked && session.idle;
   const dur = formatDuration(Date.now() - session.startTime.getTime());
@@ -355,6 +357,13 @@ function Expanded({ session, width, height }: { session: ActiveSession; width: n
   const sType = classifySessionType(session.stats);
   const compactions = countCompactions(session.stats.inputPerMessage);
 
+  // Tasks/todos
+  const hasTasks = sessionTasks && (sessionTasks.todos.length > 0 || sessionTasks.tasks.length > 0);
+  const totalTodos = sessionTasks?.todos.length ?? 0;
+  const completedTodos = sessionTasks?.todos.filter(t => t.status === 'completed').length ?? 0;
+  const totalTaskItems = sessionTasks?.tasks.length ?? 0;
+  const completedTaskItems = sessionTasks?.tasks.filter(t => t.status === 'completed').length ?? 0;
+
   // Height budget: gate optional sections to prevent overflow
   // Fixed: header(1) + separator(1) + info(1) + efficiency(1) + marginTop(1) + breakdown header(1) + 5 token lines + total(1) + marginTop(1) + tool header(1) + tool stats(1) + agent line(1) + marginTop(1) + hints(1) = 18
   const fixedRows = 18;
@@ -366,7 +375,9 @@ function Expanded({ session, width, height }: { session: ActiveSession; width: n
   const contextRows = showContextGrowth ? 4 : 0;
   const showActivity = hasActivity && (remainingRows - contextRows) >= 3;
   const activityRows = showActivity ? 3 : 0;
-  const roundBudget = Math.max(0, remainingRows - contextRows - activityRows);
+  const showTasks = hasTasks && (remainingRows - contextRows - activityRows) >= 3;
+  const taskRows = showTasks ? Math.min(7, 2 + (totalTodos > 0 ? Math.min(5, totalTodos) : Math.min(5, totalTaskItems))) : 0;
+  const roundBudget = Math.max(0, remainingRows - contextRows - activityRows - taskRows);
   const showRounds = hasRounds && roundBudget >= 2;
   const maxRoundLines = Math.min(5, roundBudget - 1);
 
@@ -496,6 +507,52 @@ function Expanded({ session, width, height }: { session: ActiveSession; width: n
         </Text>
       )}
 
+      {/* Tasks/Todos */}
+      {showTasks && sessionTasks && (
+        <>
+          <Box marginTop={1}><Text bold color={INK_COLORS.text}>
+            {totalTodos > 0
+              ? `Todos (${completedTodos}/${totalTodos} done)`
+              : `Tasks (${completedTaskItems}/${totalTaskItems} completed)`}
+          </Text></Box>
+          {totalTodos > 0 ? (
+            // Prioritize in_progress (active) items, show up to 5
+            <>
+              {[...sessionTasks.todos]
+                .sort((a, b) => (a.activeForm ? -1 : 0) - (b.activeForm ? -1 : 0))
+                .slice(0, Math.min(5, taskRows - 2))
+                .map((todo, i) => {
+                  const icon = todo.status === 'completed' ? CHARS.check : (todo.activeForm ? CHARS.pointer : '\u25CB');
+                  const color = todo.status === 'completed' ? INK_COLORS.green : (todo.activeForm ? INK_COLORS.accent : INK_COLORS.textDim);
+                  return (
+                    <Text key={i} color={color}>
+                      {'  '}{icon} {todo.activeForm || todo.content.slice(0, innerWidth - 8)}
+                    </Text>
+                  );
+                })}
+            </>
+          ) : (
+            <>
+              {sessionTasks.tasks
+                .slice(0, Math.min(5, taskRows - 2))
+                .map((task) => {
+                  const icon = task.status === 'completed' ? CHARS.check
+                    : task.status === 'in_progress' ? CHARS.pointer
+                    : '\u25CB';
+                  const color = task.status === 'completed' ? INK_COLORS.green
+                    : task.status === 'in_progress' ? INK_COLORS.blue
+                    : INK_COLORS.textDim;
+                  return (
+                    <Text key={task.id} color={color}>
+                      {'  '}{icon} {task.activeForm || task.subject.slice(0, innerWidth - 8)}
+                    </Text>
+                  );
+                })}
+            </>
+          )}
+        </>
+      )}
+
       {/* Round Summaries */}
       {showRounds && (
         <>
@@ -525,12 +582,13 @@ export const ConversationDetail = React.memo(function ConversationDetail({
   width,
   height,
   usageBudget,
+  sessionTasks,
 }: ConversationDetailProps) {
   const sorted = [...conversations].sort((a, b) => b.stats.tokens - a.stats.tokens);
   const selected = sorted[selectedIndex];
 
   if (expanded && selected) {
-    return <Expanded session={selected} width={width} height={height} />;
+    return <Expanded session={selected} width={width} height={height} sessionTasks={sessionTasks} />;
   }
 
   if (sorted.length === 0) {
