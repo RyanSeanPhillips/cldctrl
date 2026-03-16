@@ -320,7 +320,7 @@ export const ProjectPane = React.memo(function ProjectPane({
                 bold={isSelected}
               >
                 {isSelected ? CHARS.pointer : ' '}{' '}
-                <Text color={indicatorColor}>{sessionIndicator}</Text>
+                <Text color={indicatorColor}>{sessionIndicator}</Text>{' '}
                 {project.name.slice(0, effectiveNameWidth).padEnd(effectiveNameWidth)}{' '}
                 <Text color={git?.dirty ? INK_COLORS.yellow : INK_COLORS.green}>
                   {gitStr.slice(0, gitWidth)}
