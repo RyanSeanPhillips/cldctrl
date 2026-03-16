@@ -41,16 +41,18 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
     );
   }
 
-  const hints =
+  // Hint pairs: [key, label] — keys get accent color, labels get dim
+  const hintPairs: [string, string][] =
     mode === 'filter'
-      ? 'Type to filter | Enter:select | Esc:cancel'
+      ? [['Type', 'filter'], ['Enter', 'select'], ['Esc', 'cancel']]
       : mode === 'prompt'
-        ? 'Type prompt | Enter:launch | Esc:cancel'
+        ? [['Type', 'prompt'], ['Enter', 'launch'], ['Esc', 'cancel']]
         : leftPaneMode === 'conversations'
-          ? 'j/k:nav  Enter:focus  Tab:expand  Esc:projects  ?:help  q:quit'
+          ? [['j/k', 'nav'], ['Enter', 'focus'], ['Tab', 'expand'], ['Esc', 'projects'], ['?', 'help'], ['q', 'quit']]
           : focusPane === 'details'
-            ? 'j/k:nav sessions  Enter:resume  Esc:back  q:quit'
-            : 'j/k:nav /:filter n:new Enter:launch l:live ,:settings ?:help q:quit';
+            ? [['j/k', 'nav'], ['Enter', 'resume'], ['Esc', 'back'], ['q', 'quit']]
+            : [['j/k', 'nav'], ['/', 'filter'], ['n', 'new'], ['Enter', 'launch'], ['l', 'live'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
+  const hintsText = hintPairs.map(([k, l]) => `${k}:${l}`).join('  ');
 
   // Compact right-side: [Tier] X% or basic stats (full bars live in ProjectPane)
   const hasLiveData = usageBudget?.rateLimits != null;
@@ -79,11 +81,23 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
   // Truncate hints if they'd overlap with rightSide
   const rightLen = rightSide ? tierPrefix.length + rightSide.length + 2 : 0;
   const maxHintLen = Math.max(10, width - 2 - rightLen);
-  const displayHints = hints.length > maxHintLen ? hints.slice(0, maxHintLen - 1) + '…' : hints;
+  // Determine how many hint pairs fit
+  let visiblePairs = hintPairs.length;
+  while (visiblePairs > 1) {
+    const len = hintPairs.slice(0, visiblePairs).map(([k, l]) => `${k}:${l}`).join('  ').length;
+    if (len <= maxHintLen) break;
+    visiblePairs--;
+  }
 
   return (
     <Box width={width} paddingX={1} justifyContent="space-between">
-      <Text color={INK_COLORS.textDim}>{displayHints}</Text>
+      <Text>
+        {hintPairs.slice(0, visiblePairs).map(([key, label], i) => (
+          <Text key={key + label}>
+            {i > 0 ? '  ' : ''}<Text color={INK_COLORS.accent}>{key}</Text><Text color={INK_COLORS.textDim}>:{label}</Text>
+          </Text>
+        ))}
+      </Text>
       {rightSide && (
         <Text>
           {tierPrefix && <Text color={INK_COLORS.blue}>{tierPrefix}</Text>}

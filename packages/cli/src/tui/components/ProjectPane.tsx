@@ -9,7 +9,7 @@ import { formatTokenCount } from '../../core/sessions.js';
 import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pricing.js';
 import { isFeatureEnabled } from '../../config.js';
 import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
-import { usePulse } from '../hooks/useAnimations.js';
+import { usePulse, useSpinner } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
 import type { Config, Project, GitStatus, ActiveSession, DailyUsage, UsageStats, UsageBudget, LeftSection } from '../../types.js';
@@ -39,6 +39,93 @@ interface ProjectPaneProps {
   conversationIndex?: number;
   /** Which section of the left pane has the cursor */
   leftSection?: LeftSection;
+}
+
+/** Conversations section — shows active + idle sessions with spinner and actions */
+function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, pulse }: {
+  convs: ActiveSession[];
+  inConvSection: boolean;
+  convIdx: number;
+  usableWidth: number;
+  pulse: boolean;
+}) {
+  const liveCount = convs.filter(s => !s.idle).length;
+  const idleCount = convs.length - liveCount;
+  const hasAnyActive = liveCount > 0;
+  const spinner = useSpinner(hasAnyActive, 150);
+
+  // Header: "── Conversations (1 live · 2 idle) ──"
+  const countLabel = [
+    liveCount > 0 ? `${liveCount} live` : '',
+    idleCount > 0 ? `${idleCount} idle` : '',
+  ].filter(Boolean).join(' · ');
+  const prefix = `${CHARS.separator.repeat(2)} ${countLabel} `;
+  const remaining = Math.max(1, usableWidth - prefix.length);
+
+  return (
+    <Box flexDirection="column">
+      <Box paddingX={1}>
+        <Text color={INK_COLORS.textDim}>
+          {prefix}{CHARS.separator.repeat(remaining)}
+        </Text>
+      </Box>
+      {convs.slice(0, 5).map((session, i) => {
+        const isSelected = inConvSection && i === convIdx;
+        const isIdle = !!session.idle;
+        const parts = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
+        const name = parts[parts.length - 1] || '';
+
+        // Active: spinner + action; Idle: dim dot + duration
+        let indicator: string;
+        let indicatorColor: string;
+        if (isIdle) {
+          indicator = '○';
+          indicatorColor = INK_COLORS.textDim;
+        } else {
+          indicator = spinner || '●';
+          indicatorColor = INK_COLORS.green;
+        }
+
+        // Show action for active sessions, duration for idle
+        let detail: string;
+        if (!isIdle && session.currentAction) {
+          detail = session.currentAction;
+          // Strip long file paths — show only filename
+          if (detail.length > 20) {
+            const lastSep = Math.max(detail.lastIndexOf('/'), detail.lastIndexOf('\\'));
+            if (lastSep > 0) detail = detail.slice(lastSep + 1);
+          }
+        } else {
+          detail = formatDuration(Date.now() - session.startTime.getTime());
+        }
+
+        const tok = formatTokenCount(session.stats.tokens);
+        const fixedChars = 6 + detail.length + 1 + tok.length;
+        const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars));
+
+        return (
+          <Box key={`${session.pid}-${session.sessionId}`} paddingX={1}>
+            <Text
+              color={isSelected ? INK_COLORS.text : (isIdle ? INK_COLORS.textDim : INK_COLORS.text)}
+              backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
+              bold={isSelected}
+            >
+              {isSelected ? CHARS.pointer : ' '}{' '}
+              <Text color={pulse && !isIdle ? indicatorColor : (isIdle ? INK_COLORS.textDim : indicatorColor)}>{indicator}</Text>
+              {' '}{name.slice(0, convNameWidth).padEnd(convNameWidth)}{' '}
+              <Text color={INK_COLORS.textDim}>{detail} </Text>
+              <Text color={isIdle ? INK_COLORS.textDim : INK_COLORS.accent}>{tok}</Text>
+            </Text>
+          </Box>
+        );
+      })}
+      <Box paddingX={1}>
+        <Text color={INK_COLORS.textDim}>
+          {CHARS.separator.repeat(Math.max(1, usableWidth))}
+        </Text>
+      </Box>
+    </Box>
+  );
 }
 
 export const ProjectPane = React.memo(function ProjectPane({
@@ -175,50 +262,13 @@ export const ProjectPane = React.memo(function ProjectPane({
 
       {/* Inline conversations section */}
       {convs.length > 0 && (
-        <Box flexDirection="column">
-          <Box paddingX={1}>
-            <Text color={INK_COLORS.textDim}>
-              {(() => {
-                const prefix = `${CHARS.separator.repeat(2)} Live (${convs.length}) `;
-                const remaining = Math.max(1, usableWidth - prefix.length);
-                return prefix + CHARS.separator.repeat(remaining);
-              })()}
-            </Text>
-          </Box>
-          {convs.slice(0, 5).map((session, i) => {
-            const isSelected = inConvSection && i === convIdx;
-            const isIdle = !!session.idle;
-            const dotColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
-            const parts = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
-            const name = parts[parts.length - 1] || '';
-            const dur = formatDuration(Date.now() - session.startTime.getTime());
-            const tok = formatTokenCount(session.stats.tokens);
-            // Fit within usableWidth: pointer(2) + dot(1) + space(1) + name + space(1) + dur + space(1) + tok
-            const fixedChars = 6 + dur.length + 1 + tok.length;
-            const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars));
-
-            return (
-              <Box key={`${session.pid}-${session.sessionId}`} paddingX={1}>
-                <Text
-                  color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
-                  backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
-                  bold={isSelected}
-                >
-                  {isSelected ? CHARS.pointer : ' '}{' '}
-                  <Text color={pulse ? dotColor : INK_COLORS.textDim}>{'●'}</Text>
-                  {' '}{name.slice(0, convNameWidth).padEnd(convNameWidth)}{' '}
-                  <Text color={INK_COLORS.textDim}>{dur} </Text>
-                  <Text color={INK_COLORS.accent}>{tok}</Text>
-                </Text>
-              </Box>
-            );
-          })}
-          <Box paddingX={1}>
-            <Text color={INK_COLORS.textDim}>
-              {CHARS.separator.repeat(Math.max(1, usableWidth))}
-            </Text>
-          </Box>
-        </Box>
+        <ConversationsSection
+          convs={convs}
+          inConvSection={inConvSection}
+          convIdx={convIdx}
+          usableWidth={usableWidth}
+          pulse={pulse}
+        />
       )}
 
       {/* No matches message */}
