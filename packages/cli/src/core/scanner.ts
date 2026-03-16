@@ -162,6 +162,8 @@ export function scanForProjects(opts: ScanOptions = {}): ScanResult[] {
     const entryNames = new Set(entries.map(e => e.name));
     const found = PROJECT_INDICATORS.filter(ind => entryNames.has(ind));
 
+    const hasGit = found.includes('.git');
+
     if (found.length > 0) {
       const key = normalizePathForCompare(dirPath);
       if (!seenPaths.has(key)) {
@@ -171,10 +173,13 @@ export function scanForProjects(opts: ScanOptions = {}): ScanResult[] {
           name: path.basename(dirPath),
           indicators: found,
           hasClaude: found.includes('CLAUDE.md'),
-          hasGit: found.includes('.git'),
+          hasGit,
         });
       }
     }
+
+    // Don't descend into git repos — subdirectories are part of the same project
+    if (hasGit) return;
 
     // Descend into subdirectories
     for (const entry of entries) {

@@ -20,12 +20,19 @@ interface StatusBarProps {
   leftPaneMode?: string;
 }
 
-export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, leftPaneMode }: StatusBarProps) {
+export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, scanning, leftPaneMode }: StatusBarProps) {
   // Animated counters — count up smoothly when stats change
   const animatedTokens = useAnimatedCounter(stats?.tokens ?? 0, 1500);
   const animatedMessages = useAnimatedCounter(stats?.messages ?? 0, 800);
 
-  // Show launch feedback when present, otherwise normal hints
+  // Show launch feedback or scanning indicator
+  if (scanning) {
+    return (
+      <Box width={width} paddingX={1}>
+        <Text color={INK_COLORS.yellow}>⠋ Scanning for projects...</Text>
+      </Box>
+    );
+  }
   if (launchMsg) {
     return (
       <Box width={width} paddingX={1}>
