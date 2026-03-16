@@ -111,6 +111,11 @@ export function useSpinner(active: boolean, ms = 150): string {
 
 /** Claude Code-style sparkle spinner: · ✻ ✽ ✶ ✳ ✢ with easing hold on first/last */
 export function useClaudeSpinner(active: boolean, ms = 120): string {
+  return claudeSpinnerFrame(useClaudeSpinnerFrame(active, ms), 0);
+}
+
+/** Returns the raw frame index for the Claude spinner (use with claudeSpinnerFrame for offsets) */
+export function useClaudeSpinnerFrame(active: boolean, ms = 120): number {
   const [frame, setFrame] = useState(0);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -125,5 +130,10 @@ export function useClaudeSpinner(active: boolean, ms = 120): string {
     return () => clearInterval(timer);
   }, [active, ms]);
 
-  return active ? CLAUDE_SPINNER_FRAMES[frame] : '';
+  return frame;
+}
+
+/** Get the spinner character for a given frame + offset (use to desync multiple spinners) */
+export function claudeSpinnerFrame(frame: number, offset: number): string {
+  return CLAUDE_SPINNER_FRAMES[(frame + offset) % CLAUDE_SPINNER_FRAMES.length];
 }
