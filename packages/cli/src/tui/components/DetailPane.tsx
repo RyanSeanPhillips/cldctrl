@@ -12,7 +12,7 @@ import { INK_COLORS, CHARS } from '../../constants.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ActivityTrace } from './ActivityTrace.js';
 import { ActiveBadge } from './ActiveBadge.js';
-import { usePulse, useAnimatedCounter, useSpinner } from '../hooks/useAnimations.js';
+import { usePulse, useAnimatedCounter, useClaudeSpinner } from '../hooks/useAnimations.js';
 import { formatFileSize } from '../../core/filetree.js';
 import type { FlatNode } from '../hooks/useFileTree.js';
 import type { Config, Project, GitStatus, Session, Issue, GitCommit, ActiveSession, SessionActivity, DailyUsage } from '../../types.js';
@@ -376,7 +376,7 @@ function SessionPendingSummary({ session, isLive, isSummarizing, maxChars, round
   roundSummaries?: string[];
   currentAction?: string;
 }) {
-  const spinner = useSpinner(isSummarizing || isLive);
+  const spinner = useClaudeSpinner(isSummarizing || isLive, 120);
   const pulse = usePulse(600);
 
   // For live sessions, show AI-generated round summaries

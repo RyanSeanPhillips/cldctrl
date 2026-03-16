@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
 import { INK_COLORS, formatDuration } from '../../constants.js';
 import { formatTokenCount } from '../../core/sessions.js';
-import { usePulse, useSpinner } from '../hooks/useAnimations.js';
+import { usePulse, useClaudeSpinner } from '../hooks/useAnimations.js';
 import type { ActiveSession } from '../../types.js';
 
 interface ActiveBadgeProps {
@@ -45,7 +45,7 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   const isIdle = !!session.idle;
   const isThinking = !isIdle && !!session.currentAction;
   const pulse = usePulse(800);
-  const spinner = useSpinner(isThinking);
+  const spinner = useClaudeSpinner(isThinking, 120);
 
   const badgeColor = isIdle ? INK_COLORS.yellow : (pulse ? INK_COLORS.green : '#1a7a1a');
   const badgeIcon = isIdle ? '○' : '●';
