@@ -178,19 +178,23 @@ export function scanForProjects(opts: ScanOptions = {}): ScanResult[] {
 
     // Descend into subdirectories
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      // Dropbox/OneDrive cloud reparse points report isDirectory()=false and
+      // isSymbolicLink()=true from Dirent, but lstatSync correctly identifies
+      // them as directories. Fall through to the lstat check for non-directory
+      // entries that claim to be symlinks.
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       if (SKIP_DIRS.has(entry.name)) continue;
       if (entry.name.startsWith('.') && entry.name !== '.git') continue;
 
       const childPath = path.join(dirPath, entry.name);
 
-      // Skip true symlinks, but NOT reparse points (Dropbox/OneDrive use NTFS
-      // reparse points for smart sync — Dirent.isSymbolicLink() incorrectly
-      // reports these as symlinks on Windows, so verify with lstat)
-      if (entry.isSymbolicLink()) {
+      // For entries that aren't plain directories (symlinks or reparse points),
+      // verify with lstat: skip true symlinks, allow reparse-point directories
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
         try {
           const stat = fs.lstatSync(childPath);
           if (stat.isSymbolicLink()) continue; // true symlink
+          if (!stat.isDirectory()) continue;   // not a directory after resolving
         } catch { continue; }
       }
 
