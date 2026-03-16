@@ -194,13 +194,35 @@ Session files can reach 50MB. Always read only what you need:
 - `tailer.ts`: caps initial read to last 1MB
 - `sessions.ts`: streams with readline, respects `maxSessionFileSize`
 
-### 7. File tree and scanner
+### 7. Session detection and idle tracking
+
+Three detection sources in `processes.ts` (priority order):
+1. **Markers** (`pids/*.json`) — cc-launched sessions. Trusted while file exists.
+2. **Tracked PIDs** (`tracked-sessions.json`) — legacy, PIDs are unreliable.
+3. **JSONL mtime** — externally-launched sessions. Creates one `ActiveSession` per
+   recent JSONL file (supports multiple sessions per project).
+
+Two thresholds:
+- `ACTIVE_THRESHOLD_MS` (5h) — how far back to look for sessions (conversations window)
+- `IDLE_THRESHOLD_MS` (5min) — sessions older than this show as idle (yellow dot, dimmed)
+
+**Critical:** The idle check must use `!!session.idle`, NOT `session.tracked && session.idle`.
+The `tracked` flag is only set for marker/PID sessions. Mtime-detected sessions have
+`tracked: undefined`, so `tracked && idle` is always false — they never appear idle.
+
+Hidden projects with active sessions are auto-unhidden: `useActiveProcesses` receives
+`hiddenPaths` so mtime detection can find them, and the auto-add effect dispatches
+`UNHIDE_PATHS` to remove them from `config.hidden_projects`.
+
+`H` key toggles `showHidden` state (display integration pending).
+
+### 8. File tree and scanner
 
 - **File tree** (`useFileTree.ts`): Lazy-loads directories on expand. Caches children in `Map<relativePath, FileNode[]>`. Resets when project changes. Respects `.gitignore` via `parseGitignore()`. File type icons from extension/name maps.
 - **Scanner** (`scanner.ts`): Synchronous BFS with configurable depth limit (default 5). Uses `PROJECT_INDICATORS` (CLAUDE.md, .git, package.json, etc.). `SKIP_DIRS` excludes node_modules, .git, AppData, etc. Supports `AbortSignal` for cancellation.
 - Detail pane tabs: `sessions | commits | issues | files` — `f` key quick-jumps to files, `S` triggers scan.
 
-### 8. File path case sensitivity
+### 9. File path case sensitivity
 
 Windows paths are case-insensitive. Use `normalizePathForCompare()` from `platform.ts` for path comparisons. The daemon cache uses raw paths as keys.
 
