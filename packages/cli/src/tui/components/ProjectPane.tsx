@@ -294,29 +294,15 @@ export const ProjectPane = React.memo(function ProjectPane({
           realIndex === lastPinnedIdx + 1 &&
           project.discovered;
 
-        // Build inline active badge: ● action 3m 45k
-        let activeBadge = '';
-        let badgeColor = '';
-        if (activeSession) {
-          const isIdle = !!activeSession.idle;
-          badgeColor = isIdle ? INK_COLORS.yellow : INK_COLORS.green;
-          let action = activeSession.currentAction || (isIdle ? 'idle' : 'active');
-          // Strip long file paths from action text — show only the filename
-          if (action.length > 20) {
-            const lastSep = Math.max(action.lastIndexOf('/'), action.lastIndexOf('\\'));
-            if (lastSep > 0) action = action.slice(0, action.indexOf(' ') + 1) + action.slice(lastSep + 1);
-          }
-          const dur = formatDuration(Date.now() - activeSession.startTime.getTime());
-          const tok = formatTokenCount(activeSession.stats.tokens);
-          activeBadge = `${action} ${dur} ${tok}`;
-        }
+        // Small indicator: ✶ for active, ○ for idle, space for none
+        const isActiveSession = activeSession && !activeSession.idle;
+        const sessionIndicator = activeSession
+          ? (isActiveSession ? '✶' : '○')
+          : ' ';
+        const indicatorColor = isActiveSession ? INK_COLORS.green : INK_COLORS.textDim;
 
-        // When active, shrink name to make room for badge (account for issue badge too)
         const issueBadgeLen = issueCount > 0 ? 3 : 0; // " ⚠N"
-        const badgeLen = activeBadge ? activeBadge.length + 3 : 0; // "● " + badge + " "
-        const effectiveNameWidth = activeSession
-          ? Math.max(6, nameWidth - Math.max(0, badgeLen + issueBadgeLen - gitWidth))
-          : nameWidth;
+        const effectiveNameWidth = nameWidth;
 
         return (
           <React.Fragment key={project.path}>
@@ -334,20 +320,11 @@ export const ProjectPane = React.memo(function ProjectPane({
                 bold={isSelected}
               >
                 {isSelected ? CHARS.pointer : ' '}{' '}
+                <Text color={indicatorColor}>{sessionIndicator}</Text>
                 {project.name.slice(0, effectiveNameWidth).padEnd(effectiveNameWidth)}{' '}
-                {activeSession && (
-                  <>
-                    <Text color={pulse ? badgeColor : INK_COLORS.textDim}>{'●'}</Text>
-                    <Text color={INK_COLORS.textDim}>
-                      {' '}{activeBadge.slice(0, Math.max(4, usableWidth - effectiveNameWidth - 6 - issueBadgeLen))}{' '}
-                    </Text>
-                  </>
-                )}
-                {!activeSession && (
-                  <Text color={git?.dirty ? INK_COLORS.yellow : INK_COLORS.green}>
-                    {gitStr.slice(0, gitWidth)}
-                  </Text>
-                )}
+                <Text color={git?.dirty ? INK_COLORS.yellow : INK_COLORS.green}>
+                  {gitStr.slice(0, gitWidth)}
+                </Text>
                 {issueCount > 0 && (
                   <Text color={INK_COLORS.accent}> {CHARS.warning}{issueCount}</Text>
                 )}

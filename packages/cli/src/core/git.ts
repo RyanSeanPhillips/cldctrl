@@ -199,7 +199,7 @@ export async function getCommitDailyActivity(projectPath: string, days: number =
  * Format git status for display.
  */
 export function formatGitStatus(status: GitStatus | null | undefined): string {
-  if (!status) return '[no git]';
+  if (!status) return '—';
 
   let display = status.branch;
   if (status.dirty > 0) display += ` ●${status.dirty}`;

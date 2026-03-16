@@ -43,36 +43,8 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   const tokenStr = formatTokenCount(session.stats.tokens);
 
   const isIdle = !!session.idle;
-  const isThinking = !isIdle && !!session.currentAction;
-  const pulse = usePulse(800);
-  const spinner = useClaudeSpinner(isThinking, 120);
-
-  const badgeColor = isIdle ? INK_COLORS.yellow : (pulse ? INK_COLORS.green : '#1a7a1a');
-  const badgeIcon = isIdle ? '○' : '●';
-  const badgeLabel = isIdle ? 'IDLE' : 'ACTIVE';
-
-  if (compact) {
-    // Show current action (e.g. "Edit App.tsx") or idle/active label
-    const suffix = ` ${durationStr} ${tokenStr}`;
-    // Reserve space for icon (2 chars) + suffix; truncate action to fit
-    const actionMaxLen = maxWidth ? Math.max(4, maxWidth - 2 - suffix.length) : 30;
-    let label = session.currentAction
-      ? session.currentAction
-      : badgeLabel.toLowerCase();
-    if (label.length > actionMaxLen) {
-      label = label.slice(0, actionMaxLen - 1) + '…';
-    }
-
-    return (
-      <Box>
-        <Text color={badgeColor}>{badgeIcon} </Text>
-        {isThinking && <Text color={INK_COLORS.green}>{spinner} </Text>}
-        <Text color={INK_COLORS.textDim}>
-          {label}{suffix}
-        </Text>
-      </Box>
-    );
-  }
+  const isActive = !isIdle;
+  const spinner = useClaudeSpinner(isActive, 120);
 
   const tc = session.stats.toolCalls;
   const toolStr = [
@@ -86,12 +58,30 @@ export const ActiveBadge = React.memo(function ActiveBadge({
     ? `${mcpServers.length} MCP${mcpServers.length > 1 ? 's' : ''}`
     : '';
 
+  if (compact) {
+    const suffix = ` ${durationStr} ${tokenStr}`;
+    const actionMaxLen = maxWidth ? Math.max(4, maxWidth - 2 - suffix.length) : 30;
+    let label = session.currentAction || (isIdle ? 'idle' : 'active');
+    if (label.length > actionMaxLen) {
+      label = label.slice(0, actionMaxLen - 1) + '…';
+    }
+
+    return (
+      <Box>
+        <Text color={isActive ? INK_COLORS.green : INK_COLORS.textDim}>{isActive ? spinner || '✶' : '○'} </Text>
+        <Text color={INK_COLORS.textDim}>
+          {label}{suffix}
+        </Text>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={badgeColor} bold>{badgeIcon} {badgeLabel}</Text>
-        {isThinking && <Text color={INK_COLORS.green}> {spinner}</Text>}
-        <Text color={INK_COLORS.text}> {session.sessionId ? session.sessionId.slice(0, 20) : ''}</Text>
+        <Text color={isActive ? INK_COLORS.green : INK_COLORS.textDim} bold>
+          {isActive ? spinner || '✶' : '○'} {isIdle ? 'IDLE' : 'ACTIVE'}
+        </Text>
       </Box>
       <Box>
         <Text color={INK_COLORS.textDim}>
