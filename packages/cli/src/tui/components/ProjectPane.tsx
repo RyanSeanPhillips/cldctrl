@@ -9,7 +9,7 @@ import { formatTokenCount } from '../../core/sessions.js';
 import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pricing.js';
 import { isFeatureEnabled } from '../../config.js';
 import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
-import { usePulse, useSpinner } from '../hooks/useAnimations.js';
+import { usePulse, useClaudeSpinner } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
 import type { Config, Project, GitStatus, ActiveSession, DailyUsage, UsageStats, UsageBudget, LeftSection } from '../../types.js';
@@ -52,7 +52,7 @@ function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, puls
   const liveCount = convs.filter(s => !s.idle).length;
   const idleCount = convs.length - liveCount;
   const hasAnyActive = liveCount > 0;
-  const spinner = useSpinner(hasAnyActive, 150);
+  const spinner = useClaudeSpinner(hasAnyActive, 120);
 
   // Header: "── Conversations (1 live · 2 idle) ──"
   const countLabel = [

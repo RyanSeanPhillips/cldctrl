@@ -461,7 +461,13 @@ function App() {
       }
       return s;
     });
-    return enriched.sort((a, b) => b.stats.tokens - a.stats.tokens);
+    // Sort: active first, then by most recent activity
+    return enriched.sort((a, b) => {
+      const aIdle = a.idle ? 1 : 0;
+      const bIdle = b.idle ? 1 : 0;
+      if (aIdle !== bIdle) return aIdle - bIdle; // active before idle
+      return b.lastActivity.getTime() - a.lastActivity.getTime(); // most recent first
+    });
   }, [allSessions, enrichedProcesses, settledProject]);
 
   // Live tasks/todos for expanded conversation

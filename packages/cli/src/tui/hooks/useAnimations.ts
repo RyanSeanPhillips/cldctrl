@@ -49,6 +49,9 @@ function formatTime(): string {
  */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
+/** Claude Code-style sparkle spinner: · ✻ ✽ ✶ ✳ ✢ (first/last hold longer for easing) */
+const CLAUDE_SPINNER_FRAMES = ['·', '·', '✻', '✽', '✶', '✳', '✢', '✢'];
+
 /**
  * Animated counter that smoothly counts up from previous value to target.
  * Uses ease-out curve for a natural deceleration effect.
@@ -104,4 +107,23 @@ export function useSpinner(active: boolean, ms = 150): string {
   }, [active, ms]);
 
   return active ? SPINNER_FRAMES[frame] : '';
+}
+
+/** Claude Code-style sparkle spinner: · ✻ ✽ ✶ ✳ ✢ with easing hold on first/last */
+export function useClaudeSpinner(active: boolean, ms = 120): string {
+  const [frame, setFrame] = useState(0);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      if (activeRef.current) {
+        setFrame(f => (f + 1) % CLAUDE_SPINNER_FRAMES.length);
+      }
+    }, ms);
+    return () => clearInterval(timer);
+  }, [active, ms]);
+
+  return active ? CLAUDE_SPINNER_FRAMES[frame] : '';
 }
