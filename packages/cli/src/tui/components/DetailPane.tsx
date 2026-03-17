@@ -724,11 +724,16 @@ export const DetailPane = React.memo(function DetailPane({
   const gitStr = formatGitStatus(gitStatus);
   const issueCountStr = issues.length > 0 ? `${issues.length} open issues` : 'no issues';
 
-  // Pick calendar data based on active tab
+  // Calendar data — show both side-by-side if width allows, otherwise pick based on tab
+  const hasUsageData = showCalendar && (usageHistory ?? []).length > 0;
+  const hasCommitData = showCalendar && (commitActivity ?? []).length > 0;
+  const calendarWidth = Math.max(8, width - 4);
+  // Side-by-side needs ~44 chars (2 × 20-char calendar + gap)
+  const showSideBySide = hasUsageData && hasCommitData && calendarWidth >= 44;
   const calendarData = showCalendar ? (detailSection === 'commits' ? (commitActivity ?? []) : (usageHistory ?? [])) : [];
   const calendarTitle = detailSection === 'commits'
-    ? `Commits — ${project.name}`
-    : `Usage — ${project.name}`;
+    ? `Commits`
+    : `Tokens`;
 
   // Calculate dynamic max visible rows for lists.
   // Inner height = height - 2 (border top/bottom).
@@ -756,17 +761,38 @@ export const DetailPane = React.memo(function DetailPane({
         {project.pinned && <Text color={INK_COLORS.accent}> {CHARS.pin}</Text>}
       </Box>
 
-      {/* Per-project calendar heatmap (replaces path when data available) */}
-      {calendarData.length > 0 && height >= 20 ? (
-        <Box paddingX={1}>
-          <CalendarHeatmap
-            title={calendarTitle}
-            data={calendarData}
-            width={Math.max(8, width - 4)}
-            days={28}
-            valueKey={detailSection === 'commits' ? 'commits' : 'tokens'}
-          />
-        </Box>
+      {/* Per-project calendar heatmap(s) — side-by-side if width allows */}
+      {(hasUsageData || hasCommitData) && height >= 20 ? (
+        showSideBySide ? (
+          <Box paddingX={1} flexDirection="row">
+            <Box marginRight={2}>
+              <CalendarHeatmap
+                title="Tokens"
+                data={usageHistory ?? []}
+                width={Math.floor((calendarWidth - 2) / 2)}
+                days={28}
+                valueKey="tokens"
+              />
+            </Box>
+            <CalendarHeatmap
+              title="Commits"
+              data={commitActivity ?? []}
+              width={Math.floor((calendarWidth - 2) / 2)}
+              days={28}
+              valueKey="commits"
+            />
+          </Box>
+        ) : (
+          <Box paddingX={1}>
+            <CalendarHeatmap
+              title={calendarTitle}
+              data={calendarData}
+              width={calendarWidth}
+              days={28}
+              valueKey={detailSection === 'commits' ? 'commits' : 'tokens'}
+            />
+          </Box>
+        )
       ) : (
         <Box paddingX={1}>
           <Text color={INK_COLORS.textDim}>
