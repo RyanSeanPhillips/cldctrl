@@ -1,11 +1,22 @@
 /**
- * Progress bar: [label] ████░░░ 62%
- * Width is the total available character width including label and percentage.
+ * Progress bar using the same green gradient as the calendar heatmap.
+ * Filled portion uses intensity-based color, empty uses near-background.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import { INK_COLORS } from '../../constants.js';
+
+// Match the calendar heatmap gradient
+const HEAT_EMPTY = '#161b22';
+const HEAT_COLORS_BAR = [
+  '#0e4429',  // low (0-25%)
+  '#006d32',  // medium (25-50%)
+  '#26a641',  // high (50-75%)
+  '#39d353',  // max (75-100%)
+];
+const WARN_COLOR = '#f59e0b';  // yellow at 70-90%
+const CRIT_COLOR = '#ef4444';  // red at 90%+
 
 interface ProgressBarProps {
   percent: number;
@@ -18,26 +29,27 @@ export const ProgressBar = React.memo(function ProgressBar({
   width,
   label,
 }: ProgressBarProps) {
-  // Bar fills to 100% max, but percentage text can show >100%
   const barClamped = Math.max(0, Math.min(100, percent));
   const displayPct = Math.max(0, Math.round(percent));
 
-  // Account for all non-bar content:
-  // label + " " + bar + " " + "100%" (4 chars max)
-  const labelLen = label ? label.length + 1 : 0; // "Label "
-  const pctLen = 5; // " 100%" (space + up to 4 chars)
+  const labelLen = label ? label.length + 1 : 0;
+  const pctLen = 5; // " 100%"
   const barWidth = Math.max(4, width - labelLen - pctLen);
   const filled = Math.round((barClamped / 100) * barWidth);
   const empty = barWidth - filled;
 
-  const bar = '█'.repeat(filled) + '░'.repeat(empty);
-  const color = percent >= 90 ? INK_COLORS.red : percent >= 70 ? INK_COLORS.yellow : INK_COLORS.green;
+  // Pick fill color based on percentage thresholds
+  const fillColor = percent >= 90 ? CRIT_COLOR
+    : percent >= 70 ? WARN_COLOR
+    : HEAT_COLORS_BAR[Math.min(3, Math.floor(barClamped / 25))];
+
   const pctStr = `${displayPct}%`;
 
   return (
     <Box width={width}>
       {label && <Text color={INK_COLORS.textDim}>{label} </Text>}
-      <Text color={color}>{bar}</Text>
+      <Text color={fillColor}>{'█'.repeat(filled)}</Text>
+      <Text color={HEAT_EMPTY}>{'█'.repeat(empty)}</Text>
       <Text color={INK_COLORS.textDim}> {pctStr}</Text>
     </Box>
   );
