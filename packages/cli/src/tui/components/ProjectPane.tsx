@@ -406,7 +406,7 @@ export const ProjectPane = React.memo(function ProjectPane({
         <Box flexDirection="column">
           <Box paddingX={1}>
             <Text color={INK_COLORS.accent}>
-              {CHARS.separator.repeat(2)} Usage {CHARS.separator.repeat(Math.max(1, width - 12))}
+              {CHARS.separator.repeat(2)} Usage {CHARS.separator.repeat(Math.max(1, usableWidth - 10))}
             </Text>
           </Box>
 
@@ -420,9 +420,12 @@ export const ProjectPane = React.memo(function ProjectPane({
             return (
               <Box paddingX={1} flexDirection="column">
                 <Text color={INK_COLORS.textDim}>
-                  {usageStats.messages} msgs {CHARS.bullet} {formatTokenCount(usageStats.tokens)} tok
-                  {dailyCost ? ` ${CHARS.bullet} ~${dailyCost}` : ''}
-                  {usageBudget?.tierLabel ? ` ${CHARS.bullet} ${usageBudget.tierLabel}` : ''}
+                  {(() => {
+                    let line = `${usageStats.messages} msgs ${CHARS.bullet} ${formatTokenCount(usageStats.tokens)} tok`;
+                    if (dailyCost) line += ` ${CHARS.bullet} ~${dailyCost}`;
+                    if (usageBudget?.tierLabel) line += ` ${CHARS.bullet} ${usageBudget.tierLabel}`;
+                    return line.slice(0, usableWidth);
+                  })()}
                 </Text>
                 {hasCode && (
                   <Text>
@@ -435,64 +438,21 @@ export const ProjectPane = React.memo(function ProjectPane({
             );
           })()}
 
-          {/* Hourly activity sparkline with time-aligned agent dots */}
+          {/* Hourly activity sparkline */}
           {convs.length > 0 && height >= 22 && (() => {
-            // Aggregate hourlyActivity and estimate per-hour agent activity
             const hourly = new Array(24).fill(0);
-            const agentHourly = new Array(24).fill(0);
             for (const s of convs) {
               if (s.stats.hourlyActivity) {
                 for (let h = 0; h < 24; h++) hourly[h] += s.stats.hourlyActivity[h];
               }
-              // Distribute agent spawns across the session's active hours
-              if (s.stats.agentSpawns > 0 && s.stats.hourlyActivity) {
-                const activeHours = s.stats.hourlyActivity
-                  .map((v, h) => ({ v, h }))
-                  .filter(x => x.v > 0);
-                if (activeHours.length > 0) {
-                  // Weight agent spawns by activity in each hour
-                  const totalActivity = activeHours.reduce((sum, x) => sum + x.v, 0);
-                  for (const { v, h } of activeHours) {
-                    agentHourly[h] += (s.stats.agentSpawns * v) / totalActivity;
-                  }
-                }
-              }
             }
             if (hourly.every(v => v === 0)) return null;
-
-            const labelLen = 6; // "Today "
-            const sparkWidth = Math.max(8, width - 4 - labelLen);
-            const totalAgents = Math.round(agentHourly.reduce((s, v) => s + v, 0));
-
-            // Build agent dot row aligned with sparkline: map 24 hours → sparkWidth chars
-            const agentDots = (() => {
-              if (totalAgents === 0) return null;
-              const maxAgent = Math.max(...agentHourly);
-              if (maxAgent === 0) return null;
-              const step = 24 / sparkWidth;
-              const dots: string[] = [];
-              for (let i = 0; i < sparkWidth; i++) {
-                const hStart = Math.floor(i * step);
-                const hEnd = Math.floor((i + 1) * step);
-                let sum = 0;
-                for (let h = hStart; h < Math.min(hEnd, 24); h++) sum += agentHourly[h];
-                dots.push(sum > 0 ? '•' : ' ');
-              }
-              return dots.join('');
-            })();
+            const sparkWidth = Math.max(8, usableWidth - 6); // "Today " label
 
             return (
-              <Box paddingX={1} flexDirection="column">
-                <Box>
-                  <Text color={INK_COLORS.textDim}>Today </Text>
-                  <ActivitySparkline values={hourly} width={sparkWidth} highlightPeak />
-                </Box>
-                {agentDots && (
-                  <Box>
-                    <Text color={INK_COLORS.textDim}>{'      '}</Text>
-                    <Text color={INK_COLORS.accent}>{agentDots}</Text>
-                  </Box>
-                )}
+              <Box paddingX={1}>
+                <Text color={INK_COLORS.textDim}>Today </Text>
+                <ActivitySparkline values={hourly} width={sparkWidth} highlightPeak />
               </Box>
             );
           })()}
