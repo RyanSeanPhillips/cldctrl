@@ -93,7 +93,7 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
   }
 
   const cellWidth = 2; // "██" = roughly square
-  const gap = 1;       // 1 space between cells
+  const gap = 0;       // no gap — GitHub-style tight grid, color separates days
   const labelWidth = 6;
 
   // Build week start-date labels
@@ -112,7 +112,7 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
       {/* Day-of-week header */}
       <Box>
         <Text color={INK_COLORS.textDim}>
-          {' '.repeat(labelWidth)}{DAY_LABELS.map(d => d + ' '.repeat(cellWidth + gap - 1)).join('')}
+          {' '.repeat(labelWidth)}{DAY_LABELS.map(d => d.padEnd(cellWidth)).join('')}
         </Text>
       </Box>
       {/* Week rows */}
