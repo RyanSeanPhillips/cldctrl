@@ -447,7 +447,6 @@ export const ProjectPane = React.memo(function ProjectPane({
               if (s.stats.hourlyActivity) {
                 for (let h = 0; h < 24; h++) hourly[h] += s.stats.hourlyActivity[h];
               }
-              // Distribute agent spawns across active hours proportionally
               if (s.stats.agentSpawns > 0 && s.stats.hourlyActivity) {
                 const active = s.stats.hourlyActivity.map((v, h) => ({ v, h })).filter(x => x.v > 0);
                 const total = active.reduce((sum, x) => sum + x.v, 0);
@@ -460,10 +459,15 @@ export const ProjectPane = React.memo(function ProjectPane({
             }
             if (hourly.every(v => v === 0)) return null;
 
-            const sparkWidth = Math.max(8, usableWidth - 6); // "Today " label
+            // Right-align with progress bars: ProgressBar uses labelLen(3) + bar + " 100%"(5)
+            // Sparkline uses "hr "(3) + sparkline + " now"(4). To right-align the
+            // trailing edge, sparkline width = innerBarWidth - 3 (label) - 4 (suffix)
+            // ProgressBar bar width = innerBarWidth - 3 (label) - 5 (pct) → ends 1 char earlier
+            // So " now" aligns with "100%" right edge
+            const sparkWidth = Math.max(8, innerBarWidth - 3 - 4);
             const currentHour = new Date().getHours();
 
-            // Scrolling window: rightmost = current hour, scroll left
+            // Scrolling window: rightmost = current hour
             const windowSize = Math.min(24, sparkWidth);
             const windowHourly: number[] = [];
             const windowAgents: number[] = [];
@@ -477,34 +481,31 @@ export const ProjectPane = React.memo(function ProjectPane({
             const maxAgent = Math.max(...windowAgents);
             const BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
             const BRAILLE = ['⠀', '⡀', '⡄', '⡆', '⡇', '⣇', '⣧', '⣿'];
-
-            // Color: green for normal, orange pulse for current hour
-            // Option B: bars with agent activity get accent color
+            // Green gradient matching calendar heatmap (dark → bright by level)
+            const SPARK_COLORS = ['#161b22', '#0e4429', '#0e4429', '#006d32', '#006d32', '#26a641', '#26a641', '#39d353'];
             const hasAgents = maxAgent > 0;
 
             return (
               <Box paddingX={1} flexDirection="column">
                 <Box>
-                  <Text color={INK_COLORS.textDim}>Today </Text>
+                  <Text color={INK_COLORS.textDim}>hr </Text>
                   <Text>
                     {windowHourly.map((v, i) => {
                       const level = v === 0 ? 0 : Math.min(7, Math.floor((v / maxVal) * 7));
                       const isNow = i === windowSize - 1;
-                      const hasAgentHere = hasAgents && windowAgents[i] > 0;
-                      // Current hour pulses orange, agent hours accent, rest green
-                      const color = isNow ? (pulse ? INK_COLORS.accent : '#26a641')
-                        : hasAgentHere ? INK_COLORS.accent
-                        : '#26a641';
+                      const color = isNow ? (pulse ? INK_COLORS.accent : SPARK_COLORS[level])
+                        : SPARK_COLORS[level];
                       return <Text key={i} color={color}>{BLOCKS[level]}</Text>;
                     })}
                   </Text>
+                  <Text color={INK_COLORS.textDim}> now</Text>
                 </Box>
                 {hasAgents && (
                   <Box>
-                    <Text color={INK_COLORS.textDim}>{'      '}</Text>
+                    <Text color={INK_COLORS.textDim}>{'   '}</Text>
                     <Text>
                       {windowAgents.map((v, i) => {
-                        if (v === 0) return <Text key={i} color={INK_COLORS.textDim}>{BRAILLE[0]}</Text>;
+                        if (v === 0) return <Text key={i} color="#161b22">{BRAILLE[0]}</Text>;
                         const level = Math.min(7, Math.floor((v / maxAgent) * 7));
                         const isNow = i === windowSize - 1;
                         return <Text key={i} color={isNow && pulse ? INK_COLORS.accent : '#e87632'}>{BRAILLE[level]}</Text>;
