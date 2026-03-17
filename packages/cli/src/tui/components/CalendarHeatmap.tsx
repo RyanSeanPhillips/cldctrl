@@ -1,8 +1,8 @@
 /**
- * Calendar heatmap: GitHub-style horizontal grid.
- * Days of week as rows (7 rows), weeks as columns (left=oldest, right=newest).
- * Number of weeks adjusts to fill available width.
- * Color-shaded solid blocks with green gradient.
+ * Calendar heatmap: weekly grid with color-shaded solid blocks.
+ * Layout: days of week across (Mon-Sun columns), weeks going down (rows).
+ * Each day is a 2-char "██" square with color intensity from a green gradient.
+ * Reused in left panel (all-projects) and detail pane (per-project).
  */
 
 import React from 'react';
@@ -20,11 +20,11 @@ const HEAT_COLORS = [
   '#39d353',  // level 4: max
 ];
 
-const CELL = '██';  // 2-char solid block
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const CELL = '██';  // 2-char solid block — roughly square in monospace
 
-/** Format a Date as YYYY-MM-DD in local time. */
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+/** Format a Date as YYYY-MM-DD in local time (not UTC). */
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -41,7 +41,7 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
   title,
   data,
   width,
-  days: fixedDays,
+  days = 28,
   valueKey = 'tokens',
 }: CalendarHeatmapProps) {
   const pulse = usePulse(1000);
@@ -53,105 +53,96 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
     lookup.set(d.date, val);
   }
 
-  // Calculate how many weeks fit in the available width
-  const cellWidth = 2;
-  const labelWidth = 2; // "M " day label
-  const usableWidth = Math.max(cellWidth, width - labelWidth);
-  const numWeeks = Math.max(1, Math.floor(usableWidth / cellWidth));
-  const numDays = fixedDays ?? numWeeks * 7;
-
-  // Generate the date range (ending today)
+  // Generate last N days using local dates (not UTC)
   const today = new Date();
   const todayStr = localDateStr(today);
-  const dates: { date: string; dayOfWeek: number; month: number }[] = [];
-  for (let i = numDays - 1; i >= 0; i--) {
+  const dates: { date: string; dayOfWeek: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    dates.push({
-      date: localDateStr(d),
-      dayOfWeek: (d.getDay() + 6) % 7, // Mon=0, Sun=6
-      month: d.getMonth(),
-    });
+    const dateStr = localDateStr(d);
+    const dayOfWeek = (d.getDay() + 6) % 7; // Mon=0, Sun=6
+    dates.push({ date: dateStr, dayOfWeek });
   }
 
   // Find max value for scaling
-  const maxVal = Math.max(...dates.map(d => lookup.get(d.date) ?? 0), 1);
+  const values = dates.map(d => lookup.get(d.date) ?? 0);
+  const maxVal = Math.max(...values, 1);
 
-  // Organize into a 7×N grid: grid[dayOfWeek][weekIndex]
-  // Each column is one week, rows are Mon-Sun
-  type Cell = { date: string; value: number; month: number } | null;
-  const grid: Cell[][] = Array.from({ length: 7 }, () => []);
-
-  // Find the starting dayOfWeek to align the grid
-  const firstDay = dates[0];
-  const startDow = firstDay.dayOfWeek;
-
-  // Pad the first partial week with nulls
-  let weekIdx = 0;
-  for (let d = 0; d < startDow; d++) {
-    grid[d].push(null);
-  }
+  // Organize into weeks (rows) — each week is Mon-Sun
+  const weeks: ({ date: string; value: number; dayOfWeek: number } | null)[][] = [];
+  let currentWeek: typeof weeks[0] = [];
 
   for (const d of dates) {
-    if (d.dayOfWeek === 0 && grid[0].length > 0 && grid[0].length > weekIdx) {
-      weekIdx++;
+    if (d.dayOfWeek === 0 && currentWeek.length > 0) {
+      while (currentWeek.length < 7) currentWeek.push(null);
+      weeks.push(currentWeek);
+      currentWeek = [];
     }
-    // Ensure all rows have enough columns
-    while (grid[d.dayOfWeek].length <= weekIdx) {
-      grid[d.dayOfWeek].push(null);
+    if (currentWeek.length === 0 && d.dayOfWeek > 0 && weeks.length === 0) {
+      for (let i = 0; i < d.dayOfWeek; i++) currentWeek.push(null);
     }
-    grid[d.dayOfWeek][weekIdx] = {
-      date: d.date,
+    currentWeek.push({
+      ...d,
       value: lookup.get(d.date) ?? 0,
-      month: d.month,
-    };
+    });
+  }
+  if (currentWeek.length > 0) {
+    while (currentWeek.length < 7) currentWeek.push(null);
+    weeks.push(currentWeek);
   }
 
-  // Pad all rows to the same length
-  const totalWeeks = Math.max(...grid.map(row => row.length));
-  for (const row of grid) {
-    while (row.length < totalWeeks) row.push(null);
-  }
+  const cellWidth = 2; // "██" = roughly square
+  const gap = 0;       // no gap — GitHub-style tight grid, color separates days
+  const labelWidth = 6;
 
-  // Build month labels for the top row — show month name at the first week of each month
-  const monthLabels: string[] = new Array(totalWeeks).fill('');
-  // Use Monday row (index 0) to detect month boundaries
-  for (let w = 0; w < totalWeeks; w++) {
-    const cell = grid[0][w]; // Monday of this week
-    if (!cell) continue;
-    const prevCell = w > 0 ? grid[0][w - 1] : null;
-    if (!prevCell || prevCell.month !== cell.month) {
-      monthLabels[w] = MONTH_ABBR[cell.month];
-    }
-  }
+  // Build week start-date labels
+  const weekLabels = weeks.map(week => {
+    const firstCell = week.find(c => c !== null);
+    if (!firstCell) return '';
+    const parts = firstCell.date.split('-');
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    return `${m}/${String(d).padStart(2, '0')}`;
+  });
 
   return (
     <Box flexDirection="column">
       <Text color={INK_COLORS.text}>{title}</Text>
-      {/* Month labels along the top */}
+      {/* Day-of-week header */}
       <Box>
         <Text color={INK_COLORS.textDim}>
-          {' '.repeat(labelWidth)}
-          {monthLabels.map((lbl, i) => lbl.padEnd(cellWidth).slice(0, cellWidth)).join('')}
+          {' '.repeat(labelWidth)}{DAY_LABELS.map(d => d.padEnd(cellWidth)).join('')}
         </Text>
       </Box>
-      {/* Day rows: Mon through Sun */}
-      {grid.map((row, dayIdx) => (
-        <Box key={dayIdx}>
-          <Text color={INK_COLORS.textDim}>{DAY_LABELS[dayIdx]} </Text>
-          {row.map((cell, weekIdx) => {
+      {/* Week rows */}
+      {weeks.map((week, wi) => (
+        <Box key={wi}>
+          <Text color={INK_COLORS.textDim}>
+            {weekLabels[wi].padEnd(labelWidth)}
+          </Text>
+          {week.map((cell, di) => {
             if (!cell) {
-              return <Text key={weekIdx}>{' '.repeat(cellWidth)}</Text>;
+              return <Text key={di}>{' '.repeat(cellWidth + gap)}</Text>;
             }
             const isToday = cell.date === todayStr;
             const level = cell.value === 0 ? 0 : Math.min(4, Math.ceil((cell.value / maxVal) * 4));
 
             if (isToday) {
+              // Today: pulse between accent and top-level green
               const color = pulse ? INK_COLORS.accent : (level > 0 ? HEAT_COLORS[level] : HEAT_COLORS[1]);
-              return <Text key={weekIdx} color={color} bold>{CELL}</Text>;
+              return (
+                <Text key={di} color={color} bold>
+                  {CELL}{' '.repeat(gap)}
+                </Text>
+              );
             }
 
-            return <Text key={weekIdx} color={HEAT_COLORS[level]}>{CELL}</Text>;
+            return (
+              <Text key={di} color={HEAT_COLORS[level]}>
+                {CELL}{' '.repeat(gap)}
+              </Text>
+            );
           })}
         </Box>
       ))}
