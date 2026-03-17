@@ -438,21 +438,80 @@ export const ProjectPane = React.memo(function ProjectPane({
             );
           })()}
 
-          {/* Hourly activity sparkline */}
+          {/* Scrolling hourly sparkline + braille agent overlay */}
           {convs.length > 0 && height >= 22 && (() => {
+            // Aggregate hourly data across all sessions
             const hourly = new Array(24).fill(0);
+            const agentHourly = new Array(24).fill(0);
             for (const s of convs) {
               if (s.stats.hourlyActivity) {
                 for (let h = 0; h < 24; h++) hourly[h] += s.stats.hourlyActivity[h];
               }
+              // Distribute agent spawns across active hours proportionally
+              if (s.stats.agentSpawns > 0 && s.stats.hourlyActivity) {
+                const active = s.stats.hourlyActivity.map((v, h) => ({ v, h })).filter(x => x.v > 0);
+                const total = active.reduce((sum, x) => sum + x.v, 0);
+                if (total > 0) {
+                  for (const { v, h } of active) {
+                    agentHourly[h] += (s.stats.agentSpawns * v) / total;
+                  }
+                }
+              }
             }
             if (hourly.every(v => v === 0)) return null;
+
             const sparkWidth = Math.max(8, usableWidth - 6); // "Today " label
+            const currentHour = new Date().getHours();
+
+            // Scrolling window: rightmost = current hour, scroll left
+            const windowSize = Math.min(24, sparkWidth);
+            const windowHourly: number[] = [];
+            const windowAgents: number[] = [];
+            for (let i = 0; i < windowSize; i++) {
+              const h = (currentHour - windowSize + 1 + i + 24) % 24;
+              windowHourly.push(hourly[h]);
+              windowAgents.push(agentHourly[h]);
+            }
+
+            const maxVal = Math.max(...windowHourly, 1);
+            const maxAgent = Math.max(...windowAgents);
+            const BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+            const BRAILLE = ['⠀', '⡀', '⡄', '⡆', '⡇', '⣇', '⣧', '⣿'];
+
+            // Color: green for normal, orange pulse for current hour
+            // Option B: bars with agent activity get accent color
+            const hasAgents = maxAgent > 0;
 
             return (
-              <Box paddingX={1}>
-                <Text color={INK_COLORS.textDim}>Today </Text>
-                <ActivitySparkline values={hourly} width={sparkWidth} highlightPeak />
+              <Box paddingX={1} flexDirection="column">
+                <Box>
+                  <Text color={INK_COLORS.textDim}>Today </Text>
+                  <Text>
+                    {windowHourly.map((v, i) => {
+                      const level = v === 0 ? 0 : Math.min(7, Math.floor((v / maxVal) * 7));
+                      const isNow = i === windowSize - 1;
+                      const hasAgentHere = hasAgents && windowAgents[i] > 0;
+                      // Current hour pulses orange, agent hours accent, rest green
+                      const color = isNow ? (pulse ? INK_COLORS.accent : '#26a641')
+                        : hasAgentHere ? INK_COLORS.accent
+                        : '#26a641';
+                      return <Text key={i} color={color}>{BLOCKS[level]}</Text>;
+                    })}
+                  </Text>
+                </Box>
+                {hasAgents && (
+                  <Box>
+                    <Text color={INK_COLORS.textDim}>{'      '}</Text>
+                    <Text>
+                      {windowAgents.map((v, i) => {
+                        if (v === 0) return <Text key={i} color={INK_COLORS.textDim}>{BRAILLE[0]}</Text>;
+                        const level = Math.min(7, Math.floor((v / maxAgent) * 7));
+                        const isNow = i === windowSize - 1;
+                        return <Text key={i} color={isNow && pulse ? INK_COLORS.accent : '#e87632'}>{BRAILLE[level]}</Text>;
+                      })}
+                    </Text>
+                  </Box>
+                )}
               </Box>
             );
           })()}
