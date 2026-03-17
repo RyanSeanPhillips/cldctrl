@@ -11,7 +11,8 @@ import { usePulse } from '../hooks/useAnimations.js';
 import type { DailyUsage } from '../../types.js';
 
 const BLOCKS = [' ', '░', '▒', '▓', '█'];
-const DAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const DAY_LABELS_FULL = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 /** Format a Date as YYYY-MM-DD in local time (not UTC). */
 function localDateStr(d: Date): string {
@@ -83,10 +84,11 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
     weeks.push(currentWeek);
   }
 
-  // Use 3-char wide cells: "█  " — total row = 3*7 = 21 chars + 3 label
-  // If width is tight, use 2-char cells
-  const cellWidth = width >= 28 ? 3 : 2;
-  const labelWidth = cellWidth === 3 ? 6 : 4; // room for "3/03 " or "3/3"
+  // Compact mode: 1-char cells for continuous strip, wider cells if plenty of room
+  const compact = width < 32;
+  const cellWidth = compact ? 1 : 2;
+  const labelWidth = 6; // room for "3/03  "
+  const dayLabels = compact ? DAY_LABELS_SHORT : DAY_LABELS_FULL;
 
   // Build week start-date labels (Mon date of each week row)
   const weekLabels = weeks.map(week => {
@@ -105,7 +107,7 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
       {/* Day-of-week header row */}
       <Box>
         <Text color={INK_COLORS.text}>
-          {' '.repeat(labelWidth)}{DAY_LABELS.map(d => d.padEnd(cellWidth)).join('')}
+          {' '.repeat(labelWidth)}{dayLabels.map(d => d.padEnd(cellWidth)).join('')}
         </Text>
       </Box>
       {/* Week rows */}
