@@ -43,8 +43,8 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   const tokenStr = formatTokenCount(session.stats.tokens);
 
   const isIdle = !!session.idle;
-  const isActive = !isIdle;
-  const spinner = useClaudeSpinner(isActive, 120);
+  const isWorking = !isIdle && !!session.currentAction;
+  const spinner = useClaudeSpinner(isWorking, 120);
 
   const tc = session.stats.toolCalls;
   const toolStr = [
@@ -68,7 +68,10 @@ export const ActiveBadge = React.memo(function ActiveBadge({
 
     return (
       <Box>
-        <Text color={isActive ? INK_COLORS.green : INK_COLORS.textDim}>{isActive ? spinner || '✶' : '○'} </Text>
+        <Text color={isWorking ? INK_COLORS.green : (isIdle ? INK_COLORS.textDim : INK_COLORS.green)}>
+          {isWorking ? spinner || '✶' : (isIdle ? '○' : '●')}
+          {' '}
+        </Text>
         <Text color={INK_COLORS.textDim}>
           {label}{suffix}
         </Text>
@@ -79,8 +82,8 @@ export const ActiveBadge = React.memo(function ActiveBadge({
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={isActive ? INK_COLORS.green : INK_COLORS.textDim} bold>
-          {isActive ? spinner || '✶' : '○'} {isIdle ? 'IDLE' : 'ACTIVE'}
+        <Text color={isWorking ? INK_COLORS.green : (isIdle ? INK_COLORS.textDim : INK_COLORS.green)} bold>
+          {isWorking ? spinner || '✶' : (isIdle ? '○' : '●')} {isIdle ? 'IDLE' : 'ACTIVE'}
         </Text>
       </Box>
       <Box>

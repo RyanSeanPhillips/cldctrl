@@ -75,14 +75,20 @@ function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, puls
         const parts = session.projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
         const name = parts[parts.length - 1] || '';
 
-        // Active: spinner + action; Idle: dim dot + duration
+        // Spinner only when Claude is actively working (has currentAction).
+        // Green dot when session exists but waiting for input.
+        // Dim circle when idle (no JSONL activity in 5 min).
+        const isWorking = !isIdle && !!session.currentAction;
         let indicator: string;
         let indicatorColor: string;
         if (isIdle) {
           indicator = '○';
           indicatorColor = INK_COLORS.textDim;
+        } else if (isWorking) {
+          indicator = claudeSpinnerFrame(spinnerFrame, i) || '✶';
+          indicatorColor = INK_COLORS.green;
         } else {
-          indicator = claudeSpinnerFrame(spinnerFrame, i) || '●';
+          indicator = '●';
           indicatorColor = INK_COLORS.green;
         }
 
