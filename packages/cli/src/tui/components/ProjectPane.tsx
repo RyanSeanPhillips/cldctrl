@@ -488,7 +488,7 @@ export const ProjectPane = React.memo(function ProjectPane({
 
             return (
               <Box paddingX={1} flexDirection="column">
-                <Box>
+                <Box width={Math.max(8, innerBarWidth)}>
                   <Text color={INK_COLORS.textDim}>hr </Text>
                   {padLeft > 0 && <Text color={SPARK_COLORS[0]}>{BLOCKS[0].repeat(padLeft)}</Text>}
                   <Text>
