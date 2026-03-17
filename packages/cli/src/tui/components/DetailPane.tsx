@@ -770,7 +770,6 @@ export const DetailPane = React.memo(function DetailPane({
                 title="Tokens"
                 data={usageHistory ?? []}
                 width={Math.floor((calendarWidth - 2) / 2)}
-                days={28}
                 valueKey="tokens"
               />
             </Box>

@@ -410,7 +410,6 @@ export const ProjectPane = React.memo(function ProjectPane({
                 title="Usage"
                 data={usageHistory}
                 width={Math.max(8, width - 4)}
-                days={28}
               />
             </Box>
           )}
