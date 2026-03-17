@@ -51,7 +51,7 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
           ? [['j/k', 'nav'], ['Enter', 'focus'], ['Tab', 'expand'], ['Esc', 'projects'], ['?', 'help'], ['q', 'quit']]
           : focusPane === 'details'
             ? [['j/k', 'nav'], ['Enter', 'resume'], ['Esc', 'back'], ['q', 'quit']]
-            : [['j/k', 'nav'], ['/', 'filter'], ['n', 'new'], ['Enter', 'launch'], ['l', 'live'], ['S', 'scan'], ['H', 'hidden'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
+            : [['j/k', 'nav'], ['/', 'filter'], ['Tab', 'details'], ['l', 'live'], ['S', 'scan'], ['H', 'hidden'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
   const hintsText = hintPairs.map(([k, l]) => `${k}:${l}`).join('  ');
 
   // Compact right-side: [Tier] X% or basic stats (full bars live in ProjectPane)
