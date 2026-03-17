@@ -401,29 +401,17 @@ export const ProjectPane = React.memo(function ProjectPane({
         );
       })()}
 
-      {/* Bottom stats panel */}
+      {/* Bottom stats panel — order: stats, sparkline+agents, 5h/7d bars, calendar */}
       {height >= 25 && (usageHistory || usageStats || usageBudget) && (
         <Box flexDirection="column">
           <Box paddingX={1}>
-            <Text color={INK_COLORS.textDim}>
-              {CHARS.separator.repeat(Math.max(1, width - 4))}
+            <Text color={INK_COLORS.accent}>
+              {CHARS.separator.repeat(2)} Usage {CHARS.separator.repeat(Math.max(1, width - 12))}
             </Text>
           </Box>
 
-          {/* Calendar heatmap (hide if height < 25) */}
-          {showCalendar && usageHistory && usageHistory.length > 0 && height >= 30 && (
-            <Box paddingX={1}>
-              <CalendarHeatmap
-                title="Usage"
-                data={usageHistory}
-                width={Math.max(8, width - 4)}
-              />
-            </Box>
-          )}
-
           {/* Session stats line */}
           {usageStats && height >= 18 && (() => {
-            // Today's code stats from usage history
             const today = new Date().toISOString().slice(0, 10);
             const todayData = usageHistory?.find(d => d.date === today);
             const hasCode = showCodeStats && todayData && ((todayData.additions ?? 0) > 0 || (todayData.deletions ?? 0) > 0);
@@ -447,25 +435,51 @@ export const ProjectPane = React.memo(function ProjectPane({
             );
           })()}
 
-          {/* Hourly activity sparkline — aggregated across all sessions */}
+          {/* Hourly activity sparkline with time-aligned agent dots */}
           {convs.length > 0 && height >= 22 && (() => {
-            // Aggregate hourlyActivity across all conversations
+            // Aggregate hourlyActivity and estimate per-hour agent activity
             const hourly = new Array(24).fill(0);
-            let totalAgents = 0;
-            let totalToolWrites = 0;
+            const agentHourly = new Array(24).fill(0);
             for (const s of convs) {
               if (s.stats.hourlyActivity) {
                 for (let h = 0; h < 24; h++) hourly[h] += s.stats.hourlyActivity[h];
               }
-              totalAgents += s.stats.agentSpawns;
-              totalToolWrites += s.stats.toolCalls.writes;
+              // Distribute agent spawns across the session's active hours
+              if (s.stats.agentSpawns > 0 && s.stats.hourlyActivity) {
+                const activeHours = s.stats.hourlyActivity
+                  .map((v, h) => ({ v, h }))
+                  .filter(x => x.v > 0);
+                if (activeHours.length > 0) {
+                  // Weight agent spawns by activity in each hour
+                  const totalActivity = activeHours.reduce((sum, x) => sum + x.v, 0);
+                  for (const { v, h } of activeHours) {
+                    agentHourly[h] += (s.stats.agentSpawns * v) / totalActivity;
+                  }
+                }
+              }
             }
-            // Only show if there's any activity
             if (hourly.every(v => v === 0)) return null;
 
-            // Build color array: orange for hours with heavy tool writes, green otherwise
-            // We don't have per-hour tool data, so just show green for now
-            const sparkWidth = Math.max(8, width - 12); // "Today " + padding
+            const labelLen = 6; // "Today "
+            const sparkWidth = Math.max(8, width - 4 - labelLen);
+            const totalAgents = Math.round(agentHourly.reduce((s, v) => s + v, 0));
+
+            // Build agent dot row aligned with sparkline: map 24 hours → sparkWidth chars
+            const agentDots = (() => {
+              if (totalAgents === 0) return null;
+              const maxAgent = Math.max(...agentHourly);
+              if (maxAgent === 0) return null;
+              const step = 24 / sparkWidth;
+              const dots: string[] = [];
+              for (let i = 0; i < sparkWidth; i++) {
+                const hStart = Math.floor(i * step);
+                const hEnd = Math.floor((i + 1) * step);
+                let sum = 0;
+                for (let h = hStart; h < Math.min(hEnd, 24); h++) sum += agentHourly[h];
+                dots.push(sum > 0 ? '•' : ' ');
+              }
+              return dots.join('');
+            })();
 
             return (
               <Box paddingX={1} flexDirection="column">
@@ -473,11 +487,10 @@ export const ProjectPane = React.memo(function ProjectPane({
                   <Text color={INK_COLORS.textDim}>Today </Text>
                   <ActivitySparkline values={hourly} width={sparkWidth} highlightPeak />
                 </Box>
-                {totalAgents > 0 && (
+                {agentDots && (
                   <Box>
                     <Text color={INK_COLORS.textDim}>{'      '}</Text>
-                    <Text color={INK_COLORS.accent}>{'●'.repeat(Math.min(totalAgents, sparkWidth))}</Text>
-                    <Text color={INK_COLORS.textDim}> {totalAgents} agent{totalAgents !== 1 ? 's' : ''}</Text>
+                    <Text color={INK_COLORS.accent}>{agentDots}</Text>
                   </Box>
                 )}
               </Box>
@@ -525,7 +538,7 @@ export const ProjectPane = React.memo(function ProjectPane({
             </Box>
           )}
 
-          {/* Extra tokens (overage) bar — only when actively using paid credits */}
+          {/* Extra tokens (overage) bar */}
           {showRateBars && usageBudget?.rateLimits?.usingExtraTokens && height >= 24 && (
             <Box paddingX={1}>
               <ProgressBar
@@ -545,6 +558,18 @@ export const ProjectPane = React.memo(function ProjectPane({
                   ? ` ${CHARS.bullet} extra resets ${usageBudget.rateLimits.overageResetIn}`
                   : ''}
               </Text>
+            </Box>
+          )}
+
+          {/* Calendar heatmap — at the bottom for long-term context */}
+          {showCalendar && usageHistory && usageHistory.length > 0 && height >= 30 && (
+            <Box paddingX={1}>
+              <CalendarHeatmap
+                title="History"
+                titleColor={INK_COLORS.green}
+                data={usageHistory}
+                width={Math.max(8, width - 4)}
+              />
             </Box>
           )}
         </Box>
