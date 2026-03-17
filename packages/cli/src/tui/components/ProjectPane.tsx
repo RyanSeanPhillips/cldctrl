@@ -12,6 +12,7 @@ import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
 import { usePulse, useClaudeSpinnerFrame, claudeSpinnerFrame } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
+import { ActivitySparkline } from './ActivitySparkline.js';
 import type { Config, Project, GitStatus, ActiveSession, DailyUsage, UsageStats, UsageBudget, LeftSection } from '../../types.js';
 import type { ClaudeCommand, ClaudeSkill } from '../../core/skills.js';
 import type { CommandUsageCounts } from '../../core/command-usage.js';
@@ -441,6 +442,43 @@ export const ProjectPane = React.memo(function ProjectPane({
                     <Text color={INK_COLORS.red}> -{todayData!.deletions}</Text>
                     <Text color={INK_COLORS.textDim}> lines today</Text>
                   </Text>
+                )}
+              </Box>
+            );
+          })()}
+
+          {/* Hourly activity sparkline — aggregated across all sessions */}
+          {convs.length > 0 && height >= 22 && (() => {
+            // Aggregate hourlyActivity across all conversations
+            const hourly = new Array(24).fill(0);
+            let totalAgents = 0;
+            let totalToolWrites = 0;
+            for (const s of convs) {
+              if (s.stats.hourlyActivity) {
+                for (let h = 0; h < 24; h++) hourly[h] += s.stats.hourlyActivity[h];
+              }
+              totalAgents += s.stats.agentSpawns;
+              totalToolWrites += s.stats.toolCalls.writes;
+            }
+            // Only show if there's any activity
+            if (hourly.every(v => v === 0)) return null;
+
+            // Build color array: orange for hours with heavy tool writes, green otherwise
+            // We don't have per-hour tool data, so just show green for now
+            const sparkWidth = Math.max(8, width - 12); // "Today " + padding
+
+            return (
+              <Box paddingX={1} flexDirection="column">
+                <Box>
+                  <Text color={INK_COLORS.textDim}>Today </Text>
+                  <ActivitySparkline values={hourly} width={sparkWidth} highlightPeak />
+                </Box>
+                {totalAgents > 0 && (
+                  <Box>
+                    <Text color={INK_COLORS.textDim}>{'      '}</Text>
+                    <Text color={INK_COLORS.accent}>{'●'.repeat(Math.min(totalAgents, sparkWidth))}</Text>
+                    <Text color={INK_COLORS.textDim}> {totalAgents} agent{totalAgents !== 1 ? 's' : ''}</Text>
+                  </Box>
                 )}
               </Box>
             );
