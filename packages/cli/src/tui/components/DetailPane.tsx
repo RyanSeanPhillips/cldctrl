@@ -830,58 +830,48 @@ export const DetailPane = React.memo(function DetailPane({
         </Text>
       </Box>
 
-      {/* Section tabs — active tab accent-colored, inactive dim */}
+      {/* Section tabs — shortcut letter in accent, active tab bold white */}
       <Box paddingX={1} marginTop={1} flexDirection="column">
         <Box>
-          <Text
-            bold={detailSection === 'sessions'}
-            color={detailSection === 'sessions' ? INK_COLORS.text : INK_COLORS.textDim}
-          >
-            <Text color={INK_COLORS.accent}>s</Text>{detailSection === 'sessions' ? '' : ' '}Sessions ({sessions.length})
-          </Text>
-          <Text color={INK_COLORS.textDim}>{'  '}</Text>
-          <Text
-            bold={detailSection === 'commits'}
-            color={detailSection === 'commits' ? INK_COLORS.text : INK_COLORS.textDim}
-          >
-            {focused ? <><Text color={INK_COLORS.accent}>c</Text>{detailSection === 'commits' ? '' : ' '}</> : null}Commits ({commits.length})
-          </Text>
-          <Text color={INK_COLORS.textDim}>{'  '}</Text>
-          <Text
-            bold={detailSection === 'issues'}
-            color={detailSection === 'issues' ? INK_COLORS.text : INK_COLORS.textDim}
-          >
-            <Text color={INK_COLORS.accent}>i</Text>{detailSection === 'issues' ? '' : ' '}Issues ({issues.length})
-          </Text>
-          <Text color={INK_COLORS.textDim}>{'  '}</Text>
-          <Text
-            bold={detailSection === 'files'}
-            color={detailSection === 'files' ? INK_COLORS.text : INK_COLORS.textDim}
-          >
-            <Text color={INK_COLORS.accent}>f</Text>{detailSection === 'files' ? '' : ' '}Files
-          </Text>
+          {([
+            ['s', 'essions', `${sessions.length}`, 'sessions'] as const,
+            ['c', 'ommits', `${commits.length}`, 'commits'] as const,
+            ['i', 'ssues', `${issues.length}`, 'issues'] as const,
+            ['f', 'iles', '', 'files'] as const,
+          ]).map(([key, rest, count, section], idx) => {
+            const isActive = detailSection === section;
+            const color = isActive ? INK_COLORS.text : INK_COLORS.textDim;
+            const countStr = count ? ` (${count})` : '';
+            return (
+              <Text key={section}>
+                {idx > 0 && <Text color={INK_COLORS.textDim}>{'  '}</Text>}
+                <Text bold={isActive} color={color}>
+                  <Text color={INK_COLORS.accent}>{key}</Text>{rest}{countStr}
+                </Text>
+              </Text>
+            );
+          })}
         </Box>
         <Box>
           {(() => {
-            const sLabel = `[s] Sessions (${sessions.length})`;
-            const cLabel = `${focused ? '[c] ' : ''}Commits (${commits.length})`;
-            const iLabel = `[i] Issues (${issues.length})`;
-            const fLabel = `[f] Files`;
-            const sLen = sLabel.length;
-            const cLen = cLabel.length;
-            const iLen = iLabel.length;
-            const fLen = fLabel.length;
+            const labels = [
+              `sessions (${sessions.length})`,
+              `commits (${commits.length})`,
+              `issues (${issues.length})`,
+              `files`,
+            ];
+            const sections = ['sessions', 'commits', 'issues', 'files'];
             const pad = '  ';
-            const total = sLen + pad.length + cLen + pad.length + iLen + pad.length + fLen;
-            if (detailSection === 'sessions') {
-              return <Text color={INK_COLORS.accent}>{'═'.repeat(sLen)}{' '.repeat(total - sLen)}</Text>;
-            } else if (detailSection === 'commits') {
-              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length)}{'═'.repeat(cLen)}{' '.repeat(total - sLen - pad.length - cLen)}</Text>;
-            } else if (detailSection === 'issues') {
-              return <Text color={INK_COLORS.accent}>{' '.repeat(sLen + pad.length + cLen + pad.length)}{'═'.repeat(iLen)}{' '.repeat(pad.length + fLen)}</Text>;
-            } else {
-              return <Text color={INK_COLORS.accent}>{' '.repeat(total - fLen)}{'═'.repeat(fLen)}</Text>;
+            let line = '';
+            for (let i = 0; i < labels.length; i++) {
+              if (i > 0) line += pad;
+              if (sections[i] === detailSection) {
+                line += '═'.repeat(labels[i].length);
+              } else {
+                line += ' '.repeat(labels[i].length);
+              }
             }
+            return <Text color={INK_COLORS.accent}>{line}</Text>;
           })()}
         </Box>
       </Box>
