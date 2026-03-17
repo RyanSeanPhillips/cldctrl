@@ -755,7 +755,7 @@ export const DetailPane = React.memo(function DetailPane({
     >
       {/* Project name */}
       <Box paddingX={1}>
-        <Text bold color={INK_COLORS.text}>
+        <Text bold color={INK_COLORS.accent}>
           {project.name}
         </Text>
         {project.pinned && <Text color={INK_COLORS.accent}> {CHARS.pin}</Text>}
@@ -768,6 +768,7 @@ export const DetailPane = React.memo(function DetailPane({
             <Box marginRight={2}>
               <CalendarHeatmap
                 title="Tokens"
+                titleColor={INK_COLORS.green}
                 data={usageHistory ?? []}
                 width={Math.floor((calendarWidth - 2) / 2)}
                 valueKey="tokens"
@@ -775,6 +776,7 @@ export const DetailPane = React.memo(function DetailPane({
             </Box>
             <CalendarHeatmap
               title="Commits"
+              titleColor={INK_COLORS.blue}
               data={commitActivity ?? []}
               width={Math.floor((calendarWidth - 2) / 2)}
               days={28}
@@ -785,6 +787,7 @@ export const DetailPane = React.memo(function DetailPane({
           <Box paddingX={1}>
             <CalendarHeatmap
               title={calendarTitle}
+              titleColor={detailSection === 'commits' ? INK_COLORS.blue : INK_COLORS.green}
               data={calendarData}
               width={calendarWidth}
               days={28}
@@ -827,35 +830,35 @@ export const DetailPane = React.memo(function DetailPane({
         </Text>
       </Box>
 
-      {/* Section tabs — underline active */}
+      {/* Section tabs — active tab accent-colored, inactive dim */}
       <Box paddingX={1} marginTop={1} flexDirection="column">
         <Box>
           <Text
             bold={detailSection === 'sessions'}
-            color={detailSection === 'sessions' ? INK_COLORS.accent : INK_COLORS.textDim}
+            color={detailSection === 'sessions' ? INK_COLORS.text : INK_COLORS.textDim}
           >
-            <Text color={INK_COLORS.accent}>[s]</Text> Sessions ({sessions.length})
+            <Text color={INK_COLORS.accent}>s</Text>{detailSection === 'sessions' ? '' : ' '}Sessions ({sessions.length})
           </Text>
           <Text color={INK_COLORS.textDim}>{'  '}</Text>
           <Text
             bold={detailSection === 'commits'}
-            color={detailSection === 'commits' ? INK_COLORS.accent : INK_COLORS.textDim}
+            color={detailSection === 'commits' ? INK_COLORS.text : INK_COLORS.textDim}
           >
-            {focused ? <Text color={INK_COLORS.accent}>[c]</Text> : null} Commits ({commits.length})
+            {focused ? <><Text color={INK_COLORS.accent}>c</Text>{detailSection === 'commits' ? '' : ' '}</> : null}Commits ({commits.length})
           </Text>
           <Text color={INK_COLORS.textDim}>{'  '}</Text>
           <Text
             bold={detailSection === 'issues'}
-            color={detailSection === 'issues' ? INK_COLORS.accent : INK_COLORS.textDim}
+            color={detailSection === 'issues' ? INK_COLORS.text : INK_COLORS.textDim}
           >
-            <Text color={INK_COLORS.accent}>[i]</Text> Issues ({issues.length})
+            <Text color={INK_COLORS.accent}>i</Text>{detailSection === 'issues' ? '' : ' '}Issues ({issues.length})
           </Text>
           <Text color={INK_COLORS.textDim}>{'  '}</Text>
           <Text
             bold={detailSection === 'files'}
-            color={detailSection === 'files' ? INK_COLORS.accent : INK_COLORS.textDim}
+            color={detailSection === 'files' ? INK_COLORS.text : INK_COLORS.textDim}
           >
-            <Text color={INK_COLORS.accent}>[f]</Text> Files
+            <Text color={INK_COLORS.accent}>f</Text>{detailSection === 'files' ? '' : ' '}Files
           </Text>
         </Box>
         <Box>

@@ -31,6 +31,7 @@ function localDateStr(d: Date): string {
 
 interface CalendarHeatmapProps {
   title: string;
+  titleColor?: string;
   data: DailyUsage[];
   width: number;
   days?: number;
@@ -39,6 +40,7 @@ interface CalendarHeatmapProps {
 
 export const CalendarHeatmap = React.memo(function CalendarHeatmap({
   title,
+  titleColor,
   data,
   width,
   days = 28,
@@ -108,7 +110,7 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
 
   return (
     <Box flexDirection="column">
-      <Text color={INK_COLORS.text}>{title}</Text>
+      <Text color={titleColor ?? INK_COLORS.text}>{title}</Text>
       {/* Day-of-week header */}
       <Box>
         <Text color={INK_COLORS.textDim}>
