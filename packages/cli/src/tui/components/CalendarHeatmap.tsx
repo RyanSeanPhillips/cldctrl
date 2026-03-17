@@ -1,6 +1,7 @@
 /**
- * Calendar heatmap: weekly grid with ░▒▓█ shading.
+ * Calendar heatmap: weekly grid with color-shaded solid blocks.
  * Layout: days of week across (Mon-Sun columns), weeks going down (rows).
+ * Each day is a 2-char "██" square with color intensity from a green gradient.
  * Reused in left panel (all-projects) and detail pane (per-project).
  */
 
@@ -10,9 +11,18 @@ import { INK_COLORS } from '../../constants.js';
 import { usePulse } from '../hooks/useAnimations.js';
 import type { DailyUsage } from '../../types.js';
 
-const BLOCKS = [' ', '░', '▒', '▓', '█'];
-const DAY_LABELS_FULL = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-const DAY_LABELS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// GitHub-style green gradient (dark → bright)
+const HEAT_COLORS = [
+  '#161b22',  // level 0: empty (near-background)
+  '#0e4429',  // level 1: low
+  '#006d32',  // level 2: medium
+  '#26a641',  // level 3: high
+  '#39d353',  // level 4: max
+];
+
+const CELL = '██';  // 2-char solid block — roughly square in monospace
+
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 /** Format a Date as YYYY-MM-DD in local time (not UTC). */
 function localDateStr(d: Date): string {
@@ -65,12 +75,10 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
 
   for (const d of dates) {
     if (d.dayOfWeek === 0 && currentWeek.length > 0) {
-      // Pad the end of the previous week if needed
       while (currentWeek.length < 7) currentWeek.push(null);
       weeks.push(currentWeek);
       currentWeek = [];
     }
-    // Pad start of first week with nulls
     if (currentWeek.length === 0 && d.dayOfWeek > 0 && weeks.length === 0) {
       for (let i = 0; i < d.dayOfWeek; i++) currentWeek.push(null);
     }
@@ -84,17 +92,14 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
     weeks.push(currentWeek);
   }
 
-  // Compact mode: 1-char cells for continuous strip, wider cells if plenty of room
-  const compact = width < 32;
-  const cellWidth = compact ? 1 : 2;
-  const labelWidth = 6; // room for "3/03  "
-  const dayLabels = compact ? DAY_LABELS_SHORT : DAY_LABELS_FULL;
+  const cellWidth = 2; // "██" = roughly square
+  const gap = 1;       // 1 space between cells
+  const labelWidth = 6;
 
-  // Build week start-date labels (Mon date of each week row)
+  // Build week start-date labels
   const weekLabels = weeks.map(week => {
     const firstCell = week.find(c => c !== null);
     if (!firstCell) return '';
-    // Parse the date string to get month/day
     const parts = firstCell.date.split('-');
     const m = parseInt(parts[1], 10);
     const d = parseInt(parts[2], 10);
@@ -104,39 +109,38 @@ export const CalendarHeatmap = React.memo(function CalendarHeatmap({
   return (
     <Box flexDirection="column">
       <Text color={INK_COLORS.text}>{title}</Text>
-      {/* Day-of-week header row */}
+      {/* Day-of-week header */}
       <Box>
-        <Text color={INK_COLORS.text}>
-          {' '.repeat(labelWidth)}{dayLabels.map(d => d.padEnd(cellWidth)).join('')}
+        <Text color={INK_COLORS.textDim}>
+          {' '.repeat(labelWidth)}{DAY_LABELS.map(d => d + ' '.repeat(cellWidth + gap - 1)).join('')}
         </Text>
       </Box>
       {/* Week rows */}
       {weeks.map((week, wi) => (
         <Box key={wi}>
-          <Text color={INK_COLORS.text}>
+          <Text color={INK_COLORS.textDim}>
             {weekLabels[wi].padEnd(labelWidth)}
           </Text>
           {week.map((cell, di) => {
             if (!cell) {
-              return <Text key={di} color={INK_COLORS.textDim}>{' '.repeat(cellWidth)}</Text>;
+              return <Text key={di}>{' '.repeat(cellWidth + gap)}</Text>;
             }
             const isToday = cell.date === todayStr;
             const level = cell.value === 0 ? 0 : Math.min(4, Math.ceil((cell.value / maxVal) * 4));
-            const block = BLOCKS[level];
 
-            // Today: pulse between accent and green to highlight current day
             if (isToday) {
-              const todayBlock = level > 0 ? block : '◦';
+              // Today: pulse between accent and top-level green
+              const color = pulse ? INK_COLORS.accent : (level > 0 ? HEAT_COLORS[level] : HEAT_COLORS[1]);
               return (
-                <Text key={di} color={pulse ? INK_COLORS.accent : INK_COLORS.green} bold>
-                  {todayBlock}{' '.repeat(cellWidth - 1)}
+                <Text key={di} color={color} bold>
+                  {CELL}{' '.repeat(gap)}
                 </Text>
               );
             }
 
             return (
-              <Text key={di} color={level > 0 ? INK_COLORS.green : INK_COLORS.textDim}>
-                {block}{' '.repeat(cellWidth - 1)}
+              <Text key={di} color={HEAT_COLORS[level]}>
+                {CELL}{' '.repeat(gap)}
               </Text>
             );
           })}
