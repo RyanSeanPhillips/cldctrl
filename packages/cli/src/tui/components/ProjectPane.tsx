@@ -459,15 +459,13 @@ export const ProjectPane = React.memo(function ProjectPane({
             }
             if (hourly.every(v => v === 0)) return null;
 
-            // Right-align with progress bars: ProgressBar uses labelLen(3) + bar + " 100%"(5)
-            // Sparkline uses "hr "(3) + sparkline + " now"(4). To right-align the
-            // trailing edge, sparkline width = innerBarWidth - 3 (label) - 4 (suffix)
-            // ProgressBar bar width = innerBarWidth - 3 (label) - 5 (pct) → ends 1 char earlier
-            // So " now" aligns with "100%" right edge
-            const sparkWidth = Math.max(8, innerBarWidth - 3 - 4);
+            // Match ProgressBar total width. ProgressBar gets width=innerBarWidth
+            // and internally does: label(3) + bar + pct(5) = innerBarWidth
+            // Sparkline: "hr "(3) + sparkline. No suffix — just fill to same total width.
+            const sparkWidth = Math.max(8, innerBarWidth - 3);
             const currentHour = new Date().getHours();
 
-            // Scrolling window: rightmost = current hour
+            // Scrolling window: rightmost = current hour, up to 24h
             const windowSize = Math.min(24, sparkWidth);
             const windowHourly: number[] = [];
             const windowAgents: number[] = [];
@@ -485,10 +483,14 @@ export const ProjectPane = React.memo(function ProjectPane({
             const SPARK_COLORS = ['#161b22', '#0e4429', '#0e4429', '#006d32', '#006d32', '#26a641', '#26a641', '#39d353'];
             const hasAgents = maxAgent > 0;
 
+            // Pad sparkline to fill sparkWidth (if windowSize < sparkWidth)
+            const padLeft = sparkWidth - windowSize;
+
             return (
               <Box paddingX={1} flexDirection="column">
                 <Box>
                   <Text color={INK_COLORS.textDim}>hr </Text>
+                  {padLeft > 0 && <Text color={SPARK_COLORS[0]}>{BLOCKS[0].repeat(padLeft)}</Text>}
                   <Text>
                     {windowHourly.map((v, i) => {
                       const level = v === 0 ? 0 : Math.min(7, Math.floor((v / maxVal) * 7));
@@ -498,11 +500,11 @@ export const ProjectPane = React.memo(function ProjectPane({
                       return <Text key={i} color={color}>{BLOCKS[level]}</Text>;
                     })}
                   </Text>
-                  <Text color={INK_COLORS.textDim}> now</Text>
                 </Box>
                 {hasAgents && (
                   <Box>
                     <Text color={INK_COLORS.textDim}>{'   '}</Text>
+                    {padLeft > 0 && <Text>{' '.repeat(padLeft)}</Text>}
                     <Text>
                       {windowAgents.map((v, i) => {
                         if (v === 0) return <Text key={i} color="#161b22">{BRAILLE[0]}</Text>;
