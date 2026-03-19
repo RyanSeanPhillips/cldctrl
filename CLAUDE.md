@@ -10,6 +10,8 @@ Cross-platform mission control for Claude Code. Node.js CLI/TUI with React/Ink.
 - **Config**: `~/.config/cldctrl/config.json` (or `%APPDATA%\cldctrl\`)
 - **Cache**: `~/.config/cldctrl/cache.json` (written by daemon every 5 min)
 - **Log**: `~/.config/cldctrl/debug.log` (JSON, 5MB rotation)
+- **Version**: 0.2.0 (npm: `cldctrl`)
+- **Website**: `docs/` → GitHub Pages → https://cld-ctrl.com
 - **License**: AGPL-3.0
 
 ## Running
@@ -53,51 +55,75 @@ src/
 ├── types.ts              All type definitions (Config, Project, Session, etc.)
 ├── daemon.ts             Background poller: git/issues/stats → cache.json
 ├── core/
-│   ├── projects.ts       Slug gen, discovery, list building (fast + full paths)
-│   ├── sessions.ts       JSONL parsing, session stats, rolling usage
+│   ├── activity.ts       Full session activity parsing (tools, models, tokens)
+│   ├── analyzer.ts       Session analysis to suggest skills and project memories
+│   ├── background.ts     Daemon cache I/O, seen-issues persistence
+│   ├── claude-cli.ts     Claude Code CLI interaction helpers
+│   ├── claude-usage.ts   Rate limit probing via API, tier detection, overage tracking
+│   ├── command-usage.ts  Slash command usage scanning
+│   ├── demo-data.ts      Synthetic data for --demo mode
+│   ├── filetree.ts       File tree: lazy dir reading, gitignore, icons, preview
 │   ├── git.ts            Git status + recent commits via child process
 │   ├── github.ts         GitHub issues via `gh` CLI
 │   ├── launcher.ts       Launch Claude Code with env cleanup
-│   ├── tracker.ts        PID-based session tracking
-│   ├── tailer.ts         Live JSONL tailing with incremental byte-offset parsing
-│   ├── activity.ts       Full session activity parsing (tools, models, tokens)
-│   ├── usage.ts          Per-project daily usage aggregation
-│   ├── background.ts     Daemon cache I/O, seen-issues persistence
-│   ├── summaries.ts      AI summary generation via `claude --print`
-│   ├── platform.ts       Cross-platform helpers (paths, TTY, file explorer)
 │   ├── logger.ts         Structured JSON logging with rotation
-│   ├── command-usage.ts  Slash command usage scanning
-│   ├── skills.ts         Claude Code commands/skills discovery
+│   ├── platform.ts       Cross-platform helpers (paths, TTY, file explorer)
+│   ├── pricing.ts        Per-session cost estimation (blended rate model)
+│   ├── processes.ts      Active session detection (markers, PIDs, mtime)
+│   ├── project-cache.ts  Fast project list caching
+│   ├── projects.ts       Slug gen, discovery, list building (fast + full paths)
+│   ├── scanner.ts        Project scanner: BFS discovery with depth limit
+│   ├── sessions.ts       JSONL parsing, session stats, rolling usage
+│   ├── setup.ts          Cross-platform hotkey setup dispatch
+│   ├── setup-windows.ts  Windows hotkey: VBS + Scheduled Task + hotkey.ps1
+│   ├── setup-macos.ts    macOS hotkey: LaunchAgent + plist
+│   ├── setup-linux.ts    Linux hotkey: systemd user timer + shell script
 │   ├── sixel.ts          Sixel image protocol support
-│   ├── demo-data.ts      Synthetic data for --demo mode
-│   ├── filetree.ts       File tree: lazy dir reading, gitignore, icons, preview
-│   └── scanner.ts        Project scanner: BFS discovery with depth limit
+│   ├── skills.ts         Claude Code commands/skills discovery
+│   ├── summaries.ts      AI summary generation via `claude --print`
+│   ├── tailer.ts         Live JSONL tailing with incremental byte-offset parsing
+│   ├── tracker.ts        PID-based session tracking
+│   └── usage.ts          Per-project daily usage aggregation
 └── tui/
     ├── App.tsx            Root TUI: split-pane layout, data orchestration
-    ├── MiniApp.tsx         Mini popup: 3-phase wizard
+    ├── MiniApp.tsx        Mini popup: 3-phase wizard
     ├── diffRenderer.ts    Differential screen rendering (eliminates flicker)
+    ├── helpItems.ts       Help overlay key/description pairs
     ├── snapshot.tsx        Screenshot capture for testing
     ├── components/
-    │   ├── ProjectPane.tsx     Left pane: project list + git badges + calendar
-    │   ├── DetailPane.tsx      Right pane: sessions, issues, commits, previews
-    │   ├── ActiveBadge.tsx     Live session status indicator
-    │   ├── CalendarHeatmap.tsx  Weekly grid with ░▒▓█ shading
-    │   ├── MatrixGlitch.tsx    Easter egg: Matrix-style green cascade
-    │   ├── FilterBar.tsx       Type-to-filter overlay
-    │   ├── PromptBar.tsx       New session prompt input
-    │   ├── StatusBar.tsx       Bottom status bar
-    │   ├── HelpOverlay.tsx     Help screen
-    │   ├── ProgressBar.tsx     Budget progress bar
-    │   └── Welcome.tsx         First-run welcome screen
+    │   ├── ActiveBadge.tsx         Live session status indicator
+    │   ├── ActivitySparkline.tsx   Inline token usage sparkline
+    │   ├── ActivityTrace.tsx       Session activity timeline
+    │   ├── CalendarHeatmap.tsx     Weekly grid with ░▒▓█ shading
+    │   ├── ConversationDetail.tsx  Expanded conversation view
+    │   ├── ConversationPane.tsx    Live conversations list
+    │   ├── DetailPane.tsx          Right pane: sessions, issues, commits, files
+    │   ├── FilterBar.tsx           Type-to-filter overlay
+    │   ├── HelpOverlay.tsx         Help screen
+    │   ├── MatrixGlitch.tsx        Easter egg: Matrix-style green cascade
+    │   ├── MiniActionMenu.tsx      Mini TUI action menu
+    │   ├── MiniProjectList.tsx     Mini TUI project list
+    │   ├── ProgressBar.tsx         Budget progress bar
+    │   ├── ProjectPane.tsx         Left pane: project list + git badges + calendar
+    │   ├── PromptBar.tsx           New session prompt input
+    │   ├── SettingsPane.tsx        Settings editor (`,` key)
+    │   ├── StatusBar.tsx           Bottom status bar
+    │   └── Welcome.tsx             First-run welcome screen
     ├── hooks/
-    │   ├── useAppState.ts      Reducer: config + projects + navigation
-    │   ├── useBackgroundData.ts Polling hooks: git, issues, usage, live tailing
-    │   ├── useKeyboard.ts      Keyboard input handler
-    │   ├── useAnimations.ts    Pulse, clock, spinner, animated counter
-    │   ├── useMiniState.ts     Mini TUI state reducer
-    │   └── useFileTree.ts      File tree state: lazy loading, expand/collapse
+    │   ├── useAnimations.ts        Pulse, clock, spinner, animated counter
+    │   ├── useAppState.ts          Reducer: config + projects + navigation
+    │   ├── useBackgroundData.ts    Polling hooks: git, issues, usage, live tailing
+    │   ├── useFileTree.ts          File tree state: lazy loading, expand/collapse
+    │   ├── useKeyboard.ts          Keyboard input handler
+    │   ├── useMiniKeyboard.ts      Mini TUI keyboard handler
+    │   └── useMiniState.ts         Mini TUI state reducer
     └── games/
-        └── GameScreen.tsx      Hidden games (Ctrl+G)
+        └── GameScreen.tsx          Hidden games (Ctrl+G)
+
+docs/
+├── index.html            Landing page (cld-ctrl.com) — GitHub Pages
+├── CNAME                 Custom domain config
+└── *.png, *.svg, *.gif   Screenshots and logo assets
 ```
 
 ## Performance Architecture
@@ -140,15 +166,22 @@ Components
 
 Claude Code sets `CLAUDECODE=1` when running. To launch Claude Code from within Claude Code, clear all `CLAUDE*` env vars **except** `CLAUDE_CODE_GIT_BASH_PATH` (needed for git-bash on Windows). See `launcher.ts:getCleanEnv()`.
 
-### 2. React hooks rules in useBackgroundData.ts
+### 2. Windows hotkey VBS launcher must use -NoProfile
+
+The VBS startup script and scheduled task both launch `hotkey.ps1` via PowerShell.
+Both MUST use `-NoProfile` to skip the user's PowerShell profile (which may activate
+conda, load modules, etc.) — without it, the hotkey listener window stays visible
+for minutes during profile loading instead of being hidden.
+
+### 3. React hooks rules in useBackgroundData.ts
 
 All hooks must be called unconditionally. Demo mode checks use `const demo = isDemoMode()` at the top, then guard side effects inside hooks with `if (demo) return`. Never add an early return before hook calls.
 
-### 3. Dropbox/EBUSY errors on Windows
+### 4. Dropbox/EBUSY errors on Windows
 
 `tsup` build may fail with `EBUSY: resource busy or locked` due to Dropbox sync locking temp files. Just retry the build.
 
-### 4. Diff renderer and Ink rendering model
+### 5. Diff renderer and Ink rendering model
 
 The renderer (`diffRenderer.ts`) intercepts both `stdout.write()` AND `stderr.write()`
 during alternate screen mode. It uses a "last write replaces" strategy — each write()
@@ -187,14 +220,14 @@ warnings, or logger verbose output from corrupting the display.
 9. **NEVER use `\x1b[2K` before content** — always content-then-`\x1b[K]`.
 10. `cc --safe` bypasses the diff renderer entirely as a fallback.
 
-### 5. JSONL files can be huge
+### 6. JSONL files can be huge
 
 Session files can reach 50MB. Always read only what you need:
 - `getProjectPathFromSlug()`: reads first 32KB + regex fallback for truncated lines
 - `tailer.ts`: caps initial read to last 1MB
 - `sessions.ts`: streams with readline, respects `maxSessionFileSize`
 
-### 7. Session detection and idle tracking
+### 7. Session detection and idle tracking (NEW)
 
 Three detection sources in `processes.ts` (priority order):
 1. **Markers** (`pids/*.json`) — cc-launched sessions. Trusted while file exists.
@@ -218,11 +251,13 @@ Hidden projects with active sessions are auto-unhidden: `useActiveProcesses` rec
 
 ### 8. File tree and scanner
 
+
 - **File tree** (`useFileTree.ts`): Lazy-loads directories on expand. Caches children in `Map<relativePath, FileNode[]>`. Resets when project changes. Respects `.gitignore` via `parseGitignore()`. File type icons from extension/name maps.
 - **Scanner** (`scanner.ts`): Synchronous BFS with configurable depth limit (default 5). Uses `PROJECT_INDICATORS` (CLAUDE.md, .git, package.json, etc.). `SKIP_DIRS` excludes node_modules, .git, AppData, etc. Supports `AbortSignal` for cancellation.
 - Detail pane tabs: `sessions | commits | issues | files` — `f` key quick-jumps to files, `S` triggers scan.
 
 ### 9. File path case sensitivity
+
 
 Windows paths are case-insensitive. Use `normalizePathForCompare()` from `platform.ts` for path comparisons. The daemon cache uses raw paths as keys.
 
