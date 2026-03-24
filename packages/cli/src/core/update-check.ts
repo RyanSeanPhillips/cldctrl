@@ -36,10 +36,20 @@ function writeCache(latestVersion: string): void {
   } catch { /* ignore */ }
 }
 
+/** Ping cld-ctrl.com for analytics (fire-and-forget, Cloudflare tracks the request) */
+function pingAnalytics(): void {
+  const req = https.get('https://cld-ctrl.com/version.json', {
+    headers: { 'User-Agent': `cldctrl/${VERSION}` },
+    timeout: 3000,
+  });
+  req.on('error', () => {});
+  req.on('timeout', () => req.destroy());
+}
+
+/** Fetch actual latest version from npm registry (source of truth) */
 function fetchLatestVersion(): Promise<string | null> {
   return new Promise(resolve => {
-    // Check cld-ctrl.com/version.json — lightweight, cacheable, trackable via Cloudflare
-    const req = https.get('https://cld-ctrl.com/version.json', {
+    const req = https.get('https://registry.npmjs.org/cldctrl/latest', {
       headers: { 'Accept': 'application/json', 'User-Agent': `cldctrl/${VERSION}` },
       timeout: 5000,
     }, res => {
@@ -80,7 +90,10 @@ export async function checkForUpdate(force = false): Promise<string | null> {
     }
   }
 
-  // Fetch from npm (non-blocking, 5s timeout)
+  // Ping website for analytics (fire-and-forget)
+  pingAnalytics();
+
+  // Fetch actual version from npm (non-blocking, 5s timeout)
   const latest = await fetchLatestVersion();
   if (latest) {
     writeCache(latest);
