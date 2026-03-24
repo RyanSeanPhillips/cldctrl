@@ -24,7 +24,7 @@ import {
 } from './hooks/useBackgroundData.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { useFileTree } from './hooks/useFileTree.js';
-import { getRecentSessions } from '../core/sessions.js';
+import { getRecentSessionsWithChildren } from '../core/sessions.js';
 import { buildProjectList, extractProjectName, getProjectSlug } from '../core/projects.js';
 import { normalizePathForCompare } from '../core/platform.js';
 import { scanForProjects, mergeScannedProjects } from '../core/scanner.js';
@@ -105,11 +105,15 @@ function App() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Skills/commands discovery (lazy — avoid sync FS reads during first render)
+  // Skills/commands discovery (deferred — sync FS reads, not needed for first paint)
   const [skillsData, setSkillsData] = useState(() =>
     isDemoMode() ? DEMO_SKILLS_DATA : { commands: [] as any[], skills: [] as any[] }
   );
-  useEffect(() => { if (!isDemoMode()) setSkillsData(getSkillsSummary()); }, []);
+  useEffect(() => {
+    if (isDemoMode()) return;
+    const timer = setTimeout(() => setSkillsData(getSkillsSummary()), 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Filter projects
   const filteredProjects = useMemo(() => {
@@ -141,9 +145,12 @@ function App() {
     [filteredProjects, settledPath],
   );
 
-  // Background data
-  const leftWidth = Math.floor(dims.cols * DEFAULTS.leftPaneWidth);
-  const rightWidth = dims.cols - leftWidth;
+  // Layout: single-pane mode for narrow terminals
+  const narrowMode = dims.cols < 80;
+  const leftWidth = narrowMode ? dims.cols - 1 : Math.floor(dims.cols * DEFAULTS.leftPaneWidth);
+  const rightWidth = narrowMode ? dims.cols - 1 : dims.cols - leftWidth;
+  const showLeft = !narrowMode || state.focusPane === 'projects';
+  const showRight = !narrowMode || state.focusPane === 'details';
   const bodyHeight = dims.rows - 4; // header + filter bar + status bar + 1
 
   const viewportHeight = Math.max(1, bodyHeight - 2);
@@ -269,7 +276,14 @@ function App() {
   // Auto-summarize: sweep all projects at startup, issues on selection
   const { revision: summaryRevision, isSummarizing } = useAutoSummarize(state.projects, settledPath, issues);
 
+  // Pinned project paths — child subfolders that are pinned stay standalone
+  const pinnedPaths = useMemo(
+    () => new Set(state.config.projects.map(p => normalizePathForCompare(p.path))),
+    [state.config.projects],
+  );
+
   // Recent sessions for settled project (re-fetches when summaries are generated)
+  // Uses merged sessions: parent + child subfolder sessions in one chronological list
   const [sessions, setSessions] = useState<Session[]>([]);
   useEffect(() => {
     if (isDemoMode()) {
@@ -281,11 +295,11 @@ function App() {
       return;
     }
     let cancelled = false;
-    getRecentSessions(settledPath, 30).then((s) => {
+    getRecentSessionsWithChildren(settledPath, 30, pinnedPaths).then((s) => {
       if (!cancelled) setSessions(s);
     });
     return () => { cancelled = true; };
-  }, [settledPath, summaryRevision]);
+  }, [settledPath, summaryRevision, pinnedPaths]);
 
   // Per-project usage history — exact slug match (uses settled project)
   const projectUsageHistory = useMemo(() => {
@@ -516,11 +530,11 @@ function App() {
   });
 
   // ── Minimum terminal size guard ──────────────────────────
-  if (dims.cols < 60 || dims.rows < 10) {
+  if (dims.cols < 40 || dims.rows < 10) {
     return (
       <Box flexDirection="column" paddingX={1}>
         <Text color={INK_COLORS.yellow}>
-          Terminal too small ({dims.cols}x{dims.rows}). Need at least 60x10.
+          Terminal too small ({dims.cols}x{dims.rows}). Need at least 40x10.
         </Text>
       </Box>
     );
@@ -592,29 +606,31 @@ function App() {
         </Box>
       </Box>
 
-      {/* Main body: two panes side by side */}
+      {/* Main body: two panes side by side (single pane in narrow mode) */}
       <Box flexDirection="row" height={bodyHeight}>
-        <ProjectPane
-          projects={filteredProjects}
-          selectedIndex={state.selectedIndex}
-          width={leftWidth}
-          height={bodyHeight}
-          gitStatuses={gitStatuses}
-          issueCounts={issueCounts}
-          focused={state.focusPane === 'projects'}
-          filterText={state.mode === 'filter' ? state.filterText : undefined}
-          activeProcesses={enrichedProcesses}
-          usageHistory={allUsageHistory}
-          usageStats={usageStats}
-          usageBudget={usageBudget}
-          skillsData={skillsData}
-          commandUsage={commandUsage}
-          config={state.config}
-          conversations={sortedConversations}
-          conversationIndex={state.conversationIndex}
-          leftSection={state.leftSection}
-        />
-        {state.leftSection === 'conversations' ? (
+        {showLeft && (
+          <ProjectPane
+            projects={filteredProjects}
+            selectedIndex={state.selectedIndex}
+            width={leftWidth}
+            height={bodyHeight}
+            gitStatuses={gitStatuses}
+            issueCounts={issueCounts}
+            focused={narrowMode || state.focusPane === 'projects'}
+            filterText={state.mode === 'filter' ? state.filterText : undefined}
+            activeProcesses={enrichedProcesses}
+            usageHistory={allUsageHistory}
+            usageStats={usageStats}
+            usageBudget={usageBudget}
+            skillsData={skillsData}
+            commandUsage={commandUsage}
+            config={state.config}
+            conversations={sortedConversations}
+            conversationIndex={state.conversationIndex}
+            leftSection={state.leftSection}
+          />
+        )}
+        {showRight && (state.leftSection === 'conversations' ? (
           <ConversationDetail
             conversations={sortedConversations}
             selectedIndex={state.conversationIndex}
@@ -632,7 +648,7 @@ function App() {
             gitStatus={selectedProject ? gitStatuses.get(selectedProject.path) : undefined}
             sessions={displaySnapshot.sessions}
             issues={displaySnapshot.issues}
-            focused={state.focusPane === 'details'}
+            focused={narrowMode || state.focusPane === 'details'}
             selectedSessionIndex={state.detailSection === 'sessions' ? state.detailIndex : undefined}
             detailSection={state.detailSection}
             selectedIssueIndex={state.detailSection === 'issues' ? state.detailIndex : undefined}
@@ -648,7 +664,7 @@ function App() {
             selectedFileIndex={state.detailSection === 'files' ? state.detailIndex : undefined}
             config={state.config}
           />
-        )}
+        ))}
       </Box>
 
       {/* Filter bar / Prompt bar (mutually exclusive) */}

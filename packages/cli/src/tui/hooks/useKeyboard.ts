@@ -5,7 +5,7 @@
 import { useInput, useApp, useStdin } from 'ink';
 import { useRef, useEffect } from 'react';
 import { launchClaude, openVSCode, buildIssueFixPrompt } from '../../core/launcher.js';
-import { openInExplorer } from '../../core/platform.js';
+import { openInExplorer, copyToClipboard } from '../../core/platform.js';
 import { trackSession } from '../../core/tracker.js';
 import { getHelpItemCount } from '../helpItems.js';
 import { getSettingsItemCount, getPermissionsItemCount, toggleSetting, cyclePermission, deletePermission } from '../components/SettingsPane.js';
@@ -387,18 +387,21 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         if (state.detailSection === 'sessions' && recentSessions[state.detailIndex]) {
           const session = recentSessions[state.detailIndex];
           onLaunchFeedback?.(`Resuming session: ${session.summary.slice(0, 30)}...`);
+          // Use the session's own projectPath for subfolder sessions, otherwise the selected project
+          const resumePath = session.projectPath ?? selectedProject!.path;
           const resumeResult = launchClaude({
-            projectPath: selectedProject!.path,
+            projectPath: resumePath,
             sessionId: session.id,
           });
           if (resumeResult.success && resumeResult.pid) {
-            trackSession(resumeResult.pid, selectedProject!.path);
+            trackSession(resumeResult.pid, resumePath);
           }
         } else if (state.detailSection === 'issues' && issues[state.detailIndex]) {
           const issue = issues[state.detailIndex];
           onLaunchFeedback?.(`Fixing issue #${issue.number}...`);
           const issueResult = launchClaude({
             projectPath: selectedProject!.path,
+            isNew: true,
             prompt: buildIssueFixPrompt(issue),
           });
           if (issueResult.success && issueResult.pid) {
@@ -558,6 +561,11 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       }
       if (input === 'h') {
         dispatch({ type: 'HIDE_PROJECT', index: state.selectedIndex });
+        return;
+      }
+      if (input === 'y') {
+        const copied = copyToClipboard(selectedProject.path);
+        onLaunchFeedback?.(copied ? `Copied: ${selectedProject.path}` : 'Clipboard copy failed');
         return;
       }
     }

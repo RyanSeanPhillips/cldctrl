@@ -137,3 +137,47 @@ export function useClaudeSpinnerFrame(active: boolean, ms = 120): number {
 export function claudeSpinnerFrame(frame: number, offset: number): string {
   return CLAUDE_SPINNER_FRAMES[(frame + offset) % CLAUDE_SPINNER_FRAMES.length];
 }
+
+/**
+ * Returns a ticker offset that increments every `ms` milliseconds.
+ * Use to scroll long text that doesn't fit in its container.
+ * Pauses at position 0 for `pauseTicks` ticks before scrolling.
+ */
+export function useTicker(active: boolean, ms = 400, pauseTicks = 4): number {
+  const [tick, setTick] = useState(0);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  useEffect(() => {
+    if (!active) { setTick(0); return; }
+    const timer = setInterval(() => {
+      if (activeRef.current) setTick(t => t + 1);
+    }, ms);
+    return () => clearInterval(timer);
+  }, [active, ms]);
+
+  return tick;
+}
+
+/**
+ * Slice a string for ticker display. Shows a sliding window of `width` chars.
+ * Pauses at the start for `pauseTicks` ticks, scrolls to the end, pauses, then resets.
+ */
+export function tickerSlice(text: string, width: number, tick: number, pauseTicks = 4): string {
+  if (text.length <= width) return text.padEnd(width);
+  const maxOffset = text.length - width;
+  // Total cycle: pause at start + scroll + pause at end + scroll back
+  const cycleLen = pauseTicks + maxOffset + pauseTicks + maxOffset;
+  const pos = tick % cycleLen;
+  let offset: number;
+  if (pos < pauseTicks) {
+    offset = 0; // pause at start
+  } else if (pos < pauseTicks + maxOffset) {
+    offset = pos - pauseTicks; // scroll right
+  } else if (pos < pauseTicks + maxOffset + pauseTicks) {
+    offset = maxOffset; // pause at end
+  } else {
+    offset = maxOffset - (pos - pauseTicks - maxOffset - pauseTicks); // scroll back
+  }
+  return text.slice(offset, offset + width);
+}

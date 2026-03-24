@@ -83,7 +83,9 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
         const tokenCol = `${tokenStr}${costStr}`.padStart(6 + costStr.length);
         // Reserve space for live dot indicator
         const livePrefix = isLive ? '● ' : '  ';
-        const summaryMax = Math.max(10, width - 27 - costStr.length);
+        // Subfolder badge (e.g. "├data/ ") — reduces summary space
+        const subBadge = session.subfolder ? `${CHARS.tee_right}${session.subfolder}/ ` : '';
+        const summaryMax = Math.max(10, width - 27 - costStr.length - subBadge.length);
         const summary = session.summary.length > summaryMax
           ? session.summary.slice(0, summaryMax - 3) + '...'
           : session.summary.padEnd(summaryMax);
@@ -101,6 +103,9 @@ function SessionList({ sessions, selectedIndex, focused, active, width, maxVisib
               <Text color={pulse ? INK_COLORS.green : INK_COLORS.textDim} bold>● </Text>
             )}
             {!isLive && <Text>  </Text>}
+            {subBadge && (
+              <Text color={INK_COLORS.blue} dimColor>{subBadge}</Text>
+            )}
             <Text
               color={isSelected ? INK_COLORS.text : isLive ? INK_COLORS.text : INK_COLORS.textDim}
               backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
@@ -624,6 +629,11 @@ function PreviewArea({ detailSection, sessions, selectedSessionIndex, issues, se
           {issue.labels.length > 0 && (
             <Text color={INK_COLORS.textDim}>
               Labels: {issue.labels.join(', ')}
+            </Text>
+          )}
+          {issue.author && (
+            <Text color={INK_COLORS.textDim}>
+              By: <Text color={INK_COLORS.blue}>@{issue.author}</Text>
             </Text>
           )}
           <Text color={INK_COLORS.textDim}>

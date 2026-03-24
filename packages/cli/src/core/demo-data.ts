@@ -132,9 +132,21 @@ export const DEMO_SESSIONS: Record<string, Session[]> = {
       dateLabel: '2h ago', stats: makeStats(31, 85_000),
     },
     {
+      id: 'demo-s13', filePath: '/demo/s13.jsonl', modified: hoursAgo(5),
+      summary: 'Add data validation pipeline for CSV imports', firstPrompt: 'Validate CSV uploads',
+      dateLabel: '5h ago', stats: makeStats(14, 36_000),
+      subfolder: 'data', projectPath: '/home/dev/acme-api/data',
+    },
+    {
       id: 'demo-s7', filePath: '/demo/s7.jsonl', modified: daysAgo(1),
       summary: 'Fix rate limiter for WebSocket connections', firstPrompt: 'Rate limiting broken on WS',
       dateLabel: 'Yesterday', stats: makeStats(15, 38_000),
+    },
+    {
+      id: 'demo-s14', filePath: '/demo/s14.jsonl', modified: daysAgo(1),
+      summary: 'Normalize address fields in migration script', firstPrompt: 'Clean up address data',
+      dateLabel: 'Yesterday', stats: makeStats(9, 22_000),
+      subfolder: 'data', projectPath: '/home/dev/acme-api/data',
     },
     {
       id: 'demo-s8', filePath: '/demo/s8.jsonl', modified: daysAgo(2),
@@ -180,39 +192,39 @@ export const DEMO_ISSUES: Record<string, Issue[]> = {
     {
       number: 12, title: 'Support macOS global hotkey with skhd',
       state: 'open', url: 'https://github.com/demo/cldctrl/issues/12',
-      createdAt: daysAgo(2).toISOString(), labels: ['enhancement', 'macos'],
+      createdAt: daysAgo(2).toISOString(), labels: ['enhancement', 'macos'], author: 'macos-fan',
       richSummary: 'Request to support macOS hotkeys via skhd or Hammerspoon. Requires platform detection and shell script generation for key binding registration.',
     },
     {
       number: 8, title: 'Session list shows stale data after git checkout',
       state: 'open', url: 'https://github.com/demo/cldctrl/issues/8',
-      createdAt: daysAgo(5).toISOString(), labels: ['bug'],
+      createdAt: daysAgo(5).toISOString(), labels: ['bug'], author: 'devuser42',
       richSummary: 'Session list does not refresh after switching branches. The project slug mapping uses the old branch path, so sessions from other branches appear mixed.',
     },
     {
       number: 15, title: 'Add Linux desktop integration for hotkey',
       state: 'open', url: 'https://github.com/demo/cldctrl/issues/15',
-      createdAt: daysAgo(1).toISOString(), labels: ['enhancement', 'linux'],
+      createdAt: daysAgo(1).toISOString(), labels: ['enhancement', 'linux'], author: 'tux-lover',
     },
   ],
   '/home/dev/acme-api': [
     {
       number: 142, title: 'WebSocket connections leak on reconnect',
       state: 'open', url: 'https://github.com/demo/acme-api/issues/142',
-      createdAt: daysAgo(1).toISOString(), labels: ['bug', 'P1'],
+      createdAt: daysAgo(1).toISOString(), labels: ['bug', 'P1'], author: 'sre-oncall',
       richSummary: 'WebSocket handler does not properly close the old connection when a client reconnects with the same session ID. Causes memory growth and file descriptor exhaustion under load.',
     },
     {
       number: 139, title: 'Add OpenAPI 3.1 spec generation',
       state: 'open', url: 'https://github.com/demo/acme-api/issues/139',
-      createdAt: daysAgo(7).toISOString(), labels: ['enhancement'],
+      createdAt: daysAgo(7).toISOString(), labels: ['enhancement'], author: 'api-team',
     },
   ],
   '/home/dev/react-dashboard': [
     {
       number: 67, title: 'Charts render blank on Safari 16',
       state: 'open', url: 'https://github.com/demo/dashboard/issues/67',
-      createdAt: daysAgo(3).toISOString(), labels: ['bug', 'browser-compat'],
+      createdAt: daysAgo(3).toISOString(), labels: ['bug', 'browser-compat'], author: 'qa-safari',
     },
   ],
   '/home/dev/ml-pipeline': [],
@@ -568,7 +580,7 @@ const MINIMAL_ISSUES: Record<string, Issue[]> = {
     {
       number: 1, title: 'Add dark mode support',
       state: 'open', url: 'https://github.com/demo/my-app/issues/1',
-      createdAt: daysAgo(1).toISOString(), labels: ['enhancement'],
+      createdAt: daysAgo(1).toISOString(), labels: ['enhancement'], author: 'new-user',
     },
   ],
   '/home/dev/side-project': [],

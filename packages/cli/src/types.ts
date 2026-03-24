@@ -99,6 +99,10 @@ export interface Session {
   gitBranch?: string;
   /** Actual USD cost from Claude's stats (not estimated). */
   cost?: number;
+  /** Relative path from parent project (e.g. "data") — set for child subfolder sessions. */
+  subfolder?: string;
+  /** Original project path for resume — set for child subfolder sessions. */
+  projectPath?: string;
 }
 
 export interface SessionStats {
@@ -236,6 +240,7 @@ export interface Issue {
   url: string;
   createdAt: string;
   labels: string[];
+  author?: string;
   repository?: string;
   richSummary?: string;
 }

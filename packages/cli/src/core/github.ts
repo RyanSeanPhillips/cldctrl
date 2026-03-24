@@ -60,7 +60,7 @@ export async function getIssues(projectPath: string): Promise<Issue[]> {
       [
         'issue', 'list',
         '--state', 'open',
-        '--json', 'number,title,body,state,url,createdAt,labels',
+        '--json', 'number,title,body,state,url,createdAt,labels,author',
         '--limit', '20',
       ],
       projectPath
@@ -77,6 +77,7 @@ export async function getIssues(projectPath: string): Promise<Issue[]> {
       url: issue.url as string,
       createdAt: issue.createdAt as string,
       labels: ((issue.labels as Array<{ name: string }>) ?? []).map((l) => l.name),
+      author: (issue.author as { login: string } | undefined)?.login,
     }));
   } catch (err) {
     log('error', { function: 'getIssues', message: String(err) });

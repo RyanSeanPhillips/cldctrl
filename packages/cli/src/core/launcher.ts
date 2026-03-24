@@ -115,7 +115,7 @@ function buildClaudeArgs(opts: {
   }
 
   if (opts.prompt) {
-    args.push('--prompt', opts.prompt);
+    args.push(opts.prompt);
   }
 
   return args;

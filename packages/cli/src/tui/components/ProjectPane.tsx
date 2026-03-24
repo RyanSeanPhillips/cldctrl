@@ -9,7 +9,7 @@ import { formatTokenCount } from '../../core/sessions.js';
 import { estimateCostBlended, formatCost, isCostRelevant } from '../../core/pricing.js';
 import { isFeatureEnabled } from '../../config.js';
 import { INK_COLORS, CHARS, formatDuration } from '../../constants.js';
-import { usePulse, useClaudeSpinnerFrame, claudeSpinnerFrame } from '../hooks/useAnimations.js';
+import { usePulse, useClaudeSpinnerFrame, claudeSpinnerFrame, useTicker, tickerSlice } from '../hooks/useAnimations.js';
 import { CalendarHeatmap } from './CalendarHeatmap.js';
 import { ProgressBar } from './ProgressBar.js';
 import { ActivitySparkline } from './ActivitySparkline.js';
@@ -54,6 +54,7 @@ function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, puls
   const idleCount = convs.length - liveCount;
   const hasAnyActive = liveCount > 0;
   const spinnerFrame = useClaudeSpinnerFrame(hasAnyActive, 120);
+  const ticker = useTicker(hasAnyActive, 400);
 
   // Header: "── Conversations (1 live · 2 idle) ──"
   const countLabel = [
@@ -107,12 +108,19 @@ function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, puls
         }
 
         const tok = formatTokenCount(session.stats.tokens);
-        const fixedChars = 6 + detail.length + 1 + tok.length;
-        const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars));
+        // Budget: pointer(1) + space(1) + indicator(1) + space(1) + name + space(1) + tok = 6 + name + tok
+        // Detail only shown if there's room (>= 6 chars) after name and tok
+        const fixedChars = 6 + tok.length;
+        const convNameWidth = Math.max(4, Math.min(14, usableWidth - fixedChars - 1));
+        const spaceForDetail = usableWidth - fixedChars - convNameWidth;
+        const showDetail = spaceForDetail >= 6;
+        const detailWidth = showDetail ? spaceForDetail : 0;
+        const visibleDetail = showDetail ? tickerSlice(detail, detailWidth, ticker) : '';
 
         return (
           <Box key={`${session.pid}-${session.sessionId}`} paddingX={1}>
             <Text
+              wrap="truncate"
               color={isSelected ? INK_COLORS.text : (isIdle ? INK_COLORS.textDim : INK_COLORS.text)}
               backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
               bold={isSelected}
@@ -120,7 +128,7 @@ function ConversationsSection({ convs, inConvSection, convIdx, usableWidth, puls
               {isSelected ? CHARS.pointer : ' '}{' '}
               <Text color={pulse && !isIdle ? indicatorColor : (isIdle ? INK_COLORS.textDim : indicatorColor)}>{indicator}</Text>
               {' '}{name.slice(0, convNameWidth).padEnd(convNameWidth)}{' '}
-              <Text color={INK_COLORS.textDim}>{detail} </Text>
+              {showDetail && <Text color={INK_COLORS.textDim}>{visibleDetail} </Text>}
               <Text color={isIdle ? INK_COLORS.textDim : INK_COLORS.accent}>{tok}</Text>
             </Text>
           </Box>
@@ -243,8 +251,10 @@ export const ProjectPane = React.memo(function ProjectPane({
 
   // Dynamic name width based on pane width
   const usableWidth = Math.max(10, width - 4); // borders + padding
-  const nameWidth = Math.max(8, Math.min(usableWidth - 16, 24)); // leave room for git status
-  const gitWidth = Math.max(4, usableWidth - nameWidth - 4); // remaining space
+  // Fixed overhead: pointer(1) + space(1) + indicator(1) + space(1) + space_before_git(1) + issue_badge_max(4) = 9
+  const contentBudget = usableWidth - 9;
+  const nameWidth = Math.max(8, Math.min(contentBudget - 4, 24)); // leave at least 4 for git
+  const gitWidth = Math.max(0, contentBudget - nameWidth);
 
   const hasAbove = scrollOffset > 0;
   const hasBelow = scrollOffset + viewportHeight < projects.length;
@@ -316,7 +326,7 @@ export const ProjectPane = React.memo(function ProjectPane({
             {showSeparator && (
               <Box paddingX={1}>
                 <Text color={INK_COLORS.textDim}>
-                  {CHARS.separator.repeat(3)} Discovered {CHARS.separator.repeat(3)}
+                  {CHARS.separator.repeat(3)} Discovered {CHARS.separator.repeat(Math.max(1, usableWidth - 15))}
                 </Text>
               </Box>
             )}
@@ -352,14 +362,22 @@ export const ProjectPane = React.memo(function ProjectPane({
         </Box>
       )}
 
-      {/* Commands summary */}
-      {showCommands && height >= 20 && skillsData && (skillsData.commands.length + skillsData.skills.length) > 0 && (() => {
+      {/* Commands separator — rendered independently to avoid Ink layout issues */}
+      {cmdSectionRows > 0 && (
+        <Box paddingX={1}>
+          <Text color={INK_COLORS.textDim}>
+            {(`${CHARS.separator.repeat(3)} Commands ${CHARS.separator.repeat(usableWidth)}`).slice(0, usableWidth)}
+          </Text>
+        </Box>
+      )}
+
+      {/* Commands list */}
+      {cmdSectionRows > 0 && skillsData && skillsData.commands.length > 0 && (() => {
         const allCmds = skillsData.commands;
-        const innerWidth = Math.max(10, width - 4);
-        // How many command rows we can fit (leave 3 for header + "+N more" + "? full list")
+        // How many command rows we can fit (leave 3 for separator + "+N more" + "? full list")
         const maxCmds = Math.max(1, Math.min(allCmds.length, cmdSectionRows - 3));
         const countW = 5; // " (3x)"
-        const descW = Math.max(0, innerWidth - 16 - countW);
+        const descW = Math.max(0, usableWidth - 16 - countW);
 
         const cmdColor = (source: string) =>
           source === 'user' ? INK_COLORS.accent
@@ -375,14 +393,11 @@ export const ProjectPane = React.memo(function ProjectPane({
         });
 
         return (
-          <Box flexDirection="column" marginTop={1} paddingX={1}>
-            <Text color={INK_COLORS.textDim}>
-              {CHARS.separator.repeat(3)} Commands {CHARS.separator.repeat(Math.max(1, innerWidth - 13))}
-            </Text>
+          <Box flexDirection="column" paddingX={1}>
             {sorted.slice(0, maxCmds).map(c => {
               const uses = commandUsage?.[c.name] ?? 0;
               return (
-                <Text key={c.name}>
+                <Text key={c.name} wrap="truncate">
                   <Text color={cmdColor(c.source)}>{` /${c.name.padEnd(13)}`}</Text>
                   {descW > 0 && c.description && (
                     <Text color={INK_COLORS.textDim}>{c.description.slice(0, descW)}</Text>
@@ -396,7 +411,7 @@ export const ProjectPane = React.memo(function ProjectPane({
             {allCmds.length > maxCmds && (
               <Text color={INK_COLORS.textDim}>{' '}+{allCmds.length - maxCmds} more</Text>
             )}
-            <Text color={INK_COLORS.textDim}>{' '}{'?  full list'}</Text>
+            <Text color={INK_COLORS.textDim}>{' '}<Text color={INK_COLORS.accent}>?</Text>{'  full list'}</Text>
           </Box>
         );
       })()}
@@ -406,7 +421,7 @@ export const ProjectPane = React.memo(function ProjectPane({
         <Box flexDirection="column">
           <Box paddingX={1}>
             <Text color={INK_COLORS.accent}>
-              {CHARS.separator.repeat(2)} Usage {CHARS.separator.repeat(Math.max(1, usableWidth - 10))}
+              {CHARS.separator.repeat(2)} Usage {CHARS.separator.repeat(Math.max(1, usableWidth - 11))}
             </Text>
           </Box>
 
@@ -459,14 +474,13 @@ export const ProjectPane = React.memo(function ProjectPane({
             }
             if (hourly.every(v => v === 0)) return null;
 
-            // Match ProgressBar total width. ProgressBar gets width=innerBarWidth
-            // and internally does: label(3) + bar + pct(5) = innerBarWidth
-            // Sparkline: "hr "(3) + sparkline. No suffix — just fill to same total width.
-            const sparkWidth = Math.max(8, innerBarWidth - 3);
+            // ProgressBar internally: "5h " (3) + bar (barW) + " 67%" (5) = innerBarWidth
+            // barW = innerBarWidth - 8. Sparkline should be same as barW.
+            const barW = Math.max(4, innerBarWidth - 8);
             const currentHour = new Date().getHours();
+            const windowSize = Math.min(24, barW);
+            const padLeft = barW - windowSize;
 
-            // Scrolling window: rightmost = current hour, up to 24h
-            const windowSize = Math.min(24, sparkWidth);
             const windowHourly: number[] = [];
             const windowAgents: number[] = [];
             for (let i = 0; i < windowSize; i++) {
@@ -479,40 +493,34 @@ export const ProjectPane = React.memo(function ProjectPane({
             const maxAgent = Math.max(...windowAgents);
             const BLOCKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
             const BRAILLE = ['⠀', '⡀', '⡄', '⡆', '⡇', '⣇', '⣧', '⣿'];
-            // Green gradient matching calendar heatmap (dark → bright by level)
             const SPARK_COLORS = ['#161b22', '#0e4429', '#0e4429', '#006d32', '#006d32', '#26a641', '#26a641', '#39d353'];
             const hasAgents = maxAgent > 0;
 
-            // Pad sparkline to fill sparkWidth (if windowSize < sparkWidth)
-            const padLeft = sparkWidth - windowSize;
+            // Build the sparkline string of exactly barW characters
+            const pad = BLOCKS[0].repeat(padLeft);
+            const blocks = windowHourly.map((v, i) => {
+              const level = v === 0 ? 0 : Math.min(7, Math.floor((v / maxVal) * 7));
+              return { char: BLOCKS[level], level, isNow: i === windowSize - 1 };
+            });
 
             return (
               <Box paddingX={1} flexDirection="column">
-                <Box width={Math.max(8, innerBarWidth)}>
+                <Box>
                   <Text color={INK_COLORS.textDim}>hr </Text>
-                  {padLeft > 0 && <Text color={SPARK_COLORS[0]}>{BLOCKS[0].repeat(padLeft)}</Text>}
-                  <Text>
-                    {windowHourly.map((v, i) => {
-                      const level = v === 0 ? 0 : Math.min(7, Math.floor((v / maxVal) * 7));
-                      const isNow = i === windowSize - 1;
-                      const color = isNow ? (pulse ? INK_COLORS.accent : SPARK_COLORS[level])
-                        : SPARK_COLORS[level];
-                      return <Text key={i} color={color}>{BLOCKS[level]}</Text>;
-                    })}
-                  </Text>
+                  <Text color={SPARK_COLORS[0]}>{pad}</Text>
+                  {blocks.map((b, i) => (
+                    <Text key={i} color={b.isNow ? (pulse ? INK_COLORS.accent : SPARK_COLORS[b.level]) : SPARK_COLORS[b.level]}>{b.char}</Text>
+                  ))}
                 </Box>
                 {hasAgents && (
                   <Box>
-                    <Text color={INK_COLORS.textDim}>{'   '}</Text>
-                    {padLeft > 0 && <Text>{' '.repeat(padLeft)}</Text>}
-                    <Text>
-                      {windowAgents.map((v, i) => {
-                        if (v === 0) return <Text key={i} color="#161b22">{BRAILLE[0]}</Text>;
-                        const level = Math.min(7, Math.floor((v / maxAgent) * 7));
-                        const isNow = i === windowSize - 1;
-                        return <Text key={i} color={isNow && pulse ? INK_COLORS.accent : '#e87632'}>{BRAILLE[level]}</Text>;
-                      })}
-                    </Text>
+                    <Text color={INK_COLORS.textDim}>{'🤖 '}{' '.repeat(padLeft)}</Text>
+                    {windowAgents.map((v, i) => {
+                      if (v === 0) return <Text key={i} color="#161b22">{BRAILLE[0]}</Text>;
+                      const level = Math.min(7, Math.floor((v / maxAgent) * 7));
+                      const isNow = i === windowSize - 1;
+                      return <Text key={i} color={isNow && pulse ? INK_COLORS.accent : '#e87632'}>{BRAILLE[level]}</Text>;
+                    })}
                   </Box>
                 )}
               </Box>
