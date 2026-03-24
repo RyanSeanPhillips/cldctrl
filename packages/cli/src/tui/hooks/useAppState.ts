@@ -263,12 +263,36 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
+// ── Snapshot view override ───────────────────────────────────
+// SNAPSHOT_VIEW env var sets initial view for frame capture.
+// Values: sessions (default), issues, commits, files, conversations, conversation_detail
+
+function applySnapshotView(state: AppState): AppState {
+  const view = process.env.SNAPSHOT_VIEW;
+  if (!view) return state;
+  switch (view) {
+    case 'issues':
+      return { ...state, detailSection: 'issues', focusPane: 'details' };
+    case 'commits':
+      return { ...state, detailSection: 'commits', focusPane: 'details' };
+    case 'files':
+      return { ...state, detailSection: 'files', focusPane: 'details' };
+    case 'conversations':
+      return { ...state, leftSection: 'conversations', focusPane: 'projects' };
+    case 'conversation_detail':
+      return { ...state, leftSection: 'conversations', focusPane: 'projects', expandedConversation: true, conversationIndex: 0 };
+    case 'sessions':
+    default:
+      return state;
+  }
+}
+
 // ── Lazy initializer (runs once, not on every render) ───────
 
 function initState(): AppState {
   if (isDemoMode()) {
     const projects = demoProjects();
-    return {
+    return applySnapshotView({
       config: demoConfig(),
       projects,
       selectedIndex: 0,
@@ -289,13 +313,13 @@ function initState(): AppState {
       conversationIndex: 0,
       expandedConversation: false,
       showHidden: false,
-    };
+    });
   }
   const { config, isNew } = loadConfig();
   // Use fast path (cached names, no git spawns) for instant first paint.
   // Background refresh in App.tsx will fill in full names later.
   const initialProjects = buildProjectListFast(config);
-  return {
+  return applySnapshotView({
     config,
     projects: initialProjects,
     selectedIndex: 0,
@@ -316,7 +340,7 @@ function initState(): AppState {
     conversationIndex: 0,
     expandedConversation: false,
     showHidden: false,
-  };
+  });
 }
 
 // ── Hook ────────────────────────────────────────────────────

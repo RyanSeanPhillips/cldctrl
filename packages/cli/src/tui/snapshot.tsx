@@ -1,157 +1,86 @@
 /**
- * Snapshot renderer: renders one frame of the TUI to stdout as text.
- * Used for visual testing without a real TTY.
+ * Snapshot renderer: renders the REAL App component and captures a frame.
  *
- * Usage: node --loader ts-node/esm src/tui/snapshot.tsx
- * Or via: cldctrl --snapshot
+ * Two modes:
+ * - Default: uses ink-testing-library (no ANSI colors, good for text comparison)
+ * - SNAPSHOT_ANSI=1: patches stdout to capture Ink's colored ANSI output
+ *   (needed for xterm.js website embed)
+ *
+ * Usage: cc --demo --snapshot                    # plain text
+ *        SNAPSHOT_ANSI=1 cc --demo --snapshot    # with ANSI colors
  */
 
-import React, { useState, useEffect } from 'react';
-import { render, Box, Text } from 'ink';
-import { loadConfig } from '../config.js';
-import { buildProjectList } from '../core/projects.js';
-import { formatGitStatus } from '../core/git.js';
-import { formatTokenCount } from '../core/sessions.js';
-import { INK_COLORS, CHARS, DEFAULTS, APP_NAME, VERSION } from '../constants.js';
-import { ProjectPane } from './components/ProjectPane.js';
-import { DetailPane } from './components/DetailPane.js';
-import { StatusBar } from './components/StatusBar.js';
-import type { Project, GitStatus, Session, Issue } from '../types.js';
-
-interface SnapshotProps {
-  width: number;
-  height: number;
-  selectedIndex?: number;
-  mockGit?: boolean;
-  mockIssues?: boolean;
-  mockSessions?: boolean;
-  focusDetails?: boolean;
-  detailIndex?: number;
-}
-
-/**
- * Generate mock git statuses for visual testing.
- */
-function mockGitStatuses(projects: Project[]): Map<string, GitStatus> {
-  const statuses = new Map<string, GitStatus>();
-  const mocks: Array<Partial<GitStatus>> = [
-    { branch: 'main', dirty: 0, ahead: 0, behind: 0 },
-    { branch: 'main', dirty: 3, ahead: 0, behind: 0 },
-    { branch: 'dev', dirty: 0, ahead: 2, behind: 0 },
-    { branch: 'feature/auth', dirty: 5, ahead: 1, behind: 3 },
-    { branch: 'main', dirty: 0, ahead: 0, behind: 1 },
-  ];
-  projects.forEach((p, i) => {
-    const mock = mocks[i % mocks.length];
-    statuses.set(p.path, { ...mock, available: true } as GitStatus);
-  });
-  return statuses;
-}
-
-/**
- * Generate mock sessions for the detail pane.
- */
-function mockSessions(): Session[] {
-  return [
-    { id: 'abc123', filePath: '', modified: new Date('2026-03-01'), summary: 'Fix auth bug in login flow', dateLabel: 'Mar 1', stats: { messages: 24, tokens: 42_000 } },
-    { id: 'def456', filePath: '', modified: new Date('2026-02-28'), summary: 'Add unit tests for config', dateLabel: 'Feb 28', stats: { messages: 12, tokens: 18_000 } },
-    { id: 'ghi789', filePath: '', modified: new Date('2026-02-27'), summary: 'Refactor session parser...', dateLabel: 'Feb 27', stats: { messages: 45, tokens: 91_000 } },
-    { id: 'jkl012', filePath: '', modified: new Date('2026-02-25'), summary: 'Initial project setup', dateLabel: 'Feb 25', stats: { messages: 8, tokens: 5_200 } },
-  ];
-}
-
-/**
- * Generate mock issues.
- */
-function mockIssues(): Issue[] {
-  return [
-    { number: 42, title: 'Login fails on Safari with 2FA enabled', state: 'open', url: '', createdAt: '', labels: ['bug'] },
-    { number: 38, title: 'Add dark mode support', state: 'open', url: '', createdAt: '', labels: ['enhancement'] },
-    { number: 35, title: 'Improve error messages for config validation', state: 'open', url: '', createdAt: '', labels: [] },
-  ];
-}
-
-function SnapshotApp({ width, height, selectedIndex = 0, mockGit = true, mockIssues: showMockIssues = true, mockSessions: showMockSessions = true, focusDetails = false, detailIndex = 0 }: SnapshotProps) {
-  const { config } = loadConfig();
-  const projects = buildProjectList(config);
-
-  const leftWidth = Math.floor(width * DEFAULTS.leftPaneWidth);
-  const rightWidth = width - leftWidth;
-  const bodyHeight = height - 3; // header + status bar
-
-  const gitStatuses = mockGit ? mockGitStatuses(projects) : new Map();
-  const issueCounts = new Map<string, number>();
-  const selectedProject = projects[selectedIndex];
-
-  const sessions = showMockSessions ? mockSessions() : [];
-  const issues = showMockIssues ? mockIssues() : [];
-
-  if (selectedProject && showMockIssues) {
-    issueCounts.set(selectedProject.path, issues.length);
-  }
-
-  return (
-    <Box flexDirection="column" width={width} height={height}>
-      {/* Header */}
-      <Box width={width} paddingX={1} justifyContent="space-between">
-        <Text><Text bold color={INK_COLORS.accent}>CLD</Text><Text bold color={INK_COLORS.accentLight}> CTRL</Text></Text>
-        <Text color={INK_COLORS.textDim}>v{VERSION}</Text>
-      </Box>
-      <Box flexDirection="row" height={bodyHeight}>
-        <ProjectPane
-          projects={projects}
-          selectedIndex={selectedIndex}
-          width={leftWidth}
-          height={bodyHeight}
-          gitStatuses={gitStatuses}
-          issueCounts={issueCounts}
-          focused={!focusDetails}
-          />
-        <DetailPane
-          project={selectedProject}
-          width={rightWidth}
-          height={bodyHeight}
-          gitStatus={selectedProject ? gitStatuses.get(selectedProject.path) : undefined}
-          sessions={sessions}
-          issues={issues}
-          focused={focusDetails}
-          selectedSessionIndex={detailIndex}
-          detailSection="sessions"
-        />
-      </Box>
-      <StatusBar
-        mode="normal"
-        stats={{ messages: 1008, tokens: 117_600_000, date: '2026-03-02' }}
-        width={width}
-        focusPane={focusDetails ? 'details' : 'projects'}
-      />
-    </Box>
-  );
-}
-
-/**
- * Render a snapshot and return the text output.
- */
-export function renderSnapshot(opts: SnapshotProps = { width: 100, height: 24 }): string {
-  // Use ink-testing-library for string rendering
-  const { render: testRender } = require('ink-testing-library') as typeof import('ink-testing-library');
-  const instance = testRender(
-    <SnapshotApp {...opts} />
-  );
-  const frame = instance.lastFrame() ?? '';
-  instance.unmount();
-  return frame;
-}
+import React from 'react';
+import { App } from './App.js';
 
 /**
  * CLI entry point for snapshot mode.
  */
-export function runSnapshot(): void {
-  const width = parseInt(process.env.COLUMNS ?? '100', 10);
-  const height = parseInt(process.env.LINES ?? '24', 10);
-  const selectedIndex = parseInt(process.env.SNAPSHOT_INDEX ?? '0', 10);
-  const focusDetails = process.env.SNAPSHOT_FOCUS === 'details';
+export async function runSnapshot(): Promise<void> {
+  const width = parseInt(process.env.COLUMNS ?? '120', 10);
+  const height = parseInt(process.env.LINES ?? '40', 10);
+  const delay = parseInt(process.env.SNAPSHOT_DELAY ?? '200', 10);
+  const wantAnsi = process.env.SNAPSHOT_ANSI === '1';
 
-  const output = renderSnapshot({ width, height, selectedIndex, focusDetails });
-  process.stdout.write(output + '\n');
+  process.stdout.columns = width;
+  process.stdout.rows = height;
+
+  if (!wantAnsi) {
+    // Plain text mode (no colors) via ink-testing-library
+    const { render: testRender } = await import('ink-testing-library');
+    const instance = testRender(React.createElement(App));
+    await new Promise(resolve => setTimeout(resolve, delay));
+    const frame = instance.lastFrame() ?? '';
+    instance.unmount();
+    process.stdout.write(frame + '\n');
+    return;
+  }
+
+  // ANSI mode: intercept stdout.write to capture Ink's colored frames
+  const origWrite = process.stdout.write.bind(process.stdout);
+  let lastFrame = '';
+
+  process.stdout.write = ((chunk: any, ...args: any[]) => {
+    const str = typeof chunk === 'string' ? chunk : chunk.toString();
+    // Ink writes each complete frame as a single write() call
+    // Keep the last one (it's the most complete)
+    if (str.length > 50) { // skip short writes (cursor moves, etc.)
+      lastFrame = str;
+    }
+    return true; // suppress actual output
+  }) as any;
+
+  // Force TTY-like behavior so Ink/chalk output ANSI color codes
+  (process.stdout as any).isTTY = true;
+  (process.stderr as any).isTTY = true;
+  process.env.FORCE_COLOR = '3'; // force 24-bit color (chalk/Ink check this)
+
+  // Ink requires raw mode + ref/unref on stdin — fake them for non-TTY
+  if (!(process.stdin as any).isTTY) {
+    (process.stdin as any).isTTY = true;
+    (process.stdin as any).setRawMode = () => process.stdin;
+    if (!process.stdin.ref) (process.stdin as any).ref = () => {};
+    if (!process.stdin.unref) (process.stdin as any).unref = () => {};
+  }
+
+  const { render } = await import('ink');
+  const instance = render(React.createElement(App));
+
+  await new Promise(resolve => setTimeout(resolve, delay));
+  instance.unmount();
+
+  // Restore stdout
+  process.stdout.write = origWrite;
+
+  if (!lastFrame) {
+    process.stderr.write('No frame captured\n');
+    process.exit(1);
+  }
+
+  // Only strip alt screen enter/exit — keep everything else for xterm.js
+  const cleaned = lastFrame
+    .replace(/\x1b\[\?1049[lh]/g, '')         // alt screen
+    .replace(/\x1b\[\?25[lh]/g, '');          // hide/show cursor
+
+  origWrite(cleaned);
 }

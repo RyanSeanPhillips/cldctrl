@@ -109,8 +109,14 @@ async function main(): Promise<void> {
 
   // Snapshot mode: render one TUI frame to stdout (for visual testing without TTY)
   if (args.includes('--snapshot')) {
+    // FORCE_COLOR must be set before chalk/Ink load to enable ANSI output when piped
+    if (process.env.SNAPSHOT_ANSI === '1') {
+      process.env.FORCE_COLOR = '3';
+      (process.stdout as any).isTTY = true;
+      (process.stderr as any).isTTY = true;
+    }
     const { runSnapshot } = await import('./tui/snapshot.js');
-    runSnapshot();
+    await runSnapshot();
     return;
   }
 

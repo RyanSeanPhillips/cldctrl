@@ -27,6 +27,7 @@ interface UseKeyboardOptions {
   onLaunchFeedback?: (msg: string) => void;
   skillsData?: SkillsData;
   fileTreeNodeCount?: number;
+  fileTreeNodes?: Array<{ node: { type: string }; expanded: boolean }>;
   onFileExpand?: () => void;
   onFileCollapse?: () => void;
   onFileOpen?: () => void;
@@ -353,15 +354,20 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         return;
       }
 
-      // File tree: right to expand, left to collapse, Enter to open
+      // File tree: right to expand, left to collapse (falls through to tab nav if nothing to collapse)
       if (state.detailSection === 'files') {
         if (key.rightArrow) {
           opts.onFileExpand?.();
           return;
         }
-        if (key.leftArrow) {
-          opts.onFileCollapse?.();
-          return;
+        // Left arrow collapses expanded directories; for files/collapsed dirs, fall through to tab nav
+        if (key.leftArrow && opts.onFileCollapse) {
+          const node = opts.fileTreeNodes?.[state.detailIndex];
+          if (node && node.node.type === 'directory' && node.expanded) {
+            opts.onFileCollapse();
+            return;
+          }
+          // Fall through to tab navigation below
         }
       }
 

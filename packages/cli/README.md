@@ -13,7 +13,7 @@
 A terminal dashboard and session manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Track sessions, monitor token usage and costs, manage projects, and launch Claude Code — all from one place. Zero config: auto-discovers your existing Claude Code history.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="CLD CTRL dashboard — Claude Code session manager" width="700">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot.png" alt="CLD CTRL dashboard — Claude Code session manager" width="700">
   <br>
   <em>Split-pane dashboard: projects, live conversations, sessions, git status, usage stats, calendar heatmap</em>
 </p>
@@ -32,14 +32,14 @@ Requires Node.js 18+ and [Claude Code](https://docs.anthropic.com/en/docs/claude
 See every conversation across every project with token counts, tool usage, cost estimates, and model info. Resume any session with one key.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Sessions view" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot.png" alt="Sessions view" width="600">
 </p>
 
 ### Live Conversations
 Watch active Claude Code sessions in real-time. See what tools are being used, token counts updating live, and which sessions are active vs idle.
 
 <p align="center">
-  <img src="docs/screenshot_conversations.png" alt="Live conversations" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_conversations.png" alt="Live conversations" width="600">
 </p>
 
 ### Usage & Rate Limits
@@ -49,35 +49,35 @@ Rolling 5-hour and 7-day usage windows with live rate limit probing. Tier detect
 Open issues per project with author and labels. Press Enter on an issue to launch Claude Code with a "fix this issue" prompt.
 
 <p align="center">
-  <img src="docs/screenshot_issues.png" alt="Issues view" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_issues.png" alt="Issues view" width="600">
 </p>
 
 ### File Browser
 Browse project files with lazy-loaded directory tree. Respects `.gitignore`, shows file type icons, highlights `CLAUDE.md` files. Press Enter to open in VS Code.
 
 <p align="center">
-  <img src="docs/screenshot_files.png" alt="File browser" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_files.png" alt="File browser" width="600">
 </p>
 
 ### Git Status & Commits
 Branch, uncommitted changes, unpushed commits, and behind count shown inline for every project. Commit history with additions/deletions per file.
 
 <p align="center">
-  <img src="docs/screenshot_commits.png" alt="Commits view" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_commits.png" alt="Commits view" width="600">
 </p>
 
 ### Session Detail
 Drill into individual conversations to see token breakdown, tool usage, model info, MCP servers, and a full activity timeline.
 
 <p align="center">
-  <img src="docs/screenshot_conversation_detail.png" alt="Session detail" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_conversation_detail.png" alt="Session detail" width="600">
 </p>
 
 ### Settings Editor
 Edit all settings inline — budget, launch options, notifications, hotkey config. No need to edit JSON files.
 
 <p align="center">
-  <img src="docs/screenshot_settings.png" alt="Settings" width="600">
+  <img src="https://raw.githubusercontent.com/RyanSeanPhillips/cldctrl/master/docs/screenshot_settings.png" alt="Settings" width="600">
 </p>
 
 ### More

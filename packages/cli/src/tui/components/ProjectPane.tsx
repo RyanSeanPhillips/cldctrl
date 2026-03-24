@@ -305,11 +305,8 @@ export const ProjectPane = React.memo(function ProjectPane({
         const gitStr = git === undefined && loading ? '...' : formatGitStatus(git ?? null);
         const activeSession = activeProcesses?.get(project.path);
 
-        // Show separator before first discovered project
-        const showSeparator =
-          realIndex > 0 &&
-          realIndex === lastPinnedIdx + 1 &&
-          project.discovered;
+        // Discovered separator removed — all projects shown as a flat list
+        const showSeparator = false;
 
         // Small indicator: ✶ for active, ○ for idle, space for none
         const isActiveSession = activeSession && !activeSession.idle;

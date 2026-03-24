@@ -70,7 +70,7 @@ interface DetailSnapshot {
   usageHistory: DailyUsage[];
 }
 
-function App() {
+export function App() {
   const { state, dispatch } = useAppState();
 
   // Terminal dimensions
@@ -521,6 +521,7 @@ function App() {
     onLaunchFeedback,
     skillsData,
     fileTreeNodeCount: fileTree.flatNodes.length,
+    fileTreeNodes: fileTree.flatNodes,
     onFileExpand,
     onFileCollapse,
     onFileOpen,

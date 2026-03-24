@@ -3,7 +3,8 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { readDirectory, parseGitignore, openFileInEditor, readFilePreview } from '../../core/filetree.js';
+import { readDirectory, parseGitignore, openFileInEditor, readFilePreview, getFileIcon } from '../../core/filetree.js';
+import { isDemoMode } from '../../core/demo-data.js';
 import type { FileNode } from '../../core/filetree.js';
 
 export interface FlatNode {
@@ -54,19 +55,69 @@ function flattenTree(
   return result;
 }
 
+// ── Demo file tree ────────────────────────────────────────
+function makeDemoNode(name: string, relativePath: string, type: 'file' | 'directory', opts?: { isClaude?: boolean }): FileNode {
+  const { icon, color } = getFileIcon(name);
+  return { name, path: `/demo/${relativePath}`, relativePath, type, fileIcon: icon, iconColor: color, isClaude: opts?.isClaude };
+}
+
+function buildDemoTree(): { cache: Map<string, FileNode[]>; expanded: Set<string> } {
+  const cache = new Map<string, FileNode[]>();
+  cache.set('', [
+    makeDemoNode('.claude', '.claude', 'directory'),
+    makeDemoNode('src', 'src', 'directory'),
+    makeDemoNode('tests', 'tests', 'directory'),
+    makeDemoNode('docs', 'docs', 'directory'),
+    makeDemoNode('CLAUDE.md', 'CLAUDE.md', 'file', { isClaude: true }),
+    makeDemoNode('package.json', 'package.json', 'file'),
+    makeDemoNode('tsconfig.json', 'tsconfig.json', 'file'),
+    makeDemoNode('README.md', 'README.md', 'file'),
+    makeDemoNode('.gitignore', '.gitignore', 'file'),
+  ]);
+  cache.set('src', [
+    makeDemoNode('components', 'src/components', 'directory'),
+    makeDemoNode('hooks', 'src/hooks', 'directory'),
+    makeDemoNode('utils', 'src/utils', 'directory'),
+    makeDemoNode('index.ts', 'src/index.ts', 'file'),
+    makeDemoNode('config.ts', 'src/config.ts', 'file'),
+    makeDemoNode('types.ts', 'src/types.ts', 'file'),
+    makeDemoNode('App.tsx', 'src/App.tsx', 'file'),
+  ]);
+  cache.set('src/components', [
+    makeDemoNode('Dashboard.tsx', 'src/components/Dashboard.tsx', 'file'),
+    makeDemoNode('ProjectList.tsx', 'src/components/ProjectList.tsx', 'file'),
+    makeDemoNode('StatusBar.tsx', 'src/components/StatusBar.tsx', 'file'),
+    makeDemoNode('Settings.tsx', 'src/components/Settings.tsx', 'file'),
+  ]);
+  cache.set('src/hooks', [
+    makeDemoNode('useKeyboard.ts', 'src/hooks/useKeyboard.ts', 'file'),
+    makeDemoNode('useAppState.ts', 'src/hooks/useAppState.ts', 'file'),
+  ]);
+  cache.set('tests', [
+    makeDemoNode('config.test.ts', 'tests/config.test.ts', 'file'),
+    makeDemoNode('sessions.test.ts', 'tests/sessions.test.ts', 'file'),
+  ]);
+  const expanded = new Set(['', 'src', 'src/components']);
+  return { cache, expanded };
+}
+
+// ── Hook ──────────────────────────────────────────────────
 export function useFileTree(projectPath: string | null): FileTreeState {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['']));
-  const [dirCache, setDirCache] = useState<Map<string, FileNode[]>>(new Map());
+  const demo = isDemoMode();
+  const [demoData] = useState(() => demo ? buildDemoTree() : null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => demo && demoData ? demoData.expanded : new Set(['']));
+  const [dirCache, setDirCache] = useState<Map<string, FileNode[]>>(() => demo && demoData ? demoData.cache : new Map());
   const prevPathRef = useRef<string | null>(null);
 
   // Parse gitignore once per project
   const isIgnored = useMemo(
-    () => projectPath ? parseGitignore(projectPath) : null,
-    [projectPath],
+    () => !demo && projectPath ? parseGitignore(projectPath) : null,
+    [projectPath, demo],
   );
 
-  // Load root directory when project changes
+  // Load root directory when project changes (skip in demo mode)
   useEffect(() => {
+    if (demo) return;
     if (!projectPath || !isIgnored) {
       setDirCache(new Map());
       setExpanded(new Set(['']));
@@ -82,7 +133,7 @@ export function useFileTree(projectPath: string | null): FileTreeState {
       setDirCache(newCache);
       setExpanded(new Set(['']));
     }
-  }, [projectPath, isIgnored]);
+  }, [projectPath, isIgnored, demo]);
 
   const flatNodes = useMemo(
     () => flattenTree(dirCache, expanded),

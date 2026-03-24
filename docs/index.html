@@ -626,6 +626,67 @@
       display: block;
     }
 
+    /* ── Demo tabs ──────────────────────────────────────── */
+    .demo-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 12px;
+      background: var(--bg-code);
+      border-top: 1px solid var(--border);
+      border-radius: 0 0 12px 12px;
+      overflow-x: auto;
+      justify-content: center;
+    }
+
+    .demo-tabs-label {
+      color: var(--text-dim);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      padding: 8px 10px 8px 4px;
+      align-self: center;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .demo-tab {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 7px 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .demo-tab:hover {
+      color: var(--text);
+      background: rgba(232, 118, 50, 0.08);
+      border-color: rgba(232, 118, 50, 0.2);
+    }
+
+    .demo-tab.active {
+      color: var(--accent);
+      background: rgba(232, 118, 50, 0.12);
+      border-color: var(--accent);
+    }
+
+    #xterm-container {
+      background: #06080d;
+      padding: 4px 0;
+      min-height: 200px;
+    }
+
+    #xterm-container .xterm {
+      padding: 4px 8px;
+    }
+
+    #xterm-container .xterm-screen {
+      margin: 0 auto;
+    }
+
     /* ── Pillars (3 hero features) ────────────────────────── */
     .pillars {
       border-top: 1px solid var(--border);
@@ -1047,22 +1108,24 @@
         </div>
       </div>
     </div>
-    <!-- Typing terminal that transitions to screenshot -->
+    <!-- Interactive terminal demo powered by xterm.js -->
     <div class="wide-container hero-terminal">
       <div class="terminal-frame">
         <div class="terminal-bar">
           <span class="dot red"></span>
           <span class="dot yellow"></span>
           <span class="dot green"></span>
-          <span class="terminal-title">Terminal</span>
+          <span class="terminal-title">CLD CTRL — Interactive Demo</span>
         </div>
-        <div class="term-body" id="term-body">
-          <div class="term-line" id="line1"><span class="prompt">$ </span><span class="cmd" id="type1"></span><span class="cursor" id="cur1"></span></div>
-          <div class="term-line" id="line2"><span class="output" id="type2"></span></div>
-          <div class="term-line" id="line3"><span class="prompt">$ </span><span class="cmd" id="type3"></span><span class="cursor" id="cur3"></span></div>
-        </div>
-        <div class="screenshot-reveal" id="screenshot-reveal">
-          <img src="screenshot_full_tui.png" alt="CLD CTRL dashboard showing project list, session history, git status, usage stats, and calendar heatmap">
+        <div id="xterm-container"></div>
+        <div class="demo-tabs" id="demo-tabs">
+          <span class="demo-tabs-label">View:</span>
+          <button class="demo-tab active" data-view="main">Dashboard</button>
+          <button class="demo-tab" data-view="issues">Issues</button>
+          <button class="demo-tab" data-view="commits">Commits</button>
+          <button class="demo-tab" data-view="files">Files</button>
+          <button class="demo-tab" data-view="conversations">Conversations</button>
+          <button class="demo-tab" data-view="conversation_detail">Session Detail</button>
         </div>
       </div>
     </div>
@@ -1327,66 +1390,114 @@
     }, { threshold: 0.1 });
     document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
 
-    // Typing animation
-    function typeText(el, text, speed) {
-      return new Promise(resolve => {
-        let i = 0;
-        const interval = setInterval(() => {
-          el.textContent = text.slice(0, ++i);
-          if (i >= text.length) { clearInterval(interval); resolve(); }
-        }, speed);
-      });
-    }
+    // ── Interactive terminal demo ──────────────────────────
+    (async function initDemo() {
+      try {
+        // Load xterm.js CSS
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css';
+        document.head.appendChild(link);
 
-    function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+        // Load xterm.js
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
 
-    async function runTerminal() {
-      const line1 = document.getElementById('line1');
-      const line2 = document.getElementById('line2');
-      const line3 = document.getElementById('line3');
-      const cur1 = document.getElementById('cur1');
-      const cur3 = document.getElementById('cur3');
-      const reveal = document.getElementById('screenshot-reveal');
+        // Load frames data
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'frames.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
 
-      // Line 1: npm install
-      line1.classList.add('active');
-      await wait(600);
-      await typeText(document.getElementById('type1'), 'npm i -g cldctrl', 50);
-      await wait(400);
-      cur1.style.display = 'none';
+        // xterm.js exports as window.Terminal
+        const XTerminal = window.Terminal;
+        if (!XTerminal) { console.error('xterm.js not loaded'); return; }
+        if (!window.FRAMES) { console.error('frames.js not loaded'); return; }
 
-      // Line 2: install output
-      line2.classList.add('active');
-      document.getElementById('type2').textContent = 'added 7 packages, installed in 2.1s';
-      await wait(800);
+        const container = document.getElementById('xterm-container');
+        if (!container) { console.error('xterm-container not found'); return; }
 
-      // Line 3: launch
-      line3.classList.add('active');
-      await wait(300);
-      await typeText(document.getElementById('type3'), 'cldctrl', 70);
-      await wait(500);
-      cur3.style.display = 'none';
+        const term = new XTerminal({
+          cols: 120,
+          rows: 36,
+          theme: {
+            background: '#06080d',
+            foreground: '#cccccc',
+            cursor: '#06080d',
+            selectionBackground: 'rgba(232, 118, 50, 0.3)',
+          },
+          fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace",
+          fontSize: 13,
+          lineHeight: 1.0,
+          cursorBlink: false,
+          cursorStyle: 'bar',
+          disableStdin: true,
+          convertEol: true,
+        });
 
-      // Hide terminal text, reveal screenshot
-      await wait(300);
-      document.getElementById('term-body').style.transition = 'opacity 0.4s, max-height 0.5s';
-      document.getElementById('term-body').style.opacity = '0';
-      document.getElementById('term-body').style.maxHeight = '0';
-      document.getElementById('term-body').style.overflow = 'hidden';
-      document.getElementById('term-body').style.padding = '0';
-      await wait(400);
-      reveal.classList.add('show');
-    }
+        term.open(container);
+        // Force xterm to measure its dimensions after opening
+        setTimeout(function() { term.refresh(0, term.rows - 1); }, 50);
 
-    // Start after page loads and hero is visible
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      // Skip animation, show screenshot directly
-      document.querySelectorAll('.term-line').forEach(l => l.style.display = 'none');
-      document.getElementById('term-body').style.display = 'none';
-      document.getElementById('screenshot-reveal').classList.add('show');
-    } else {
-      runTerminal();
-    }
+        function showFrame(name) {
+          if (!window.FRAMES[name]) return;
+          term.clear();
+          term.write('\x1b[H'); // cursor home
+          term.write(window.FRAMES[name]);
+        }
+
+        // Small delay to ensure xterm canvas is ready
+        setTimeout(function() { showFrame('main'); }, 100);
+
+        // Auto-cycle through views
+        const views = ['main', 'issues', 'commits', 'files', 'conversations', 'conversation_detail'];
+        const tabs = document.querySelectorAll('.demo-tab');
+        let currentIdx = 0;
+        let paused = false;
+        let cycleTimer = null;
+
+        function switchTo(idx) {
+          currentIdx = idx;
+          tabs.forEach(function(t) { t.classList.remove('active'); });
+          tabs[idx].classList.add('active');
+          showFrame(views[idx]);
+        }
+
+        function startCycle() {
+          if (cycleTimer) clearInterval(cycleTimer);
+          cycleTimer = setInterval(function() {
+            if (!paused) {
+              switchTo((currentIdx + 1) % views.length);
+            }
+          }, 4000);
+        }
+
+        startCycle();
+
+        // Pause on hover, resume on leave
+        var termFrame = document.querySelector('.terminal-frame');
+        termFrame.addEventListener('mouseenter', function() { paused = true; });
+        termFrame.addEventListener('mouseleave', function() { paused = false; });
+
+        // Tab click: switch and restart timer
+        tabs.forEach(function(tab, idx) {
+          tab.addEventListener('click', function() {
+            switchTo(idx);
+            startCycle(); // restart timer from this tab
+          });
+        });
+      } catch (err) {
+        console.error('Demo init failed:', err);
+      }
+    })();
   </script>
 
 </body>
