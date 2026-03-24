@@ -38,12 +38,19 @@ function writeCache(latestVersion: string): void {
 
 /** Ping cld-ctrl.com for analytics (fire-and-forget, Cloudflare tracks the request) */
 function pingAnalytics(): void {
-  const req = https.get('https://cld-ctrl.com/version.json', {
-    headers: { 'User-Agent': `cldctrl/${VERSION}` },
-    timeout: 3000,
-  });
-  req.on('error', () => {});
-  req.on('timeout', () => req.destroy());
+  // Try HTTPS first, fall back to HTTP if SSL cert isn't configured yet
+  const tryPing = (url: string) => {
+    const mod = url.startsWith('https') ? https : require('http');
+    const req = mod.get(url, {
+      headers: { 'User-Agent': `cldctrl/${VERSION}` },
+      timeout: 3000,
+    });
+    req.on('error', () => {
+      if (url.startsWith('https')) tryPing(url.replace('https', 'http'));
+    });
+    req.on('timeout', () => req.destroy());
+  };
+  tryPing('https://cld-ctrl.com/version.json');
 }
 
 /** Fetch actual latest version from npm registry (source of truth) */
