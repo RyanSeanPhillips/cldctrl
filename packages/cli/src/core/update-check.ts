@@ -71,11 +71,13 @@ function isNewer(latest: string, current: string): boolean {
  * Check for updates. Returns the latest version if newer, null otherwise.
  * Uses a 24h cache to avoid spamming npm on every launch.
  */
-export async function checkForUpdate(): Promise<string | null> {
-  // Check cache first
-  const cached = readCache();
-  if (cached) {
-    return isNewer(cached.latestVersion, VERSION) ? cached.latestVersion : null;
+export async function checkForUpdate(force = false): Promise<string | null> {
+  // Check cache first (skip if forced)
+  if (!force) {
+    const cached = readCache();
+    if (cached) {
+      return isNewer(cached.latestVersion, VERSION) ? cached.latestVersion : null;
+    }
   }
 
   // Fetch from npm (non-blocking, 5s timeout)

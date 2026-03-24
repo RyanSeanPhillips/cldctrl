@@ -32,6 +32,7 @@ interface UseKeyboardOptions {
   onFileCollapse?: () => void;
   onFileOpen?: () => void;
   onStartScan?: () => void;
+  onCheckUpdate?: () => void;
   /** Number of active conversations for CONV_NAVIGATE maxIndex */
   conversationCount?: number;
   /** Callback when Enter is pressed on a conversation (focus its window) */
@@ -583,6 +584,10 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     }
     if (input === 'S') {
       opts.onStartScan?.();
+      return;
+    }
+    if (input === 'u') {
+      opts.onCheckUpdate?.();
       return;
     }
 

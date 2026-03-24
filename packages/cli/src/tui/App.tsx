@@ -535,6 +535,13 @@ export function App() {
     onFileCollapse,
     onFileOpen,
     onStartScan: startScan,
+    onCheckUpdate: () => {
+      onLaunchFeedback('Checking for updates...');
+      import('../core/update-check.js').then(m => m.checkForUpdate(true)).then(v => {
+        if (v) { setUpdateAvailable(v); onLaunchFeedback(`Update available: v${v}`); }
+        else onLaunchFeedback('Up to date!');
+      }).catch(() => onLaunchFeedback('Update check failed'));
+    },
     conversationCount: sortedConversations.length,
     onFocusConversation: onFocusConversation,
   });
