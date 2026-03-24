@@ -18,9 +18,10 @@ interface StatusBarProps {
   usageBudget?: UsageBudget | null;
   scanning?: boolean;
   leftPaneMode?: string;
+  updateAvailable?: string | null;
 }
 
-export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, scanning, leftPaneMode }: StatusBarProps) {
+export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, scanning, leftPaneMode, updateAvailable }: StatusBarProps) {
   // Animated counters — count up smoothly when stats change
   const animatedTokens = useAnimatedCounter(stats?.tokens ?? 0, 1500);
   const animatedMessages = useAnimatedCounter(stats?.messages ?? 0, 800);
@@ -92,6 +93,9 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
   return (
     <Box width={width} paddingX={1} justifyContent="space-between">
       <Text>
+        {updateAvailable && (
+          <Text><Text color={INK_COLORS.yellow}>v{updateAvailable} available</Text><Text color={INK_COLORS.textDim}> · npm i -g cldctrl  </Text></Text>
+        )}
         {hintPairs.slice(0, visiblePairs).map(([key, label], i) => (
           <Text key={key + label}>
             {i > 0 ? '  ' : ''}<Text color={INK_COLORS.accent}>{key}</Text><Text color={INK_COLORS.textDim}>:{label}</Text>

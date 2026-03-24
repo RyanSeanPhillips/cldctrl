@@ -115,6 +115,15 @@ export function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Update check (deferred, cached 24h, non-blocking)
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
+  useEffect(() => {
+    if (isDemoMode()) return;
+    import('../core/update-check.js').then(m => m.checkForUpdate()).then(v => {
+      if (v) setUpdateAvailable(v);
+    }).catch(() => {});
+  }, []);
+
   // Filter projects
   const filteredProjects = useMemo(() => {
     if (!state.filterText) return state.projects;
@@ -690,6 +699,7 @@ export function App() {
         usageBudget={usageBudget}
         scanning={state.scanning}
         leftPaneMode={state.leftSection}
+        updateAvailable={updateAvailable}
       />
 
       {/* Matrix glitch Easter egg — rare, brief, subtle */}
