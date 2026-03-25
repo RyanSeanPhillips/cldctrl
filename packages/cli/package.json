@@ -1,6 +1,6 @@
 {
   "name": "cldctrl",
-  "version": "0.2.0",
+  "version": "0.3.2",
   "description": "Mission control for Claude Code — cross-platform TUI project launcher",
   "license": "AGPL-3.0-only",
   "author": "Ryan Phillips",
@@ -44,7 +44,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "postinstall": "node -e \"console.log('\\n  Tip: Run `cldctrl setup` to enable Ctrl+Up hotkey (Windows)\\n')\""
+    "postinstall": "node -e \"console.log('\\n  Tip: Run cldctrl setup to enable global hotkey\\n')\""
   },
   "dependencies": {
     "commander": "^12.1.0",
