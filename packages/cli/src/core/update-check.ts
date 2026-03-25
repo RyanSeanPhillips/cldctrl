@@ -32,7 +32,9 @@ function readCache(): UpdateCache | null {
 
 function writeCache(latestVersion: string): void {
   try {
-    fs.writeFileSync(getCachePath(), JSON.stringify({ latestVersion, checkedAt: Date.now() }));
+    const cachePath = getCachePath();
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify({ latestVersion, checkedAt: Date.now() }));
   } catch { /* ignore */ }
 }
 
