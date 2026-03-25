@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { DEFAULTS } from '../constants.js';
-import { getSessionDir } from './projects.js';
+import { getSessionDir, findChildSlugDirs } from './projects.js';
 import { getConfigDir } from '../config.js';
 import { log } from './logger.js';
 import { loadSummaryCache } from './summaries.js';
@@ -368,6 +368,67 @@ export async function getRecentSessions(
   } catch (err) {
     log('error', { function: 'getRecentSessions', message: String(err) });
     return [];
+  }
+}
+
+// ── Merged sessions (parent + child subfolders) ──────────────
+
+// Separate cache for merged sessions (different key semantics than sessionCache)
+const mergedSessionCache = new Map<string, { sessions: Session[]; fetchedAt: number }>();
+
+/**
+ * Get recent sessions for a project plus all its child subfolders, merged chronologically.
+ * Child sessions are tagged with subfolder and projectPath for display and resume.
+ */
+export async function getRecentSessionsWithChildren(
+  projectPath: string,
+  maxSessions: number = DEFAULTS.maxSessions,
+  excludeChildPaths?: Set<string>,
+): Promise<Session[]> {
+  const cacheKey = projectPath;
+  const cached = mergedSessionCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SESSION_CACHE_TTL) {
+    return cached.sessions.slice(0, maxSessions);
+  }
+
+  try {
+    // Get parent sessions (uses its own 30s cache)
+    const parentSessions = await getRecentSessions(projectPath, maxSessions);
+
+    // Find child slug directories (cap at 8 to bound I/O)
+    const allChildren = findChildSlugDirs(projectPath, excludeChildPaths);
+    const children = allChildren.slice(0, 8);
+    if (children.length === 0) {
+      // No children — cache and return parent sessions as-is
+      mergedSessionCache.set(cacheKey, { sessions: parentSessions, fetchedAt: Date.now() });
+      return parentSessions.slice(0, maxSessions);
+    }
+
+    // Fetch child sessions in parallel, loading only a few per child.
+    // We only need enough to fill the merged list (maxSessions total).
+    const perChild = Math.max(5, Math.ceil(maxSessions / (children.length + 1)));
+    const childResults = await Promise.all(
+      children.map(async (child) => {
+        const sessions = await getRecentSessions(child.childPath, perChild);
+        return sessions.map(s => ({
+          ...s,
+          subfolder: child.relativePath,
+          projectPath: child.childPath,
+        }));
+      }),
+    );
+
+    // Merge all into one array, sort by modified descending, cap at maxSessions
+    const allSessions = [...parentSessions, ...childResults.flat()];
+    allSessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+    const result = allSessions.slice(0, maxSessions);
+
+    mergedSessionCache.set(cacheKey, { sessions: result, fetchedAt: Date.now() });
+    return result;
+  } catch (err) {
+    log('error', { function: 'getRecentSessionsWithChildren', message: String(err) });
+    // Fall back to parent-only sessions
+    return getRecentSessions(projectPath, maxSessions);
   }
 }
 

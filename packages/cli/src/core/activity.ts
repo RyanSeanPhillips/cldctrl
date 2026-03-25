@@ -62,6 +62,8 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
     let firstTimestamp: number | null = null;
     let lastTimestamp: number | null = null;
     let lastWasAssistant = false;
+    const now = Date.now();
+    const hourlyWindowMs = 5 * 60 * 60_000; // 5h — matches ACTIVE_THRESHOLD_MS
 
     const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
     const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -77,7 +79,9 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
           if (!isNaN(ts)) {
             if (firstTimestamp === null) firstTimestamp = ts;
             lastTimestamp = ts;
-            activity.hourlyActivity[new Date(ts).getHours()]++;
+            if (now - ts <= hourlyWindowMs) {
+              activity.hourlyActivity[new Date(ts).getHours()]++;
+            }
           }
         }
 

@@ -126,7 +126,9 @@ function processLine(line: string, state: TailerInternal): void {
     if (!isNaN(ts)) {
       if (state.firstTimestamp === null) state.firstTimestamp = ts;
       state.lastTimestamp = ts;
-      state.activity.hourlyActivity[new Date(ts).getHours()]++;
+      if (Date.now() - ts <= 5 * 60 * 60_000) { // 5h window
+        state.activity.hourlyActivity[new Date(ts).getHours()]++;
+      }
     }
   }
 

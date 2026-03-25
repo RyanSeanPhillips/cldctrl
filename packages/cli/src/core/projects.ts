@@ -268,6 +268,119 @@ function getProjectPathFromSlug(slugDir: string): string | null {
   return result;
 }
 
+// ── Child slug directory discovery ───────────────────────────
+
+/**
+ * Find child session directories (subfolders) for a parent project.
+ * Uses slug prefix as a fast filter, then verifies via path comparison.
+ * Relies on slugToPathCache being warm (populated by discoverProjects).
+ */
+export function findChildSlugDirs(parentPath: string, excludePaths?: Set<string>): Array<{
+  slugDir: string; childPath: string; relativePath: string;
+}> {
+  const claudeDir = getClaudeProjectsDir();
+  if (!fs.existsSync(claudeDir)) return [];
+
+  const parentSlug = getProjectSlug(parentPath);
+  const parentNorm = normalizePathForCompare(parentPath);
+  const sep = path.sep.toLowerCase();
+  const results: Array<{ slugDir: string; childPath: string; relativePath: string }> = [];
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(claudeDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    // Fast filter: slug must start with parentSlug + '-'
+    if (!entry.name.startsWith(parentSlug + '-')) continue;
+    // Skip the parent itself
+    if (entry.name === parentSlug) continue;
+
+    const slugDir = path.join(claudeDir, entry.name);
+    const childPath = getProjectPathFromSlug(slugDir);
+    if (!childPath) continue;
+
+    // Verify child is actually under parent (prevents false positives like CageMetrics-v2)
+    const childNorm = normalizePathForCompare(childPath);
+    if (!childNorm.startsWith(parentNorm + sep)) continue;
+
+    // Skip pinned subfolders
+    if (excludePaths) {
+      const childKey = normalizePathForCompare(childPath);
+      if (excludePaths.has(childKey)) continue;
+    }
+
+    const relativePath = path.relative(parentPath, childPath);
+    results.push({ slugDir, childPath, relativePath });
+  }
+
+  results.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return results;
+}
+
+// ── Name disambiguation ─────────────────────────────────────
+
+/**
+ * When multiple projects share the same display name, append the
+ * distinguishing parent folder so they're visually distinct.
+ * e.g. two "CageMetrics" → "CageMetrics" and "CageMetrics/data"
+ */
+function disambiguateNames(projects: Project[]): void {
+  // Group by lowercase name to find collisions
+  const byName = new Map<string, Project[]>();
+  for (const p of projects) {
+    const key = p.name.toLowerCase();
+    const group = byName.get(key);
+    if (group) group.push(p);
+    else byName.set(key, [p]);
+  }
+
+  for (const group of byName.values()) {
+    if (group.length < 2) continue;
+    // Append the last unique path segment to each duplicate
+    for (const p of group) {
+      const parts = p.path.replace(/\\/g, '/').split('/').filter(Boolean);
+      // Use last 2 segments: "parent/child" (or just folder name if only 1 segment)
+      const suffix = parts.length >= 2
+        ? `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
+        : parts[parts.length - 1] || p.path;
+      p.name = suffix;
+    }
+  }
+}
+
+// ── Nested project filtering ────────────────────────────────
+
+/**
+ * Remove non-pinned projects whose path is a strict subdirectory of another
+ * project in the list.  Mutates the array in place.
+ *
+ * Projects can arrive from three sources (pinned, discovered, indexed) in any
+ * order, so per-source checks miss cross-source nesting (e.g., a discovered
+ * child session dir + an indexed parent repo).  This single final pass handles
+ * all combinations.
+ */
+function filterNestedProjects(projects: Project[]): void {
+  const sep = path.sep.toLowerCase();
+  const allPaths = new Set(projects.map(p => normalizePathForCompare(p.path)));
+
+  for (let i = projects.length - 1; i >= 0; i--) {
+    if (projects[i].pinned) continue; // pinned subfolders stay standalone
+    const key = normalizePathForCompare(projects[i].path);
+    for (const other of allPaths) {
+      if (other !== key && key.startsWith(other + sep)) {
+        projects.splice(i, 1);
+        allPaths.delete(key);
+        break;
+      }
+    }
+  }
+}
+
 // ── List building ───────────────────────────────────────────
 
 /**
@@ -322,18 +435,11 @@ export function buildProjectList(config: Config): Project[] {
   }
 
   // Add indexed projects (from previous filesystem scans) — these may not have Claude sessions yet
-  // Skip entries that are subdirectories of already-seen projects (stale index data)
   const indexed = readProjectIndex();
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
-    // Skip if this path is a child of an already-seen project
-    let isSubdir = false;
-    for (const seen of seenPaths) {
-      if (key.startsWith(seen + path.sep.toLowerCase())) { isSubdir = true; break; }
-    }
-    if (isSubdir) continue;
     seenPaths.add(key);
 
     let displayName: string;
@@ -348,6 +454,14 @@ export function buildProjectList(config: Config): Project[] {
       discovered: true,
     });
   }
+
+  // Final pass: remove non-pinned projects whose path is a subdirectory of another project.
+  // This catches cross-source nesting (e.g., discovered child + indexed parent) regardless
+  // of which source added each project or in what order.
+  filterNestedProjects(projects);
+
+  // Disambiguate duplicate display names by appending parent folder
+  disambiguateNames(projects);
 
   // Persist name cache for fast mini TUI lookups
   try { writeProjectNameCache(nameCache); } catch {}
@@ -409,17 +523,11 @@ export function buildProjectListFast(config: Config): Project[] {
   }
 
   // Add indexed projects (from previous filesystem scans)
-  // Skip entries that are subdirectories of already-seen projects
   const indexed = readProjectIndex();
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
     if (hiddenSet.has(key)) continue;
-    let isSubdir = false;
-    for (const seen of seenPaths) {
-      if (key.startsWith(seen + path.sep.toLowerCase())) { isSubdir = true; break; }
-    }
-    if (isSubdir) continue;
     seenPaths.add(key);
 
     const displayName = nameCache[entry.path] ?? entry.name;
@@ -436,6 +544,12 @@ export function buildProjectListFast(config: Config): Project[] {
       discovered: true,
     });
   }
+
+  // Final pass: remove non-pinned projects whose path is a subdirectory of another project.
+  filterNestedProjects(projects);
+
+  // Disambiguate duplicate display names by appending parent folder
+  disambiguateNames(projects);
 
   if (cacheUpdated) {
     try { writeProjectNameCache(nameCache); } catch {}

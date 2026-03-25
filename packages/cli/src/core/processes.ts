@@ -12,10 +12,11 @@
  * Multiple sessions per project are supported.
  */
 
+import fs from 'node:fs';
 import { getRecentSessionFiles } from './projects.js';
 import { normalizePathForCompare } from './platform.js';
 import { log } from './logger.js';
-import { readSessionMarkers } from './launcher.js';
+import { readSessionMarkers, getMarkerPath } from './launcher.js';
 import { getTrackedSessions, isProcessRunning } from './tracker.js';
 import type { ActiveSession, SessionActivity } from '../types.js';
 
@@ -56,17 +57,54 @@ export async function getActiveClaudeProcesses(
   const coveredPaths = new Set<string>();
 
   // 1. Session markers (cross-platform — files exist while Claude is running)
+  //    Dedup by project path (keep newest marker), auto-clean stale markers.
   try {
-    const markers = readSessionMarkers();
-    for (const m of markers) {
+    const allMarkers = readSessionMarkers();
+
+    // Group markers by normalized project path, keep only the newest per project
+    const markersByProject = new Map<string, typeof allMarkers[0]>();
+    const staleMarkerIds: string[] = [];
+    for (const m of allMarkers) {
       const np = normalizePathForCompare(m.projectPath);
-      coveredPaths.add(np);
+      const existing = markersByProject.get(np);
+      if (existing) {
+        // Keep newer, mark older for cleanup
+        if (m.launchTime > existing.launchTime) {
+          staleMarkerIds.push(existing.launchId);
+          markersByProject.set(np, m);
+        } else {
+          staleMarkerIds.push(m.launchId);
+        }
+      } else {
+        markersByProject.set(np, m);
+      }
+    }
+
+    // Clean up duplicate markers (best-effort, don't block on errors)
+    for (const id of staleMarkerIds) {
+      try { fs.unlinkSync(getMarkerPath(id)); } catch { /* ignore */ }
+    }
+
+    for (const m of markersByProject.values()) {
+      const np = normalizePathForCompare(m.projectPath);
 
       // Find the JSONL file for this session
       const recentFiles = getRecentSessionFiles(m.projectPath, now - m.launchTime + 60_000);
       const sessionFile = recentFiles.find(f => !claimedFiles.has(f.filePath)) ?? recentFiles[0] ?? null;
       const isRecentJsonl = sessionFile && (now - sessionFile.mtimeMs) < IDLE_THRESHOLD_MS;
 
+      // Auto-clean stale markers: marker is old AND JSONL is idle (not actively being written).
+      // A marker >5h old with >5min JSONL silence is almost certainly a dead session whose
+      // cleanup script didn't run (terminal closed, crash, etc.). The session will reappear
+      // via mtime detection if activity resumes.
+      const markerAge = now - m.launchTime;
+      if (markerAge > ACTIVE_THRESHOLD_MS && !isRecentJsonl) {
+        try { fs.unlinkSync(getMarkerPath(m.launchId)); } catch { /* ignore */ }
+        log('info', { function: 'getActiveClaudeProcesses', message: `Cleaned stale marker: ${m.launchId} (${m.projectPath})` });
+        continue; // Don't create a session for a stale marker
+      }
+
+      coveredPaths.add(np);
       if (sessionFile) claimedFiles.add(sessionFile.filePath);
 
       sessions.push({

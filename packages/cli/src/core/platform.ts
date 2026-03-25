@@ -104,6 +104,25 @@ export function isTTY(): boolean {
 }
 
 /**
+ * Copy text to the system clipboard. Cross-platform.
+ */
+export function copyToClipboard(text: string): boolean {
+  try {
+    switch (getPlatform()) {
+      case 'windows':
+        execFileSync('clip', { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
+        return true;
+      case 'macos':
+        execFileSync('pbcopy', { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
+        return true;
+      default:
+        execFileSync('xclip', ['-selection', 'clipboard'], { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
+        return true;
+    }
+  } catch { return false; }
+}
+
+/**
  * Open a path in the system file explorer.
  */
 export function openInExplorer(dirPath: string): boolean {

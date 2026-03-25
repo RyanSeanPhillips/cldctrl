@@ -82,7 +82,7 @@ export const ConversationPane = React.memo(function ConversationPane({
         const tok = formatTokenCount(session.stats.tokens);
 
         return (
-          <Box key={session.projectPath} paddingX={1}>
+          <Box key={session.sessionId || `${session.projectPath}:${i}`} paddingX={1}>
             <Text
               color={isSelected ? INK_COLORS.text : INK_COLORS.textDim}
               backgroundColor={isSelected ? INK_COLORS.highlight : undefined}
