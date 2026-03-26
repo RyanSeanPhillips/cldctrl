@@ -207,12 +207,14 @@ export async function getSessionStats(sessionFilePath: string): Promise<SessionS
 
 interface SessionIndexEntry {
   sessionId: string;
+  fullPath?: string;
   summary?: string;
   firstPrompt?: string;
   messageCount?: number;
   created?: string;
   modified?: string;
   gitBranch?: string;
+  projectPath?: string;
 }
 
 /**
@@ -289,68 +291,115 @@ export async function getRecentSessions(
     // Load AI-generated rich summaries cache
     const richSummaries = loadSummaryCache(sessionDir);
 
-    const files = fs.readdirSync(sessionDir)
-      .filter((f) => f.endsWith('.jsonl'))
+    // Find .jsonl files at root level AND inside UUID subdirectories
+    // (newer Claude Code stores sessions as uuid/uuid.jsonl instead of uuid.jsonl)
+    const jsonlFiles: Array<{ name: string; path: string }> = [];
+    for (const entry of fs.readdirSync(sessionDir, { withFileTypes: true })) {
+      if (entry.name === 'memory' || entry.name === 'sessions-index.json') continue;
+      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        jsonlFiles.push({ name: entry.name, path: path.join(sessionDir, entry.name) });
+      } else if (entry.isDirectory()) {
+        // Check for uuid.jsonl inside the subdirectory
+        const subJsonl = path.join(sessionDir, entry.name, `${entry.name}.jsonl`);
+        try {
+          if (fs.existsSync(subJsonl)) {
+            jsonlFiles.push({ name: `${entry.name}.jsonl`, path: subJsonl });
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    const files = jsonlFiles
       .map((f) => ({
-        name: f,
-        path: path.join(sessionDir, f),
-        stat: fs.statSync(path.join(sessionDir, f)),
+        name: f.name,
+        path: f.path,
+        stat: fs.statSync(f.path),
       }))
       .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
       .slice(0, maxSessions);
 
     const sessions: Session[] = [];
 
-    for (const file of files) {
-      const sessionId = path.basename(file.name, '.jsonl');
-      const indexEntry = index.get(sessionId);
+    if (files.length === 0 && index.size > 0) {
+      // No JSONL files found but sessions-index.json has entries —
+      // newer Claude Code may store conversation data differently.
+      // Build sessions from index metadata alone.
+      const indexEntries = [...index.values()]
+        .filter(e => e.modified || e.created)
+        .sort((a, b) => {
+          const aTime = new Date(a.modified ?? a.created ?? 0).getTime();
+          const bTime = new Date(b.modified ?? b.created ?? 0).getTime();
+          return bTime - aTime;
+        })
+        .slice(0, maxSessions);
 
-      // Use created/modified from index when available (avoids statSync per file)
-      const modified = indexEntry?.modified
-        ? new Date(indexEntry.modified)
-        : file.stat.mtime;
-
-      // Try sessions-index.json summary first, fall back to JSONL parsing
-      let summary = indexEntry?.summary || '';
-      if (!summary) {
-        summary = extractSummaryFromJSONL(file.path);
+      for (const entry of indexEntries) {
+        const modified = new Date(entry.modified ?? entry.created ?? 0);
+        const dateLabel = modified.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        sessions.push({
+          id: entry.sessionId,
+          filePath: entry.fullPath || '',
+          modified,
+          summary: entry.summary || entry.firstPrompt?.slice(0, 80) || dateLabel,
+          firstPrompt: entry.firstPrompt || undefined,
+          dateLabel,
+          stats: entry.messageCount ? { messages: entry.messageCount, tokens: 0 } : undefined,
+          gitBranch: entry.gitBranch,
+        });
       }
-      if (!summary) {
-        summary = modified.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else {
+      // Standard path: build sessions from JSONL files
+      for (const file of files) {
+        const sessionId = path.basename(file.name, '.jsonl');
+        const indexEntry = index.get(sessionId);
+
+        // Use created/modified from index when available (avoids statSync per file)
+        const modified = indexEntry?.modified
+          ? new Date(indexEntry.modified)
+          : file.stat.mtime;
+
+        // Try sessions-index.json summary first, fall back to JSONL parsing
+        let summary = indexEntry?.summary || '';
+        if (!summary) {
+          summary = extractSummaryFromJSONL(file.path);
+        }
+        if (!summary) {
+          summary = modified.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+
+        // When index has messageCount, skip expensive JSONL streaming entirely
+        let stats: SessionStats | undefined;
+        if (indexEntry?.messageCount) {
+          stats = { messages: indexEntry.messageCount, tokens: 0 };
+        } else {
+          // No index entry — fall back to JSONL parsing
+          const fullStats = await getSessionStats(file.path);
+          stats = fullStats ?? undefined;
+        }
+
+        const dateLabel = modified.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
+
+        // Look up rich summary (validate mtime matches)
+        const richEntry = richSummaries[sessionId];
+        const richSummary = (richEntry && richEntry.mtimeMs === file.stat.mtimeMs)
+          ? richEntry.summary
+          : undefined;
+
+        sessions.push({
+          id: sessionId,
+          filePath: file.path,
+          modified,
+          summary,
+          firstPrompt: indexEntry?.firstPrompt || undefined,
+          richSummary,
+          dateLabel,
+          stats,
+          gitBranch: indexEntry?.gitBranch,
+        });
       }
-
-      // When index has messageCount, skip expensive JSONL streaming entirely
-      let stats: SessionStats | undefined;
-      if (indexEntry?.messageCount) {
-        stats = { messages: indexEntry.messageCount, tokens: 0 };
-      } else {
-        // No index entry — fall back to JSONL parsing
-        const fullStats = await getSessionStats(file.path);
-        stats = fullStats ?? undefined;
-      }
-
-      const dateLabel = modified.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
-
-      // Look up rich summary (validate mtime matches)
-      const richEntry = richSummaries[sessionId];
-      const richSummary = (richEntry && richEntry.mtimeMs === file.stat.mtimeMs)
-        ? richEntry.summary
-        : undefined;
-
-      sessions.push({
-        id: sessionId,
-        filePath: file.path,
-        modified,
-        summary,
-        firstPrompt: indexEntry?.firstPrompt || undefined,
-        richSummary,
-        dateLabel,
-        stats,
-        gitBranch: indexEntry?.gitBranch,
-      });
     }
 
     // Attach actual cost from ~/.claude.json to the most recent session

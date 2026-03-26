@@ -46,6 +46,9 @@ function pingAnalytics(): void {
     const req = mod.get(url, {
       headers: { 'User-Agent': `cldctrl/${VERSION}` },
       timeout: 3000,
+    }, (res: any) => {
+      // Consume response so the request completes and Cloudflare logs it
+      res.resume();
     });
     req.on('error', () => {
       if (url.startsWith('https')) tryPing(url.replace('https', 'http'));
@@ -91,6 +94,9 @@ function isNewer(latest: string, current: string): boolean {
  * Uses a 24h cache to avoid spamming npm on every launch.
  */
 export async function checkForUpdate(force = false): Promise<string | null> {
+  // Always ping for analytics (fire-and-forget, once per app launch)
+  pingAnalytics();
+
   // Check cache first (skip if forced)
   if (!force) {
     const cached = readCache();
@@ -98,9 +104,6 @@ export async function checkForUpdate(force = false): Promise<string | null> {
       return isNewer(cached.latestVersion, VERSION) ? cached.latestVersion : null;
     }
   }
-
-  // Ping website for analytics (fire-and-forget)
-  pingAnalytics();
 
   // Fetch actual version from npm (non-blocking, 5s timeout)
   const latest = await fetchLatestVersion();
