@@ -223,7 +223,7 @@ y_max = max(all_max_ctx / 1000 * 1.05, NEW_LIMIT * 1.05)
 # Row 3: Cache miss analysis
 # ══════════════════════════════════════════════════════════════
 fig, axes = plt.subplots(3, 2, figsize=(20, 21))
-fig.suptitle('The 1M Context Window: A Double-Edged Sword\nAnalysis of %d Claude Code conversations' % len(all_sessions),
+fig.suptitle('Claude Code Context Window Analysis\n%d conversations, %s API turns' % (len(all_sessions), f'{len(all_turns):,}'),
              fontsize=20, fontweight='bold', color='white', y=0.98)
 
 # ── Row 1: Context growth curves ──
