@@ -27,6 +27,26 @@ function projectName(projectPath: string): string {
   return parts[parts.length - 1] || projectPath;
 }
 
+// Context size thresholds (tokens)
+const CTX_WARN = 100_000;   // yellow warning
+const CTX_DANGER = 200_000; // red danger
+const CTX_CRITICAL = 500_000; // pulsing red
+
+/** Format context size compactly: 142K, 1.2M */
+function formatContext(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
+  return `${tokens}`;
+}
+
+/** Color for context size */
+function contextColor(tokens: number): string {
+  if (tokens >= CTX_CRITICAL) return INK_COLORS.red;
+  if (tokens >= CTX_DANGER) return INK_COLORS.red;
+  if (tokens >= CTX_WARN) return INK_COLORS.yellow;
+  return INK_COLORS.green;
+}
+
 export const ConversationPane = React.memo(function ConversationPane({
   conversations,
   selectedIndex,
@@ -81,6 +101,12 @@ export const ConversationPane = React.memo(function ConversationPane({
         const dur = formatDuration(Date.now() - session.startTime.getTime());
         const tok = formatTokenCount(session.stats.tokens);
 
+        // Current context size (what was sent to the API on the most recent turn)
+        const ctxSize = session.stats.lastContextSize;
+        const ctxStr = ctxSize > 1000 ? formatContext(ctxSize) : '';
+        const ctxCol = contextColor(ctxSize);
+        const ctxPulse = ctxSize >= CTX_CRITICAL && !pulse; // blink when critical
+
         return (
           <Box key={session.sessionId || `${session.projectPath}:${i}`} paddingX={1}>
             <Text
@@ -93,10 +119,12 @@ export const ConversationPane = React.memo(function ConversationPane({
               <Text color={pulse ? dotColor : INK_COLORS.textDim}>{'●'}</Text>
               {' '}
               <Text color={INK_COLORS.textDim}>
-                {action.slice(0, Math.max(4, innerWidth - nameWidth - tok.length - dur.length - 8))}{' '}
                 {dur}{' '}
               </Text>
               <Text color={INK_COLORS.accent}>{tok}</Text>
+              {ctxStr ? (
+                <Text color={ctxPulse ? INK_COLORS.textDim : ctxCol}>{' '}[{ctxStr}]</Text>
+              ) : null}
             </Text>
           </Box>
         );

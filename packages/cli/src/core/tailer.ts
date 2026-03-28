@@ -113,6 +113,7 @@ function createEmptyActivity(): SessionActivity {
     hourlyActivity: new Array(24).fill(0),
     assistantTurns: 0,
     toolUseTurns: 0,
+    lastContextSize: 0,
   };
 }
 
@@ -190,6 +191,9 @@ function processLine(line: string, state: TailerInternal): void {
       state.activity.tokenBreakdown.cacheRead += cacheR;
       state.activity.tokenBreakdown.cacheWrite += cacheW;
       state.activity.inputPerMessage.push(inp);
+      // Track most recent turn's context size (what was actually sent to the API)
+      const turnContext = cacheR + inp + cacheW;
+      if (turnContext > 0) state.activity.lastContextSize = turnContext;
     }
 
     // Collect assistant text output for round summaries

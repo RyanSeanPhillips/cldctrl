@@ -57,6 +57,7 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
       hourlyActivity: new Array(24).fill(0),
       assistantTurns: 0,
       toolUseTurns: 0,
+      lastContextSize: 0,
     };
 
     let firstTimestamp: number | null = null;
@@ -111,6 +112,8 @@ export async function parseSessionActivity(filePath: string): Promise<SessionAct
             activity.tokenBreakdown.cacheRead += cacheR;
             activity.tokenBreakdown.cacheWrite += cacheW;
             activity.inputPerMessage.push(inp);
+            const turnCtx = cacheR + inp + cacheW;
+            if (turnCtx > 0) activity.lastContextSize = turnCtx;
           }
 
           // Tool use from content array

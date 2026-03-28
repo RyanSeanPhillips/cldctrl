@@ -707,6 +707,7 @@ export function App() {
         scanning={state.scanning}
         leftPaneMode={state.leftSection}
         updateAvailable={updateAvailable}
+        selectedConversation={state.leftSection === 'conversations' ? sortedConversations[state.conversationIndex] ?? null : null}
       />
 
       {/* Matrix glitch Easter egg — rare, brief, subtle */}

@@ -41,6 +41,7 @@ const EMPTY_ACTIVITY: SessionActivity = {
   hourlyActivity: new Array(24).fill(0),
   assistantTurns: 0,
   toolUseTurns: 0,
+  lastContextSize: 0,
 };
 
 // ── Main detection function ──────────────────────────────────

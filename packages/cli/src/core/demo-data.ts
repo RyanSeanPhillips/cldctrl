@@ -284,6 +284,7 @@ const demoActivity: SessionActivity = {
   duration: 1_800_000,
   assistantTurns: 38,    // ~3.2 turns per user message
   toolUseTurns: 28,      // ~74% of turns use tools
+  lastContextSize: 142_000,  // 142K context
   hourlyActivity: (() => {
     // Populate around the current hour so timeline shows data
     const h = new Array(24).fill(0);
@@ -483,6 +484,7 @@ export const DEMO_SESSION_ACTIVITY: SessionActivity = {
   duration: 5_400_000, // 1.5 hours
   assistantTurns: 156,   // ~3.3 turns per user message
   toolUseTurns: 112,     // ~72% of turns use tools
+  lastContextSize: 387_000,  // 387K context — deep into session
   hourlyActivity: [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 8, 12, 6, 4, 8, 5, 2, 0, 0, 0, 0, 0, 0, 0],
 };
 

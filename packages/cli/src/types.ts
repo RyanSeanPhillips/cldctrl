@@ -146,6 +146,7 @@ export interface SessionActivity {
   hourlyActivity: number[];  // 24 elements, hourly message counts
   assistantTurns: number;    // total assistant API responses (each is an API round-trip)
   toolUseTurns: number;      // assistant turns that contained at least one tool_use block
+  lastContextSize: number;   // most recent turn's context size (cache_read + input + cache_write)
 }
 
 // ── Git commits ────────────────────────────────────────────

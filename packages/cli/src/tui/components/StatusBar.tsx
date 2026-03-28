@@ -19,9 +19,10 @@ interface StatusBarProps {
   scanning?: boolean;
   leftPaneMode?: string;
   updateAvailable?: string | null;
+  selectedConversation?: { stats: { lastContextSize: number } } | null;
 }
 
-export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, scanning, leftPaneMode, updateAvailable }: StatusBarProps) {
+export const StatusBar = React.memo(function StatusBar({ mode, stats, width, focusPane, launchMsg, usageBudget, scanning, leftPaneMode, updateAvailable, selectedConversation }: StatusBarProps) {
   // Animated counters — count up smoothly when stats change
   const animatedTokens = useAnimatedCounter(stats?.tokens ?? 0, 1500);
   const animatedMessages = useAnimatedCounter(stats?.messages ?? 0, 800);
@@ -55,6 +56,16 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
             : [['j/k', 'nav'], ['/', 'filter'], ['Tab', 'details'], ['l', 'live'], ['S', 'scan'], ['H', 'hidden'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
   const hintsText = hintPairs.map(([k, l]) => `${k}:${l}`).join('  ');
 
+  // Context size for selected conversation
+  let ctxInfo = '';
+  if (leftPaneMode === 'conversations' && selectedConversation) {
+    const ctxSize = selectedConversation.stats.lastContextSize;
+    if (ctxSize > 1000) {
+      const ctxStr = ctxSize >= 1_000_000 ? `${(ctxSize / 1_000_000).toFixed(1)}M` : `${Math.round(ctxSize / 1_000)}K`;
+      ctxInfo = `ctx:${ctxStr}`;
+    }
+  }
+
   // Compact right-side: [Tier] X% or basic stats (full bars live in ProjectPane)
   const hasLiveData = usageBudget?.rateLimits != null;
   const hasBudget = usageBudget && usageBudget.limit > 0;
@@ -77,6 +88,11 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
     if (usageBudget.tierLabel) tierPrefix = `[${usageBudget.tierLabel}] `;
   } else if (stats) {
     rightSide = `${animatedMessages} msgs · ${formatTokenCount(animatedTokens)} tok`;
+  }
+
+  // Append context size when viewing conversations
+  if (ctxInfo) {
+    rightSide = rightSide ? `${ctxInfo} · ${rightSide}` : ctxInfo;
   }
 
   // Truncate hints if they'd overlap with rightSide
