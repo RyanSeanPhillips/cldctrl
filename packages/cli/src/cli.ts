@@ -542,6 +542,32 @@ export function createCli(): Command {
       console.log(`${CHARS.check} Done.`);
     });
 
+  // ── mcp ────────────────────────────────────────────────
+
+  const mcpCmd = program
+    .command('mcp')
+    .description('Model Context Protocol server management');
+
+  mcpCmd
+    .command('install')
+    .description('Register cldctrl MCP server with Claude Code')
+    .action(async () => {
+      const { installMcpServer } = await import('./core/mcp-install.js');
+      const result = installMcpServer();
+      console.log(result.message);
+      process.exit(result.success ? 0 : 1);
+    });
+
+  mcpCmd
+    .command('uninstall')
+    .description('Remove cldctrl MCP server from Claude Code')
+    .action(async () => {
+      const { uninstallMcpServer } = await import('./core/mcp-install.js');
+      const result = uninstallMcpServer();
+      console.log(result.message);
+      process.exit(result.success ? 0 : 1);
+    });
+
   // ── setup ───────────────────────────────────────────────
 
   program
