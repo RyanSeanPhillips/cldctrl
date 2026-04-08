@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { log } from './logger.js';
 
 interface McpResult {
@@ -23,12 +24,22 @@ function getClaudeConfigPath(): string {
 }
 
 /**
- * Resolve the cldctrl-mcp command for the MCP config.
- * If installed globally via npm, the bin should be on PATH.
+ * Resolve the MCP server command and args.
+ * Uses node + absolute path to the bin script so it works regardless of
+ * whether cldctrl is installed globally, locally, or run from source.
  */
-function resolveMcpCommand(): string {
-  // Use npx as a reliable fallback that works whether installed globally or locally
-  return 'cldctrl-mcp';
+function resolveMcpServerEntry(): { command: string; args: string[] } {
+  // Find the bin script relative to this module's location
+  // In built form: dist/mcp-install-XXXX.js → bin/cldctrl-mcp.js
+  const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  const scriptPath = path.resolve(thisDir, '..', 'bin', 'cldctrl-mcp.js');
+  if (fs.existsSync(scriptPath)) {
+    return { command: 'node', args: [scriptPath] };
+  }
+
+  // Fallback: try to find via the global npm bin
+  // This handles the case where the package is installed globally
+  return { command: 'cldctrl-mcp', args: [] };
 }
 
 /**
@@ -48,9 +59,10 @@ export function installMcpServer(): McpResult {
 
     // Merge mcpServers — preserve existing servers
     const mcpServers = (config.mcpServers as Record<string, unknown>) || {};
+    const entry = resolveMcpServerEntry();
     mcpServers.cldctrl = {
-      command: resolveMcpCommand(),
-      args: [],
+      command: entry.command,
+      args: entry.args,
     };
     config.mcpServers = mcpServers;
 
