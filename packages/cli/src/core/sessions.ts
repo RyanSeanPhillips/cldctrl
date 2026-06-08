@@ -481,6 +481,47 @@ export async function getRecentSessionsWithChildren(
   }
 }
 
+// ── Cross-project recent sessions ───────────────────────────
+
+const crossProjectCache: { sessions: Session[]; fetchedAt: number } = { sessions: [], fetchedAt: 0 };
+
+/**
+ * Aggregate the most recent sessions across ALL given projects, newest first.
+ * Each returned session carries its owning `projectPath` so it can be resumed
+ * directly (launchClaude({ projectPath, sessionId })). Reuses each project's
+ * 30s session cache and bounds I/O with a small per-project limit + concurrency.
+ */
+export async function getRecentSessionsAcrossProjects(
+  projects: Array<{ path: string }>,
+  globalLimit = 100,
+  perProjectLimit = 8,
+): Promise<Session[]> {
+  if (crossProjectCache.sessions.length > 0 && Date.now() - crossProjectCache.fetchedAt < SESSION_CACHE_TTL) {
+    return crossProjectCache.sessions.slice(0, globalLimit);
+  }
+
+  const { default: pLimit } = await import('p-limit');
+  const limit = pLimit(DEFAULTS.concurrencyLimit);
+  const results = await Promise.all(
+    projects.map((p) => limit(async () => {
+      try {
+        const sessions = await getRecentSessions(p.path, perProjectLimit);
+        // Tag each with its owning project so resume + display have a path.
+        return sessions.map((s) => ({ ...s, projectPath: s.projectPath ?? p.path }));
+      } catch {
+        return [] as Session[];
+      }
+    })),
+  );
+
+  const all = results.flat();
+  all.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+  const result = all.slice(0, globalLimit);
+  crossProjectCache.sessions = result;
+  crossProjectCache.fetchedAt = Date.now();
+  return result;
+}
+
 // ── Session preview (first N user messages) ─────────────────
 
 // ── Rolling usage stats (5-hour window) ─────────────────────

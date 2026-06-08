@@ -137,7 +137,10 @@ export function readClaudeStatsCache(): ClaudeStatsCache | null {
     if (!fs.existsSync(cachePath)) return null;
 
     const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-    if (!raw || raw.version !== 2) return null;
+    // Claude Code bumped this file to v3 (added dailyActivity/hourCounts/etc.);
+    // the fields we read (dailyModelTokens, modelUsage) are unchanged, so accept
+    // both. Anything older/newer-unknown is ignored to avoid misreading.
+    if (!raw || (raw.version !== 2 && raw.version !== 3)) return null;
 
     return {
       lastComputedDate: raw.lastComputedDate ?? '',
@@ -315,8 +318,11 @@ export async function probeRateLimits(): Promise<RateLimitInfo | null> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': token,
+        // OAuth (subscription) tokens must use Bearer auth + the oauth beta
+        // header. The older `x-api-key: <oauth token>` scheme now returns 401.
+        'Authorization': `Bearer ${token}`,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'oauth-2025-04-20',
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
