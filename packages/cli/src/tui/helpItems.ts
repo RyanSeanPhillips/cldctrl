@@ -27,6 +27,7 @@ export const SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
   ['o            ', 'Open in file explorer'],
   ['f            ', 'Files tab (detail pane)'],
   ['l            ', 'Jump to live conversations'],
+  ['R            ', 'Recent conversations (all projects)'],
   ['a            ', 'Add project'],
   ['Tab          ', 'Focus details pane'],
   ['Esc          ', 'Back / exit pane'],

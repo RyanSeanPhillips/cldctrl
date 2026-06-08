@@ -37,6 +37,8 @@ interface UseKeyboardOptions {
   conversationCount?: number;
   /** Callback when Enter is pressed on a conversation (focus its window) */
   onFocusConversation?: () => void;
+  /** Filtered+sorted recent conversations (for the `R` recent view) */
+  recentConversations?: Session[];
 }
 
 export function useKeyboard(opts: UseKeyboardOptions): void {
@@ -267,6 +269,53 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
+    // ── Recent conversations view ────────────────────────
+    if (state.mode === 'recent') {
+      const recent = opts.recentConversations ?? [];
+      const maxRecent = Math.max(0, recent.length - 1);
+      if (key.escape) {
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: 'RECENT_NAVIGATE', delta: 1, maxIndex: maxRecent });
+        return;
+      }
+      if (key.upArrow) {
+        dispatch({ type: 'RECENT_NAVIGATE', delta: -1, maxIndex: maxRecent });
+        return;
+      }
+      if (key.tab) {
+        dispatch({ type: 'TOGGLE_RECENT_COMPACT' });
+        return;
+      }
+      if (key.return) {
+        const session = recent[state.recentIndex];
+        if (session?.projectPath) {
+          onLaunchFeedback?.(`Resuming: ${(session.summary || session.firstPrompt || '').slice(0, 30)}...`);
+          const resumeResult = launchClaude({
+            projectPath: session.projectPath,
+            sessionId: session.id,
+          });
+          if (resumeResult.success && resumeResult.pid) {
+            trackSession(resumeResult.pid, session.projectPath);
+          }
+        }
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.backspace || key.delete) {
+        dispatch({ type: 'SET_RECENT_FILTER', text: state.recentFilter.slice(0, -1) });
+        return;
+      }
+      // Type-to-filter (printable characters)
+      if (input && !key.ctrl && !key.meta) {
+        dispatch({ type: 'SET_RECENT_FILTER', text: state.recentFilter + input });
+        return;
+      }
+      return;
+    }
+
     // ── Normal mode ──────────────────────────────────────
 
     // ── Easter egg game triggers ──────────────────────
@@ -320,6 +369,12 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
     // Settings
     if (input === ',') {
       dispatch({ type: 'SET_MODE', mode: 'settings' });
+      return;
+    }
+
+    // Recent conversations across all projects
+    if (input === 'R') {
+      dispatch({ type: 'SET_MODE', mode: 'recent' });
       return;
     }
 

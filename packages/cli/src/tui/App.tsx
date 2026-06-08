@@ -24,7 +24,7 @@ import {
 } from './hooks/useBackgroundData.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import { useFileTree } from './hooks/useFileTree.js';
-import { getRecentSessionsWithChildren } from '../core/sessions.js';
+import { getRecentSessionsWithChildren, getRecentSessionsAcrossProjects } from '../core/sessions.js';
 import { buildProjectList, extractProjectName, getProjectSlug } from '../core/projects.js';
 import { normalizePathForCompare } from '../core/platform.js';
 import { scanForProjects, mergeScannedProjects } from '../core/scanner.js';
@@ -40,6 +40,7 @@ import { StatusBar } from './components/StatusBar.js';
 import { Welcome } from './components/Welcome.js';
 import { HelpOverlay } from './components/HelpOverlay.js';
 import { SettingsPane } from './components/SettingsPane.js';
+import { RecentConversations } from './components/RecentConversations.js';
 import { MatrixGlitch, useMatrixGlitch } from './components/MatrixGlitch.js';
 import { useClock, usePulse } from './hooks/useAnimations.js';
 
@@ -493,6 +494,57 @@ export function App() {
     });
   }, [allSessions, enrichedProcesses, settledProject]);
 
+  // ── Recent conversations across all projects (`R` view) ──
+  // Fetched lazily when the view opens; the previous list stays visible while
+  // a refresh runs. getRecentSessionsAcrossProjects has its own short TTL cache.
+  const [recentConvs, setRecentConvs] = useState<Session[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  useEffect(() => {
+    if (state.mode !== 'recent') return;
+    if (isDemoMode()) {
+      const demo = state.projects
+        .flatMap(p => demoSessions(p.path).map(s => ({ ...s, projectPath: s.projectPath ?? p.path })));
+      demo.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+      setRecentConvs(demo.slice(0, 100));
+      return;
+    }
+    let cancelled = false;
+    setRecentLoading(true);
+    getRecentSessionsAcrossProjects(state.projects, 100, 8)
+      .then(list => { if (!cancelled) { setRecentConvs(list); setRecentLoading(false); } })
+      .catch(() => { if (!cancelled) setRecentLoading(false); });
+    return () => { cancelled = true; };
+  }, [state.mode, state.projects]);
+
+  // Friendly project name keyed by raw path (aggregation tags sessions with project.path)
+  const recentNameByPath = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of state.projects) m.set(p.path, p.name);
+    return m;
+  }, [state.projects]);
+
+  // sessionIds with a live process — marked with a dot in the recent view
+  const recentActiveIds = useMemo(
+    () => new Set(sortedConversations.map(c => c.sessionId)),
+    [sortedConversations],
+  );
+
+  // Apply the type-to-filter query across summary / first prompt / project name
+  const filteredRecent = useMemo(() => {
+    const q = state.recentFilter.trim().toLowerCase();
+    if (!q) return recentConvs;
+    return recentConvs.filter(s => {
+      const name = recentNameByPath.get(s.projectPath ?? '') ?? '';
+      return (
+        (s.richSummary ?? '').toLowerCase().includes(q) ||
+        (s.summary ?? '').toLowerCase().includes(q) ||
+        (s.firstPrompt ?? '').toLowerCase().includes(q) ||
+        name.toLowerCase().includes(q) ||
+        (s.projectPath ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [recentConvs, state.recentFilter, recentNameByPath]);
+
   // Live tasks/todos for expanded conversation
   const expandedSession = state.expandedConversation
     ? sortedConversations[state.conversationIndex]
@@ -544,6 +596,7 @@ export function App() {
     },
     conversationCount: sortedConversations.length,
     onFocusConversation: onFocusConversation,
+    recentConversations: filteredRecent,
   });
 
   // ── Minimum terminal size guard ──────────────────────────
@@ -596,6 +649,25 @@ export function App() {
     return (
       <Box flexDirection="column" width={dims.cols} height={dims.rows}>
         <HelpOverlay width={dims.cols} height={dims.rows} helpIndex={state.helpIndex} skillsData={skillsData} commandUsage={commandUsage} />
+      </Box>
+    );
+  }
+
+  // ── Recent conversations (across all projects) ──────────
+  if (state.mode === 'recent') {
+    return (
+      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+        <RecentConversations
+          conversations={filteredRecent}
+          selectedIndex={state.recentIndex}
+          width={dims.cols}
+          height={dims.rows}
+          filterText={state.recentFilter}
+          compact={state.recentCompact}
+          loading={recentLoading}
+          activeIds={recentActiveIds}
+          nameByPath={recentNameByPath}
+        />
       </Box>
     );
   }

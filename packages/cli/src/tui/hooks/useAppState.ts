@@ -49,7 +49,10 @@ type Action =
   | { type: 'SETTINGS_TAB'; tab: 'general' | 'permissions' }
   | { type: 'PERMISSIONS_NAVIGATE'; delta: number; maxIndex: number }
   | { type: 'TOGGLE_SHOW_HIDDEN' }
-  | { type: 'UNHIDE_PATHS'; paths: string[] };
+  | { type: 'UNHIDE_PATHS'; paths: string[] }
+  | { type: 'RECENT_NAVIGATE'; delta: number; maxIndex: number }
+  | { type: 'SET_RECENT_FILTER'; text: string }
+  | { type: 'TOGGLE_RECENT_COMPACT' };
 
 // Track pending config saves (side-effect-free reducer)
 let pendingConfigSave: Config | null = null;
@@ -115,6 +118,9 @@ function reducer(state: AppState, action: Action): AppState {
         settingsIndex: action.mode === 'settings' ? 0 : state.settingsIndex,
         settingsTab: action.mode === 'settings' ? 'general' : state.settingsTab,
         permissionsIndex: action.mode === 'settings' ? 0 : state.permissionsIndex,
+        // Reset recent-view selection and filter when entering the view
+        recentIndex: action.mode === 'recent' ? 0 : state.recentIndex,
+        recentFilter: action.mode === 'recent' ? '' : state.recentFilter,
       };
 
     case 'SET_GAME':
@@ -256,6 +262,20 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, permissionsIndex: newIdx };
     }
 
+    case 'RECENT_NAVIGATE': {
+      const newIdx = Math.max(0, Math.min(action.maxIndex, state.recentIndex + action.delta));
+      if (newIdx === state.recentIndex) return state;
+      return { ...state, recentIndex: newIdx };
+    }
+
+    case 'SET_RECENT_FILTER':
+      if (state.recentFilter === action.text) return state;
+      // Reset selection to top whenever the filter changes
+      return { ...state, recentFilter: action.text, recentIndex: 0 };
+
+    case 'TOGGLE_RECENT_COMPACT':
+      return { ...state, recentCompact: !state.recentCompact };
+
     default: {
       const _exhaustive: never = action;
       return state;
@@ -313,6 +333,9 @@ function initState(): AppState {
       conversationIndex: 0,
       expandedConversation: false,
       showHidden: false,
+      recentIndex: 0,
+      recentFilter: '',
+      recentCompact: false,
     });
   }
   const { config, isNew } = loadConfig();
@@ -340,6 +363,9 @@ function initState(): AppState {
     conversationIndex: 0,
     expandedConversation: false,
     showHidden: false,
+    recentIndex: 0,
+    recentFilter: '',
+    recentCompact: false,
   });
 }
 
