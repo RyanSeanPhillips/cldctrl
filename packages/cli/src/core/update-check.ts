@@ -38,24 +38,31 @@ function writeCache(latestVersion: string): void {
   } catch { /* ignore */ }
 }
 
-/** Ping cld-ctrl.com for analytics (fire-and-forget, Cloudflare tracks the request) */
+/**
+ * Cookieless, region-level launch analytics — one fire-and-forget ping per run
+ * to the usage Worker. The Worker derives city/country + a daily anonymized
+ * visitor hash from the request edge-side (raw IP never stored) and tags this
+ * as the cldctrl CLI. Replaces the old cld-ctrl.com/version.json request-count
+ * trick, which was limited to ~8 days of Cloudflare free-plan retention, had no
+ * unique-user signal, and was polluted by scanners hitting the public path.
+ */
 function pingAnalytics(): void {
-  // Try HTTPS first, fall back to HTTP if SSL cert isn't configured yet
-  const tryPing = (url: string) => {
-    const mod = url.startsWith('https') ? https : require('http');
-    const req = mod.get(url, {
-      headers: { 'User-Agent': `cldctrl/${VERSION}` },
+  try {
+    const body = JSON.stringify({ h: 'cli', p: '/launch', s: 'cli', prod: 'cldctrl', l: VERSION });
+    const req = https.request('https://ryansphillips.com/px/collect', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': `cldctrl/${VERSION}`,
+        'Content-Length': Buffer.byteLength(body),
+      },
       timeout: 3000,
-    }, (res: any) => {
-      // Consume response so the request completes and Cloudflare logs it
-      res.resume();
-    });
-    req.on('error', () => {
-      if (url.startsWith('https')) tryPing(url.replace('https', 'http'));
-    });
+    }, res => { res.resume(); });
+    req.on('error', () => { /* fail silently */ });
     req.on('timeout', () => req.destroy());
-  };
-  tryPing('https://cld-ctrl.com/version.json');
+    req.write(body);
+    req.end();
+  } catch { /* fail silently */ }
 }
 
 /** Fetch actual latest version from npm registry (source of truth) */
