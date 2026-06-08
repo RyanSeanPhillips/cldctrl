@@ -6,3 +6,6 @@ node_modules/
 .codeindex.db*
 tsup.config.bundled_*
 .claude/
+
+# local npm account secrets
+docs/npmstuff/

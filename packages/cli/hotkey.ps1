@@ -35,6 +35,19 @@ public class HotkeyWindow : NativeWindow {
     public void Destroy() { DestroyHandle(); }
 }
 
+// Public, documented Shell interface for querying virtual desktop membership.
+[ComImport]
+[Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IVirtualDesktopManager {
+    [PreserveSig]
+    int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, out int onCurrentDesktop);
+    [PreserveSig]
+    int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
+    [PreserveSig]
+    int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
+}
+
 public class WinHelper {
     public const int SW_RESTORE = 9;
     public const int SW_SHOW = 5;
@@ -56,19 +69,42 @@ public class WinHelper {
     [DllImport("user32.dll")]
     public static extern bool IsIconic(IntPtr hWnd);
 
-    // Find a window by title substring (checks all windows including minimized)
-    public static IntPtr FindByTitle(string titlePart) {
+    private static readonly Guid CLSID_VirtualDesktopManager =
+        new Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a");
+
+    private static IVirtualDesktopManager GetVdm() {
+        try {
+            Type t = Type.GetTypeFromCLSID(CLSID_VirtualDesktopManager);
+            return (IVirtualDesktopManager)Activator.CreateInstance(t);
+        } catch {
+            return null; // COM unavailable — caller falls back to any-desktop match
+        }
+    }
+
+    // Find a window titled `titlePart` ON THE CURRENT virtual desktop. If the
+    // virtual desktop API is unavailable, falls back to the first title match
+    // anywhere (preserving the original single-instance focus behavior).
+    public static IntPtr FindOnCurrentDesktop(string titlePart) {
+        IVirtualDesktopManager vdm = GetVdm();
         IntPtr found = IntPtr.Zero;
         EnumWindows((hWnd, lParam) => {
             int len = GetWindowTextLength(hWnd);
             if (len == 0) return true;
             var sb = new StringBuilder(len + 1);
             GetWindowText(hWnd, sb, sb.Capacity);
-            if (sb.ToString().IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) >= 0) {
+            if (sb.ToString().IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) < 0)
+                return true;
+
+            if (vdm == null) {
+                found = hWnd; // no VDM → behave like the old any-desktop find
+                return false;
+            }
+            int onCurrent;
+            if (vdm.IsWindowOnCurrentVirtualDesktop(hWnd, out onCurrent) == 0 && onCurrent != 0) {
                 found = hWnd;
                 return false;
             }
-            return true;
+            return true; // title matches but on another desktop — keep looking
         }, IntPtr.Zero);
         return found;
     }
@@ -106,14 +142,14 @@ if (-not $registered) {
 $wnd.add_HotkeyPressed({
     $ErrorActionPreference = "Continue"
     try {
-        # Look for an existing CLD CTRL window
-        $hwnd = [WinHelper]::FindByTitle("CLD CTRL")
+        # Look for an existing CLD CTRL window on the CURRENT virtual desktop
+        $hwnd = [WinHelper]::FindOnCurrentDesktop("CLD CTRL")
 
         if ($hwnd -ne [IntPtr]::Zero) {
-            # Found it — bring to front
+            # Found one on this desktop — bring it to front
             [WinHelper]::BringToFront($hwnd)
         } else {
-            # No existing window — launch a new one
+            # None on this desktop — launch a new one (lands on current desktop)
             $useWt = Get-Command wt -ErrorAction SilentlyContinue
             if ($useWt) {
                 Start-Process wt -ArgumentList "new-tab --title `"CLD CTRL`" cmd /k cc" -WindowStyle Normal

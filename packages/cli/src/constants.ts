@@ -2,7 +2,7 @@
  * Shared constants: version, color palettes, unicode characters, defaults.
  */
 
-export const VERSION = '0.3.4';
+export const VERSION = '0.3.5';
 export const APP_NAME = 'CLD CTRL';
 export const APP_CMD = 'cldctrl';
 export const APP_TAGLINE = 'Mission control for Claude Code';
@@ -137,6 +137,17 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return mins > 0 ? `${hours}h${mins}m` : `${hours}h`;
+}
+
+/** Compact relative timestamp: "just now", "5m ago", "3h ago", "2d ago". */
+export function formatTimeAgo(date: Date): string {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 // ── Defaults ────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "name": "cldctrl",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Mission control for Claude Code — cross-platform TUI project launcher",
   "license": "AGPL-3.0-only",
   "author": "Ryan Phillips",
@@ -35,6 +35,7 @@
     "dist",
     "bin",
     "hotkey.ps1",
+    "desktop-probe.ps1",
     "LICENSE"
   ],
   "main": "./dist/index.js",

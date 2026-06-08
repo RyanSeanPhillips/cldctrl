@@ -261,7 +261,7 @@ export interface DaemonCache {
 // ── Navigation ──────────────────────────────────────────────
 
 export type FocusPane = 'projects' | 'details';
-export type AppMode = 'normal' | 'filter' | 'help' | 'settings' | 'welcome' | 'prompt' | 'game';
+export type AppMode = 'normal' | 'filter' | 'help' | 'settings' | 'welcome' | 'prompt' | 'game' | 'recent';
 export type LeftSection = 'projects' | 'conversations';
 
 export interface AppState {
@@ -285,4 +285,7 @@ export interface AppState {
   conversationIndex: number;  // selected conversation in conversations section
   expandedConversation: boolean;  // true = show single conversation detail in right pane
   showHidden: boolean;  // true = include hidden projects in the project list
+  recentIndex: number;  // selected row in the recent-conversations view
+  recentFilter: string;  // type-to-filter query in the recent-conversations view
+  recentCompact: boolean;  // true = compact rows (no rich summary) in recent view
 }

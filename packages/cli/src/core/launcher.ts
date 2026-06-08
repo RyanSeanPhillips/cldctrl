@@ -130,13 +130,15 @@ function buildClaudeArgs(opts: {
 /**
  * Escape a string for safe use as a batch file argument.
  * Wraps in double quotes. Inside quotes, batch still interprets
- * %, !, and " — so we escape those specifically.
+ * % and " — so we escape those specifically.
+ * Note: ! only needs escaping with delayed expansion enabled, which
+ * our scripts don't use. Escaping it without delayed expansion
+ * produces literal ^! garbage in the output.
  */
 function escapeBatArg(arg: string): string {
   const escaped = arg
     .replace(/%/g, '%%')   // percent must be doubled (caret doesn't work)
-    .replace(/"/g, '""')   // double quotes doubled inside quoted string
-    .replace(/!/g, '^^!'); // exclamation (delayed expansion) needs ^^
+    .replace(/"/g, '""');  // double quotes doubled inside quoted string
   return `"${escaped}"`;
 }
 
@@ -163,7 +165,6 @@ function writeTempScript(projectPath: string, claudeArgs: string[]): { scriptPat
     return { scriptPath, launchId };
   } else {
     const scriptPath = path.join(tmpDir, `cldctrl-launch-${launchId}.sh`);
-    const markerEscaped = markerPath.replace(/'/g, "'\\''");
     const lines = [
       '#!/bin/sh',
       // Trap ensures cleanup even on signals (but not SIGKILL)

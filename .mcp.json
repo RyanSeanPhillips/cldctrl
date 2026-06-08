@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codeindex": {
+      "command": "C:\\Users\\rphil2\\AppData\\Local\\miniforge3\\envs\\plethapp\\python.exe",
+      "args": ["-u", "-m", "codeindex", "serve", "--project", "."],
+      "cwd": "C:\\Users\\rphil2\\Dropbox\\cldctrl",
+      "env": {
+        "PYTHONPATH": "C:\\Users\\rphil2\\Dropbox\\python scripts\\codeindex\\src"
+      }
+    }
+  }
+}

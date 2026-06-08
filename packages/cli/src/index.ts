@@ -7,8 +7,6 @@
  * - Alias shortcuts: `cc <alias> [-n] [-c] [prompt...]`
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { isTTY } from './core/platform.js';
 import { pruneClosedSessions } from './core/tracker.js';
 
@@ -123,33 +121,14 @@ async function main(): Promise<void> {
   // If no subcommand provided
   if (args.length === 0 || (args.length === 1 && (args[0] === '--verbose' || args[0] === '--quiet'))) {
     if (isTTY()) {
-      // Single-instance guard: prevent multiple TUI instances
-      const { getConfigDir } = await import('./config.js');
-      const pidPath = path.join(getConfigDir(), 'tui.pid');
-      try {
-        const existingPid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
-        if (existingPid && existingPid !== process.pid) {
-          try {
-            process.kill(existingPid, 0); // signal 0 = check if alive
-            console.log('CLD CTRL is already running. Press Ctrl+Up to focus it, or close the other instance first.');
-            process.exit(0);
-          } catch (e: any) {
-            if (e.code === 'EPERM') {
-              // Process exists but no permission — still running
-              console.log('CLD CTRL is already running.');
-              process.exit(0);
-            }
-            // ESRCH = process doesn't exist — stale PID file, continue
-          }
-        }
-      } catch { /* no PID file — first instance */ }
-      // Write our PID
-      try {
-        fs.mkdirSync(path.dirname(pidPath), { recursive: true });
-        fs.writeFileSync(pidPath, process.pid.toString());
-      } catch { /* ignore */ }
-      const cleanupPid = () => { try { fs.unlinkSync(pidPath); } catch { /* ignore */ } };
-      process.on('exit', cleanupPid);
+      // Single-instance guard: one TUI per virtual desktop (Windows), else one
+      // globally. Records our PID and registers exit cleanup when cleared.
+      const { acquireInstanceLock } = await import('./core/instance-guard.js');
+      const decision = acquireInstanceLock();
+      if (!decision.ok) {
+        console.log(decision.message);
+        process.exit(0);
+      }
 
       // Launch interactive TUI
       try {

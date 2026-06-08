@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CLD CTRL Screenshot</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background: #06080d;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  .terminal {
+    background: #06080d;
+    color: #cccccc;
+    font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+    line-height: 1.3;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    white-space: pre;
+    overflow: hidden;
+  }
+  /* Fake window chrome */
+  .window {
+    background: #1a1d23;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  }
+  .titlebar {
+    background: #2a2d33;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green { background: #28c840; }
+  .titlebar-text {
+    color: #808080;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="titlebar-text">CLD CTRL</span>
+  </div>
+  <div class="terminal"> ▄▀▄▀▄  CLD CTRL                                                ● 3 live · 1 idle  11:15:33  v0.1.0
+┌──────────────────────────────────────┐┌──────────────────────────────────────────────────────────┐
+│ Projects                             ││ CLD CTRL *                                               │
+│ ── 3 live · 1 idle ───────────────── ││ Tokens                Commits                            │
+│   · cldctrl        MiniApp.tsx   35k ││       M T W T F S S         M T W T F S S                │
+│   ✻ ml-pipeline    Bash python tr 4k ││ 2/25      ██████████  2/25      ██████████               │
+│   ✽ acme-api       tokens.ts     18k ││ 3/02  ██████████████  3/02  ██████████████               │
+│   ○ react-dashboar 3h           145k ││ 3/09  ██████████████  3/09  ██████████████               │
+│ ──────────────────────────────────── ││ 3/16  ██████████████  3/16  ██████████████               │
+│ › ● CLD CTRL                main ⚠3  ││ 3/23  ████            3/23  ████                         │
+│   ● Acme API                feat ⚠2  ││ main ●3 ↑1 | 3 open issues                               │
+│   ○ React Dashboard         deve ⚠1  ││ · Writing src/tui/MiniApp.tsx 32m 35k                    │
+│ ↓ 4 below                            ││                                                          │
+│ ─── Commands ─────────────────────── ││ [n] New session  [c] Continue last                       │
+│  //commit      Create a git co 42x   ││                                                          │
+│  //review-pr   Review a pull r 18x   ││ sessions (5)  commits (5)  issues (3)  files             │
+│  //simplify    Review changed  15x   ││ ════════════                                             │
+│  +3 more                             ││   ● 1h ago  "Add mini TUI popup with..."     7k ~$0.04   │
+│  ?  full list                        ││  ↓ 4 more below                                          │
+│                                      ││                                                          │
+└──────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+ j/k:nav  /:filter  Tab:details  l:live  S:scan  H:hidden           [Max 5x] 5h:30%  7d:12% · EXTRA
+
+
+</div>
+</div>
+</body>
+</html>

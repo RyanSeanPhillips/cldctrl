@@ -104,6 +104,7 @@ src/
     │   ├── MiniActionMenu.tsx      Mini TUI action menu
     │   ├── MiniProjectList.tsx     Mini TUI project list
     │   ├── ProgressBar.tsx         Budget progress bar
+    │   ├── RecentConversations.tsx Full-screen `R` view: recent sessions across all projects (searchable, resume)
     │   ├── ProjectPane.tsx         Left pane: project list + git badges + calendar
     │   ├── PromptBar.tsx           New session prompt input
     │   ├── SettingsPane.tsx        Settings editor (`,` key)
@@ -260,6 +261,26 @@ Hidden projects with active sessions are auto-unhidden: `useActiveProcesses` rec
 
 
 Windows paths are case-insensitive. Use `normalizePathForCompare()` from `platform.ts` for path comparisons. The daemon cache uses raw paths as keys.
+
+### 10. Single-instance guard is per-virtual-desktop (Windows)
+
+The TUI allows **one instance per Windows virtual desktop** (one globally on other
+platforms). Two cooperating mechanisms, both keyed on the `"CLD CTRL"` window title
+(`process.title`, set at `index.ts:16`) — title matching survives Windows Terminal/ConPTY
+where the Node console is a hidden pseudo-window but the visible WT window keeps the title.
+
+- **Typed `cc`** — `core/instance-guard.ts` tracks live PIDs in `instances.json` (replaces
+  the old single `tui.pid`). If any are alive, on Windows it runs `desktop-probe.ps1`
+  (`IVirtualDesktopManager.IsWindowOnCurrentVirtualDesktop`, excluding the foreground
+  window = the launching terminal). Only a *different* CLD CTRL window on the *current*
+  desktop blocks. PowerShell is spawned **only on contention** (keeps the fast path fast),
+  and the probe **fails open** — any error/timeout → launch anyway.
+- **Ctrl+Up hotkey** — `hotkey.ps1` uses `WinHelper.FindOnCurrentDesktop` (same COM
+  interface) so it focuses an instance on the current desktop, or launches a new one if
+  there's none here — instead of yanking a window over from another desktop.
+
+`desktop-probe.ps1` must stay in `package.json` `files`. If the COM interface is
+unavailable, both paths degrade to the old any-desktop behavior.
 
 ## Color Palette
 
