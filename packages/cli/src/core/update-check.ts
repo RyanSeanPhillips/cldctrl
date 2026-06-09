@@ -49,7 +49,7 @@ function writeCache(latestVersion: string): void {
 function beacon(extra: Record<string, unknown>): void {
   try {
     const body = JSON.stringify({ h: 'cli', p: '/launch', s: 'cli', prod: 'cldctrl', l: VERSION, ...extra });
-    const req = https.request('https://ryansphillips.com/px/collect', {
+    const req = https.request('https://cld-ctrl.com/px/collect', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
