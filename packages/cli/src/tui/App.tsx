@@ -125,13 +125,14 @@ export function App() {
     }).catch(() => {});
   }, []);
 
-  // Live heartbeat — ping the usage Worker every 45s so an open instance shows
-  // as "live" on the dashboard (region-level, cookieless; skipped in demo mode).
+  // Live heartbeat — a slow presence ping (every 5 min) so an open instance shows
+  // as "live" on the dashboard without looking like beaconing (region-level,
+  // cookieless; skipped in demo mode). One launch ping already fired separately.
   useEffect(() => {
     if (isDemoMode()) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     import('../core/update-check.js').then(m => {
-      timer = setInterval(() => m.pingHeartbeat(), 45000);
+      timer = setInterval(() => m.pingHeartbeat(), 300000); // 5 minutes
       timer.unref?.(); // don't keep the process alive on quit
     }).catch(() => {});
     return () => { if (timer) clearInterval(timer); };
