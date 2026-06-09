@@ -125,6 +125,18 @@ export function App() {
     }).catch(() => {});
   }, []);
 
+  // Live heartbeat — ping the usage Worker every 45s so an open instance shows
+  // as "live" on the dashboard (region-level, cookieless; skipped in demo mode).
+  useEffect(() => {
+    if (isDemoMode()) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    import('../core/update-check.js').then(m => {
+      timer = setInterval(() => m.pingHeartbeat(), 45000);
+      timer.unref?.(); // don't keep the process alive on quit
+    }).catch(() => {});
+    return () => { if (timer) clearInterval(timer); };
+  }, []);
+
   // Filter projects
   const filteredProjects = useMemo(() => {
     if (!state.filterText) return state.projects;

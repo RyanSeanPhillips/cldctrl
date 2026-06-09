@@ -46,9 +46,9 @@ function writeCache(latestVersion: string): void {
  * trick, which was limited to ~8 days of Cloudflare free-plan retention, had no
  * unique-user signal, and was polluted by scanners hitting the public path.
  */
-function pingAnalytics(): void {
+function beacon(extra: Record<string, unknown>): void {
   try {
-    const body = JSON.stringify({ h: 'cli', p: '/launch', s: 'cli', prod: 'cldctrl', l: VERSION });
+    const body = JSON.stringify({ h: 'cli', p: '/launch', s: 'cli', prod: 'cldctrl', l: VERSION, ...extra });
     const req = https.request('https://ryansphillips.com/px/collect', {
       method: 'POST',
       headers: {
@@ -63,6 +63,17 @@ function pingAnalytics(): void {
     req.write(body);
     req.end();
   } catch { /* fail silently */ }
+}
+
+/** Launch ping — one beacon per app start (recorded as a usage hit). */
+function pingAnalytics(): void {
+  beacon({ a: 1 });
+}
+
+/** Heartbeat — keeps this instance shown as "live" while the TUI stays open
+ *  (presence only; not counted as a new launch). Call on an interval. */
+export function pingHeartbeat(): void {
+  beacon({ e: 'ping', a: 1 });
 }
 
 /** Fetch actual latest version from npm registry (source of truth) */
