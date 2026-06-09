@@ -9,3 +9,9 @@ tsup.config.bundled_*
 
 # local npm account secrets
 docs/npmstuff/
+
+# scratch / unrelated files (kept local, not in the repo)
+docs/reddit_*.md
+docs/debug_screenshot.png
+install-tailscale.ps1
+packages/cli/test-renderer.mjs
