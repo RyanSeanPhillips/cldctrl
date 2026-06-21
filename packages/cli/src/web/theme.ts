@@ -14,7 +14,7 @@ const KEY = 'cldctrl-theme';
 
 export function currentTheme(): ThemeId {
   const t = localStorage.getItem(KEY);
-  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : 'midnight';
+  return THEMES.some((x) => x.id === t) ? (t as ThemeId) : 'daylight';
 }
 
 export function applyTheme(id: ThemeId): void {

@@ -484,7 +484,7 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 // ── HTML page ────────────────────────────────────────────────
 
 const SHELL = `<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="daylight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
