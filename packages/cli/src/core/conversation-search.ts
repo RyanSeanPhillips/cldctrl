@@ -11,7 +11,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from '../config.js';
+import { loadConfig, getConfigDir } from '../config.js';
 import { buildProjectListFast } from './projects.js';
 import { getClaudeProjectsDir, normalizePathForCompare } from './platform.js';
 
@@ -77,14 +77,16 @@ export function deriveGist(sessionId: string): string {
   return first.length > 140 ? first.slice(0, 139) + '…' : first;
 }
 
-function snippetFor(text: string, terms: string[]): string {
-  const low = text.toLowerCase();
-  let idx = -1;
-  for (const t of terms) { const i = low.indexOf(t); if (i >= 0 && (idx < 0 || i < idx)) idx = i; }
+function snippetFor(text: string, terms: string[], pos?: number): string {
+  let idx = pos ?? -1;
+  if (idx < 0) {
+    const low = text.toLowerCase();
+    for (const t of terms) { const i = low.indexOf(t); if (i >= 0 && (idx < 0 || i < idx)) idx = i; }
+  }
   const start = Math.max(0, idx - 50);
-  let s = text.slice(start, start + 170).replace(/\s+/g, ' ').trim();
+  let s = text.slice(start, start + 180).replace(/\s+/g, ' ').trim();
   if (start > 0) s = '…' + s;
-  if (start + 170 < text.length) s = s + '…';
+  if (start + 180 < text.length) s = s + '…';
   return s;
 }
 
@@ -97,33 +99,190 @@ export interface SearchResult {
   count: number;
 }
 
-/** Full-text search across every prompt, grouped and ranked by recency. */
-export function searchConversations(query: string, limit = 50): SearchResult[] {
+// ── Content index ────────────────────────────────────────────
+// Per-session searchable document built from the JSONL: user + assistant text,
+// tool names, and touched file paths (tool RESULTS are skipped — they're huge
+// and noisy). So searches match what was *done*, not just what was *asked*.
+// Cached per file by (mtime, size) and persisted to search-index.json, so only
+// changed sessions re-parse (same discipline as usage-buckets.json).
+
+const DOC_CAP = 40_000;            // max chars of extracted text per session
+const READ_CAP = 4 * 1024 * 1024;  // cap huge JSONL reads (50MB files exist)
+const INDEX_TTL_MS = 30_000;
+
+interface IndexEntry { sessionId: string; projectPath: string; lastTs: number; mtime: number; size: number; doc: string; }
+interface DiskIndex { version: number; files: Record<string, IndexEntry>; }
+
+function indexPath(): string { return path.join(getConfigDir(), 'search-index.json'); }
+
+function walkSessionFiles(): Array<{ sessionId: string; filePath: string }> {
+  const root = getClaudeProjectsDir();
+  const out: Array<{ sessionId: string; filePath: string }> = [];
+  let dirs: fs.Dirent[];
+  try { dirs = fs.readdirSync(root, { withFileTypes: true }); } catch { return out; }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    const projDir = path.join(root, d.name);
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(projDir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isFile() && e.name.endsWith('.jsonl')) {
+        out.push({ sessionId: e.name.replace(/\.jsonl$/, ''), filePath: path.join(projDir, e.name) });
+      } else if (e.isDirectory()) {
+        const inner = path.join(projDir, e.name, e.name + '.jsonl'); // newer uuid/uuid.jsonl layout
+        if (fs.existsSync(inner)) out.push({ sessionId: e.name, filePath: inner });
+      }
+    }
+  }
+  return out;
+}
+
+function extractDoc(filePath: string, size: number): { doc: string; projectPath: string; lastTs: number } {
+  let buf: string;
+  try {
+    if (size > READ_CAP) {
+      const fd = fs.openSync(filePath, 'r');
+      const b = Buffer.alloc(READ_CAP);
+      const n = fs.readSync(fd, b, 0, b.length, 0);
+      fs.closeSync(fd);
+      buf = b.toString('utf-8', 0, n);
+    } else {
+      buf = fs.readFileSync(filePath, 'utf-8');
+    }
+  } catch { return { doc: '', projectPath: '', lastTs: 0 }; }
+
+  let projectPath = '';
+  let lastTs = 0;
+  const parts: string[] = [];
+  let len = 0;
+  const push = (s?: string) => { if (s && len < DOC_CAP) { parts.push(s); len += s.length; } };
+
+  for (const line of buf.split('\n')) {
+    if (!line.trim()) continue;
+    if (len >= DOC_CAP) break;
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { continue; }
+    if (!projectPath && typeof obj.cwd === 'string') projectPath = obj.cwd;
+    if (typeof obj.timestamp === 'string') { const t = Date.parse(obj.timestamp); if (t > lastTs) lastTs = t; }
+    const c = obj.message?.content;
+    if (typeof c === 'string') {
+      if (!c.startsWith('<')) push(c);
+    } else if (Array.isArray(c)) {
+      for (const block of c) {
+        if (block?.type === 'text' && block.text) push(block.text);
+        else if (block?.type === 'tool_use' && block.name) {
+          const f = block.input?.file_path ?? block.input?.path;
+          push(block.name + (f ? ' ' + String(f) : ''));
+        }
+        // tool_result intentionally skipped
+      }
+    }
+  }
+  return { doc: parts.join(' \n ').slice(0, DOC_CAP), projectPath, lastTs };
+}
+
+let memIndex: { at: number; entries: Map<string, IndexEntry & { docLower: string }> } | null = null;
+
+function buildIndex(): Map<string, IndexEntry & { docLower: string }> {
+  if (memIndex && Date.now() - memIndex.at < INDEX_TTL_MS) return memIndex.entries;
+
+  let disk: DiskIndex = { version: 1, files: {} };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(indexPath(), 'utf-8'));
+    if (parsed && parsed.version === 1 && parsed.files) disk = parsed;
+  } catch { /* no/invalid index */ }
+
+  const histProj = new Map<string, string>();
+  for (const e of loadHistory().all) if (e.project) histProj.set(e.sessionId, e.project);
+
+  const seen = new Set<string>();
+  let changed = false;
+  for (const { sessionId, filePath } of walkSessionFiles()) {
+    seen.add(filePath);
+    let st: fs.Stats;
+    try { st = fs.statSync(filePath); } catch { continue; }
+    const cached = disk.files[filePath];
+    if (cached && cached.mtime === st.mtimeMs && cached.size === st.size) continue;
+    const { doc, projectPath, lastTs } = extractDoc(filePath, st.size);
+    disk.files[filePath] = {
+      sessionId,
+      projectPath: projectPath || histProj.get(sessionId) || '',
+      lastTs: lastTs || st.mtimeMs,
+      mtime: st.mtimeMs,
+      size: st.size,
+      doc,
+    };
+    changed = true;
+  }
+  for (const fp of Object.keys(disk.files)) if (!seen.has(fp)) { delete disk.files[fp]; changed = true; }
+
+  if (changed) {
+    try {
+      const tmp = indexPath() + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(disk));
+      fs.renameSync(tmp, indexPath());
+    } catch { /* best-effort */ }
+  }
+
+  const entries = new Map<string, IndexEntry & { docLower: string }>();
+  for (const fp of Object.keys(disk.files)) {
+    const e = disk.files[fp];
+    if (e.doc) entries.set(e.sessionId, { ...e, docLower: e.doc.toLowerCase() });
+  }
+  memIndex = { at: Date.now(), entries };
+  return entries;
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  let c = 0, p = haystack.indexOf(needle);
+  while (p >= 0) { c++; p = haystack.indexOf(needle, p + needle.length); }
+  return c;
+}
+
+/**
+ * Search the full conversation content (not just prompts), ranked by relevance:
+ * docs matching MORE distinct query terms rank first (coverage), then by total
+ * occurrences, then recency. Terms are ranked-OR'd so extra words refine instead
+ * of zeroing out. Optional `project` restricts to a project name or path.
+ */
+export function searchConversations(query: string, limit = 50, project?: string): SearchResult[] {
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
   if (!terms.length) return [];
+
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
   const nameMap = new Map<string, string>();
   for (const p of projects) nameMap.set(normalizePathForCompare(p.path), p.name);
 
-  const grouped = new Map<string, { project: string; projectPath: string; ts: number; snippet: string; count: number }>();
-  for (const e of loadHistory().all) {
-    const low = e.display.toLowerCase();
-    if (!terms.every((t) => low.includes(t))) continue;
-    const cur = grouped.get(e.sessionId);
-    if (cur) { cur.count++; if (e.timestamp > cur.ts) cur.ts = e.timestamp; }
-    else {
-      grouped.set(e.sessionId, {
-        project: nameMap.get(normalizePathForCompare(e.project)) ?? (path.basename(e.project || '') || '(unknown)'),
-        projectPath: e.project,
-        ts: e.timestamp,
-        snippet: snippetFor(e.display, terms),
-        count: 1,
-      });
+  const pf = project?.trim().toLowerCase();
+  const idx = buildIndex();
+  const scored: Array<{ e: IndexEntry & { docLower: string }; score: number; firstPos: number; matches: number }> = [];
+
+  for (const e of idx.values()) {
+    if (pf) {
+      const name = (nameMap.get(normalizePathForCompare(e.projectPath)) ?? '').toLowerCase();
+      const np = normalizePathForCompare(e.projectPath);
+      if (!name.includes(pf) && !np.includes(pf.replace(/\\/g, '/'))) continue;
     }
+    let distinct = 0, total = 0, firstPos = -1;
+    for (const t of terms) {
+      const pos = e.docLower.indexOf(t);
+      if (pos < 0) continue;
+      distinct++;
+      total += countOccurrences(e.docLower, t);
+      if (firstPos < 0 || pos < firstPos) firstPos = pos;
+    }
+    if (distinct === 0) continue;
+    scored.push({ e, score: distinct * 1000 + Math.min(total, 999), firstPos, matches: total });
   }
-  return [...grouped.entries()]
-    .map(([sessionId, v]) => ({ sessionId, project: v.project, projectPath: v.projectPath, date: new Date(v.ts).toISOString(), snippet: v.snippet, count: v.count }))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, limit);
+
+  scored.sort((a, b) => b.score - a.score || b.e.lastTs - a.e.lastTs);
+  return scored.slice(0, limit).map(({ e, firstPos, matches }) => ({
+    sessionId: e.sessionId,
+    project: nameMap.get(normalizePathForCompare(e.projectPath)) ?? (path.basename(e.projectPath || '') || '(unknown)'),
+    projectPath: e.projectPath,
+    date: new Date(e.lastTs).toISOString(),
+    snippet: snippetFor(e.doc, terms, firstPos),
+    count: matches,
+  }));
 }

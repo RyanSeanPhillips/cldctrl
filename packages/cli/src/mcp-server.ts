@@ -266,11 +266,11 @@ async function handleReadTasks(): Promise<unknown> {
   return { tasks: store.tasks };
 }
 
-function handleSearchConversations(args: { query: string; limit?: number }): unknown {
+function handleSearchConversations(args: { query: string; limit?: number; project?: string }): unknown {
   const query = (args.query ?? '').trim();
   if (!query) return { query: '', count: 0, results: [], note: 'Provide a non-empty query.' };
   const limit = Math.min(Math.max(1, args.limit ?? 20), 50);
-  const results = searchConversations(query, limit).map((r) => ({
+  const results = searchConversations(query, limit, args.project).map((r) => ({
     project: r.project,
     sessionId: r.sessionId,
     date: r.date,
@@ -520,13 +520,17 @@ async function main(): Promise<void> {
       {
         name: 'search_conversations',
         description:
-          'Search across ALL of your past Claude Code conversations (every project) to answer "where did we talk about / work on / build X?". Searches the prompts you typed, grouped by session and ranked by recency. Returns matching sessions with project, date, match count, a snippet, and a sessionId you can pass to launch_session({ resume }) to pick the conversation back up. Space-separated terms are ANDed.',
+          'Search across ALL of your past Claude Code conversations (every project) to answer "where did we talk about / work on / build X?". Searches the full conversation CONTENT — your prompts, the assistant\'s replies, tool names, and touched file paths — so it matches what was *done*, not just what was *asked*. Ranked by relevance (sessions matching more of your terms rank first), then recency. Terms are OR\'d, so adding words refines instead of zeroing out. Returns matching sessions with project, date, match count, a snippet, and a sessionId you can pass to launch_session({ resume }) to pick the conversation back up.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             query: {
               type: 'string',
-              description: 'What to look for, e.g. "diff renderer flicker" or "browser dashboard". Multiple words must all appear.',
+              description: 'What to look for, e.g. "diff renderer flicker" or "dark light theme conversion".',
+            },
+            project: {
+              type: 'string',
+              description: 'Optional: restrict results to a project (name or path substring).',
             },
             limit: {
               type: 'number',
@@ -615,7 +619,7 @@ async function main(): Promise<void> {
           result = await handleUnhideProject(args as { project: string });
           break;
         case 'search_conversations':
-          result = handleSearchConversations(args as { query: string; limit?: number });
+          result = handleSearchConversations(args as { query: string; limit?: number; project?: string });
           break;
         case 'get_dashboard_context':
           result = handleGetDashboardContext();
