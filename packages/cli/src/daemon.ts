@@ -18,7 +18,9 @@ import { sanitizeIssueTitle } from './core/github.js';
 import { DEFAULTS } from './constants.js';
 import { getDailyUsageByProject } from './core/usage.js';
 import { getRollingUsageStats } from './core/sessions.js';
-import { getClaudeProjectsDir } from './core/platform.js';
+import { getActiveClaudeProcesses } from './core/processes.js';
+import { gatherFreshNudges } from './core/control.js';
+import { getClaudeProjectsDir, normalizePathForCompare } from './core/platform.js';
 import type { DaemonCache, GitStatus, Issue, GitCommit, DailyUsage } from './types.js';
 
 const limit = pLimit(DEFAULTS.concurrencyLimit);
@@ -171,6 +173,29 @@ async function pollOnce(): Promise<void> {
   // Generate AI issue summaries for fetched issues
   for (const [projPath, issues] of Object.entries(allIssues)) {
     try { await generateMissingIssueSummaries(projPath, issues); } catch {}
+  }
+
+  // Proactive deadline / focus nudges — runs off local task due-dates plus the
+  // currently-active sessions, so it's dependable without a calendar connection.
+  // Dedup lives in nudge-state.json, so each reminder fires once per urgency tier.
+  try {
+    const sessions = await getActiveClaudeProcesses(projects.map((p) => p.path));
+    const nameByPath = new Map(
+      projects.map((p) => [normalizePathForCompare(p.path), p.name]),
+    );
+    const activeProjects = [
+      ...new Set(
+        sessions
+          .filter((s) => !s.idle)
+          .map((s) => nameByPath.get(normalizePathForCompare(s.projectPath)) || '')
+          .filter(Boolean),
+      ),
+    ];
+    for (const nudge of gatherFreshNudges(activeProjects)) {
+      await sendNotification(nudge.title, nudge.message);
+    }
+  } catch (err) {
+    log('daemon_error', { stage: 'nudges', message: String(err) });
   }
 
   // Write cache

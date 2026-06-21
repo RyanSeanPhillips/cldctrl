@@ -15,3 +15,6 @@ docs/reddit_*.md
 docs/debug_screenshot.png
 install-tailscale.ps1
 packages/cli/test-renderer.mjs
+
+# scratch verification screenshots
+/web-*.png

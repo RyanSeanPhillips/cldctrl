@@ -74,6 +74,8 @@ export interface Project {
   slug: string;
   pinned: boolean;
   discovered: boolean;
+  /** True when in config.hidden_projects and only listed because showHidden is on. */
+  hidden?: boolean;
   gitStatus?: GitStatus;
   issueCount?: number;
   lastActivity?: Date;
@@ -147,6 +149,16 @@ export interface SessionActivity {
   assistantTurns: number;    // total assistant API responses (each is an API round-trip)
   toolUseTurns: number;      // assistant turns that contained at least one tool_use block
   lastContextSize: number;   // most recent turn's context size (cache_read + input + cache_write)
+  /** Files touched via tool calls (absolute paths), most recently touched first.
+   *  Optional — only filled by the incremental parser in activity.ts. */
+  touchedFiles?: TouchedFile[];
+}
+
+export interface TouchedFile {
+  path: string;
+  reads: number;
+  writes: number;
+  lastTs: number;  // epoch ms of last touch
 }
 
 // ── Git commits ────────────────────────────────────────────
@@ -258,10 +270,33 @@ export interface DaemonCache {
   commitActivity?: Record<string, DailyUsage[]>;
 }
 
+// ── Control plane (cc control) ─────────────────────────────
+
+export type ControlTaskStatus = 'pending' | 'in_progress' | 'done';
+
+export interface ControlTask {
+  id: string;
+  title: string;
+  /** Project name/alias this task relates to, if any. */
+  project?: string;
+  status: ControlTaskStatus;
+  /** Free-form context, progress notes, links. */
+  notes?: string;
+  /** Optional deadline (ISO date `YYYY-MM-DD` or full ISO datetime) — drives nudges. */
+  due?: string;
+  created: string;  // ISO
+  updated: string;  // ISO
+}
+
+export interface ControlTaskStore {
+  version: 1;
+  tasks: ControlTask[];
+}
+
 // ── Navigation ──────────────────────────────────────────────
 
 export type FocusPane = 'projects' | 'details';
-export type AppMode = 'normal' | 'filter' | 'help' | 'settings' | 'welcome' | 'prompt' | 'game' | 'recent';
+export type AppMode = 'normal' | 'filter' | 'help' | 'settings' | 'welcome' | 'prompt' | 'game' | 'recent' | 'addproject';
 export type LeftSection = 'projects' | 'conversations';
 
 export interface AppState {
@@ -272,6 +307,7 @@ export interface AppState {
   mode: AppMode;
   filterText: string;
   promptText: string;
+  addProjectText: string;  // path input buffer for the "add project" bar
   scrollOffset: number;
   detailIndex: number;  // selected item index in detail pane
   detailSection: 'sessions' | 'issues' | 'commits' | 'files';  // which list is active in detail pane

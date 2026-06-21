@@ -542,6 +542,85 @@ export function createCli(): Command {
       console.log(`${CHARS.check} Done.`);
     });
 
+  // ── control ─────────────────────────────────────────────
+
+  program
+    .command('control')
+    .description('Open the mission-control chat (cross-project planning & dispatch)')
+    .option('--new', 'Start a fresh control conversation instead of continuing')
+    .action(async (opts) => {
+      const { ensureControlWorkspace, getControlDir, hasControlHistory } = await import('./core/control.js');
+      ensureControlWorkspace();
+      const controlDir = getControlDir();
+
+      // Continue the ongoing control conversation when one exists; otherwise
+      // (first run, or --new) start fresh — `--continue` on an empty workspace
+      // errors with "No conversation found to continue".
+      const result = launchClaude({
+        projectPath: controlDir,
+        isNew: opts.new || !hasControlHistory(),
+      });
+
+      if (result.success) {
+        if (result.pid) trackSession(result.pid, controlDir);
+        if (!program.opts().quiet) {
+          console.log(`${CHARS.check} ${result.message}: control plane`);
+        }
+      } else {
+        console.error(`${CHARS.cross} ${result.message}`);
+        process.exit(1);
+      }
+    });
+
+  // ── nudge ───────────────────────────────────────────────
+
+  program
+    .command('nudge')
+    .description('Check task deadlines vs active work; notify on anything due/overdue')
+    .option('--notify', 'Send desktop notifications (default: print only)')
+    .option('--json', 'Output fresh nudges as JSON')
+    .action(async (opts) => {
+      const { gatherFreshNudges } = await import('./core/control.js');
+      const { getActiveClaudeProcesses } = await import('./core/processes.js');
+      const { config } = loadConfig();
+      const projects = buildProjectList(config);
+
+      const sessions = await getActiveClaudeProcesses(projects.map((p) => p.path));
+      const nameByPath = new Map(
+        projects.map((p) => [normalizePathForCompare(p.path), p.name]),
+      );
+      const activeProjects = [
+        ...new Set(
+          sessions
+            .filter((s) => !s.idle)
+            .map((s) => nameByPath.get(normalizePathForCompare(s.projectPath)) || '')
+            .filter(Boolean),
+        ),
+      ];
+
+      const fresh = gatherFreshNudges(activeProjects);
+
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(fresh, null, 2) + '\n');
+        return;
+      }
+
+      if (fresh.length === 0) {
+        if (!program.opts().quiet) console.log('Nothing due — all clear.');
+        return;
+      }
+
+      if (opts.notify) {
+        const notifier = await import('node-notifier');
+        for (const n of fresh) {
+          notifier.default.notify({ title: n.title, message: n.message, sound: true });
+        }
+      }
+      for (const n of fresh) {
+        console.log(`${CHARS.pointer} ${n.title} — ${n.message}`);
+      }
+    });
+
   // ── mcp ────────────────────────────────────────────────
 
   const mcpCmd = program
@@ -585,6 +664,30 @@ export function createCli(): Command {
         console.log(result.message);
         process.exit(result.success ? 0 : 1);
       }
+    });
+
+  // ── serve ───────────────────────────────────────────────
+
+  program
+    .command('serve')
+    .description('Serve the browser dashboard (localhost only)')
+    .option('--port <port>', 'Port to listen on', '2533')
+    .option('--open', 'Open the dashboard in your default browser')
+    .action(async (opts) => {
+      const { startServeServer } = await import('./serve.js');
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open });
+    });
+
+  // ── web (serve + open browser) ───────────────────────────
+
+  program
+    .command('web')
+    .description('Launch the browser dashboard (serve + open in your default browser)')
+    .option('--port <port>', 'Port to listen on', '2533')
+    .option('--no-open', "Don't auto-open the browser")
+    .action(async (opts) => {
+      const { startServeServer } = await import('./serve.js');
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: opts.open !== false });
     });
 
   // ── daemon ──────────────────────────────────────────────

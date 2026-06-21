@@ -5,6 +5,7 @@
 import { useInput, useApp, useStdin } from 'ink';
 import { useRef, useEffect } from 'react';
 import { launchClaude, openVSCode, buildIssueFixPrompt } from '../../core/launcher.js';
+import { ensureControlWorkspace, getControlDir, hasControlHistory } from '../../core/control.js';
 import { openInExplorer, copyToClipboard } from '../../core/platform.js';
 import { trackSession } from '../../core/tracker.js';
 import { getHelpItemCount } from '../helpItems.js';
@@ -33,6 +34,8 @@ interface UseKeyboardOptions {
   onFileOpen?: () => void;
   onStartScan?: () => void;
   onCheckUpdate?: () => void;
+  /** Called with the entered path when the user confirms the "add project" bar */
+  onAddProject?: (path: string) => void;
   /** Number of active conversations for CONV_NAVIGATE maxIndex */
   conversationCount?: number;
   /** Callback when Enter is pressed on a conversation (focus its window) */
@@ -119,6 +122,29 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       }
       if (input && !key.ctrl && !key.meta) {
         dispatch({ type: 'SET_PROMPT', text: state.promptText + input });
+        return;
+      }
+      return;
+    }
+
+    // ── Add-project mode ─────────────────────────────────
+    if (state.mode === 'addproject') {
+      if (key.escape) {
+        dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.return) {
+        const p = state.addProjectText.trim();
+        if (p) opts.onAddProject?.(p);
+        else dispatch({ type: 'SET_MODE', mode: 'normal' });
+        return;
+      }
+      if (key.backspace || key.delete) {
+        dispatch({ type: 'SET_ADD_PROJECT_TEXT', text: state.addProjectText.slice(0, -1) });
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) {
+        dispatch({ type: 'SET_ADD_PROJECT_TEXT', text: state.addProjectText + input });
         return;
       }
       return;
@@ -378,9 +404,28 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
       return;
     }
 
+    // Control plane — open the mission-control chat (cross-project planning/dispatch)
+    if (input === 'C') {
+      ensureControlWorkspace();
+      const controlDir = getControlDir();
+      onLaunchFeedback?.('Opening control plane...');
+      // First run has no conversation to continue → start fresh; resume after.
+      const ctrlResult = launchClaude({ projectPath: controlDir, isNew: !hasControlHistory() });
+      if (ctrlResult.success && ctrlResult.pid) {
+        trackSession(ctrlResult.pid, controlDir);
+      }
+      return;
+    }
+
     // Filter
     if (input === '/') {
       dispatch({ type: 'SET_MODE', mode: 'filter' });
+      return;
+    }
+
+    // Add / create a project (prompts for a path)
+    if (input === 'a') {
+      dispatch({ type: 'SET_MODE', mode: 'addproject' });
       return;
     }
 
@@ -622,7 +667,13 @@ export function useKeyboard(opts: UseKeyboardOptions): void {
         return;
       }
       if (input === 'h') {
-        dispatch({ type: 'HIDE_PROJECT', index: state.selectedIndex });
+        if (selectedProject.hidden) {
+          onLaunchFeedback?.(`Unhidden: ${selectedProject.name}`);
+          dispatch({ type: 'UNHIDE_PATHS', paths: [selectedProject.path] });
+        } else {
+          onLaunchFeedback?.(`Hidden: ${selectedProject.name}  ·  H to show hidden`);
+          dispatch({ type: 'HIDE_PROJECT', index: state.selectedIndex });
+        }
         return;
       }
       if (input === 'y') {

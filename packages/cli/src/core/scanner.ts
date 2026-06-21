@@ -53,6 +53,7 @@ const SKIP_DIRS = new Set([
   '.Trash', 'AppData', 'Library', '.local', '.config',
   'Program Files', 'Program Files (x86)', 'Windows',
   '.conda', '.rustup', '.cargo', 'miniconda3', 'anaconda3',
+  'site-packages', // Python env library internals (avoids indexing every package)
   'OneDrive - SCH', // Skip managed OneDrive synced folders
 ]);
 

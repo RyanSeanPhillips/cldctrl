@@ -8,6 +8,12 @@
  * - get_project_context: sessions, git, commits, issues for one project
  * - get_active_sessions: cross-project active/idle session list
  * - launch_session: open a new Claude Code terminal window
+ * - rescan_projects: re-run filesystem discovery so new folders become known
+ * - create_project: create + register a new project end-to-end (folder, CLAUDE.md,
+ *   git init, config registration), optionally launching it
+ * - hide_project / unhide_project: hide noise (or restore) from every view
+ * - read_tasks: read the control plane's persistent task list
+ * - upsert_task: create/update a control plane task
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -25,6 +31,15 @@ import { getGitStatus, getRecentCommits } from './core/git.js';
 import { getIssues, isGhAvailable } from './core/github.js';
 import { getActiveClaudeProcesses } from './core/processes.js';
 import { launchAndTrack } from './core/launcher.js';
+import {
+  createProject,
+  rescanProjects,
+  hideProjectPath,
+  unhideProjectPath,
+  listHiddenProjects,
+} from './core/create-project.js';
+import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/control.js';
+import { searchConversations } from './core/conversation-search.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
 import { log, initLogger } from './core/logger.js';
@@ -196,6 +211,99 @@ async function handleLaunchSession(args: {
   };
 }
 
+async function handleRescanProjects(): Promise<unknown> {
+  const result = rescanProjects();
+  return {
+    scanned: result.scanned,
+    total: result.total,
+    newProjects: result.newProjects,
+    hidden: listHiddenProjects(),
+  };
+}
+
+async function handleHideProject(args: { project: string }): Promise<unknown> {
+  // Resolve to a concrete path when the project is currently visible; otherwise
+  // treat the identifier as a literal path.
+  const { config } = loadConfig();
+  const projects = buildProjectList(config);
+  const resolved = resolveProject(config, projects, args.project);
+  return hideProjectPath(resolved?.path ?? args.project);
+}
+
+async function handleUnhideProject(args: { project: string }): Promise<unknown> {
+  return unhideProjectPath(args.project);
+}
+
+async function handleCreateProject(args: {
+  path: string;
+  name?: string;
+  context?: string;
+  launch?: boolean;
+  prompt?: string;
+}): Promise<unknown> {
+  const result = createProject({ path: args.path, name: args.name, context: args.context });
+  if (!result.success || !result.project) {
+    return result;
+  }
+
+  let launch: { success: boolean; message: string } | undefined;
+  if (args.launch) {
+    const launched = launchAndTrack({
+      projectPath: result.project.path,
+      isNew: true,
+      prompt: args.prompt,
+    });
+    launch = { success: launched.success, message: launched.message };
+  }
+
+  return { ...result, launch };
+}
+
+async function handleReadTasks(): Promise<unknown> {
+  ensureControlWorkspace();
+  const store = readTaskStore();
+  return { tasks: store.tasks };
+}
+
+function handleSearchConversations(args: { query: string; limit?: number }): unknown {
+  const query = (args.query ?? '').trim();
+  if (!query) return { query: '', count: 0, results: [], note: 'Provide a non-empty query.' };
+  const limit = Math.min(Math.max(1, args.limit ?? 20), 50);
+  const results = searchConversations(query, limit).map((r) => ({
+    project: r.project,
+    sessionId: r.sessionId,
+    date: r.date,
+    matches: r.count,
+    snippet: r.snippet,
+  }));
+  return {
+    query,
+    count: results.length,
+    results,
+    hint: 'Resume any result with launch_session({ project, resume: sessionId }).',
+  };
+}
+
+async function handleUpsertTask(args: {
+  id?: string;
+  title?: string;
+  project?: string;
+  status?: 'pending' | 'in_progress' | 'done';
+  notes?: string;
+  due?: string;
+}): Promise<unknown> {
+  ensureControlWorkspace();
+  const task = upsertTask(args);
+  if (!task) {
+    return {
+      error: args.id
+        ? `Task not found: "${args.id}". Use read_tasks to see existing task ids.`
+        : 'A title is required to create a new task.',
+    };
+  }
+  return { task };
+}
+
 // ── Server setup ───────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -265,6 +373,139 @@ async function main(): Promise<void> {
           required: ['project'],
         },
       },
+      {
+        name: 'rescan_projects',
+        description:
+          'Re-run filesystem discovery (the same scan as the TUI "S" key) and merge results into the project index, so folders created or registered outside cldctrl become known. Returns counts and any newly-discovered projects. Use after creating a project folder by hand, or when list_projects is missing something.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {},
+        },
+      },
+      {
+        name: 'create_project',
+        description:
+          'Create and register a new project end-to-end so it is immediately usable by launch_session: creates the folder if missing, seeds a CLAUDE.md from the provided context, runs git init, and registers it in cldctrl config. Idempotent — safe to re-run on an existing project (will not overwrite CLAUDE.md or re-init git). Optionally launches a Claude Code session in it.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Absolute filesystem path for the project. Created (recursively) if it does not exist.',
+            },
+            name: {
+              type: 'string',
+              description: 'Display name. Defaults to a metadata-derived name or the folder basename.',
+            },
+            context: {
+              type: 'string',
+              description: 'Seed content for the project CLAUDE.md — background and starter instructions for the new project.',
+            },
+            launch: {
+              type: 'boolean',
+              description: 'If true, launch a new Claude Code session in the project after creating it.',
+            },
+            prompt: {
+              type: 'string',
+              description: 'Initial prompt to pass to the launched session (only used when launch is true).',
+            },
+          },
+          required: ['path'],
+        },
+      },
+      {
+        name: 'hide_project',
+        description:
+          'Hide a project from every cldctrl view (list_projects, TUI, scans). Use to clean up noise — stray folders, library directories, or anything that should not appear as a project. Durable: the project stays hidden across rescans. Reversible with unhide_project.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            project: {
+              type: 'string',
+              description: 'Project name, alias, or filesystem path to hide.',
+            },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'unhide_project',
+        description:
+          'Restore a previously hidden project so it appears again. Pass the full path, or just the folder name to match by basename. Returns the remaining hidden list.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            project: {
+              type: 'string',
+              description: 'Full filesystem path (matched exactly) or folder basename (matches any hidden entry with that name).',
+            },
+          },
+          required: ['project'],
+        },
+      },
+      {
+        name: 'read_tasks',
+        description:
+          "Read the control plane's persistent task list: cross-project tasks the operator is tracking, each with a status (pending/in_progress/done), optional project, and notes.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {},
+        },
+      },
+      {
+        name: 'upsert_task',
+        description:
+          "Create or update a control plane task. Omit 'id' to create a new task (title required); pass an existing 'id' to update that task's fields. Use to record to-dos, decisions, progress, and handoffs into projects.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Existing task id to update. Omit to create a new task.',
+            },
+            title: {
+              type: 'string',
+              description: 'Short task title. Required when creating.',
+            },
+            project: {
+              type: 'string',
+              description: 'Project name/alias this task relates to, if any.',
+            },
+            status: {
+              type: 'string',
+              enum: ['pending', 'in_progress', 'done'],
+              description: 'Task status.',
+            },
+            notes: {
+              type: 'string',
+              description: 'Free-form context, progress notes, or links.',
+            },
+            due: {
+              type: 'string',
+              description: "Deadline as ISO date 'YYYY-MM-DD' (or datetime). Drives background deadline nudges. Pass an empty string to clear.",
+            },
+          },
+        },
+      },
+      {
+        name: 'search_conversations',
+        description:
+          'Search across ALL of your past Claude Code conversations (every project) to answer "where did we talk about / work on / build X?". Searches the prompts you typed, grouped by session and ranked by recency. Returns matching sessions with project, date, match count, a snippet, and a sessionId you can pass to launch_session({ resume }) to pick the conversation back up. Space-separated terms are ANDed.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            query: {
+              type: 'string',
+              description: 'What to look for, e.g. "diff renderer flicker" or "browser dashboard". Multiple words must all appear.',
+            },
+            limit: {
+              type: 'number',
+              description: 'Max sessions to return (default 20, max 50).',
+            },
+          },
+          required: ['query'],
+        },
+      },
     ],
   }));
 
@@ -288,6 +529,44 @@ async function main(): Promise<void> {
         case 'launch_session':
           result = await handleLaunchSession(
             args as { project: string; prompt?: string; resume?: string },
+          );
+          break;
+        case 'rescan_projects':
+          result = await handleRescanProjects();
+          break;
+        case 'create_project':
+          result = await handleCreateProject(
+            args as {
+              path: string;
+              name?: string;
+              context?: string;
+              launch?: boolean;
+              prompt?: string;
+            },
+          );
+          break;
+        case 'hide_project':
+          result = await handleHideProject(args as { project: string });
+          break;
+        case 'unhide_project':
+          result = await handleUnhideProject(args as { project: string });
+          break;
+        case 'search_conversations':
+          result = handleSearchConversations(args as { query: string; limit?: number });
+          break;
+        case 'read_tasks':
+          result = await handleReadTasks();
+          break;
+        case 'upsert_task':
+          result = await handleUpsertTask(
+            args as {
+              id?: string;
+              title?: string;
+              project?: string;
+              status?: 'pending' | 'in_progress' | 'done';
+              notes?: string;
+              due?: string;
+            },
           );
           break;
         default:

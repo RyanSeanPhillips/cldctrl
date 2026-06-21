@@ -40,6 +40,10 @@ interface ProjectPaneProps {
   conversationIndex?: number;
   /** Which section of the left pane has the cursor */
   leftSection?: LeftSection;
+  /** True when hidden projects are being shown (dimmed + tagged) */
+  showHidden?: boolean;
+  /** Transient "+N new" badge shown in the header after a scan */
+  scanBadge?: string;
 }
 
 /** Conversations section — shows active + idle sessions with spinner and actions */
@@ -163,6 +167,8 @@ export const ProjectPane = React.memo(function ProjectPane({
   conversations,
   conversationIndex,
   leftSection,
+  showHidden,
+  scanBadge,
 }: ProjectPaneProps) {
   const rawPulse = usePulse(800);
   const pulse = config && !isFeatureEnabled(config, 'animations') ? true : rawPulse;
@@ -210,8 +216,10 @@ export const ProjectPane = React.memo(function ProjectPane({
     ? Math.min(cmdCount + 3, Math.max(5, Math.floor((height - statsRows) * 0.3)))
     : 0;
   // height budget: border(2) + header(1) + scrollIndicators(up to 1) = 4 reserved
+  // + 1 for the pinned "Control plane" launcher row (always rendered below the header)
   // Scroll indicators: we show at most 1 combined indicator line to avoid overflow
-  const baseViewport = Math.max(1, height - 4 - statsRows - cmdSectionRows - convSectionRows);
+  const controlRow = 1;
+  const baseViewport = Math.max(1, height - 4 - controlRow - statsRows - cmdSectionRows - convSectionRows);
 
   // Two-pass scroll: first calculate scroll offset with baseViewport,
   // then check if the separator falls within the actual visible range.
@@ -274,7 +282,18 @@ export const ProjectPane = React.memo(function ProjectPane({
         {filterText !== undefined && filterText.length > 0 && (
           <Text color={INK_COLORS.textDim}> /{filterText}</Text>
         )}
+        {showHidden && <Text color={INK_COLORS.textDim}> (showing hidden)</Text>}
+        {scanBadge && <Text color={INK_COLORS.green}> {scanBadge}</Text>}
         {loading && <Text color={INK_COLORS.textDim}> ...</Text>}
+      </Box>
+
+      {/* Pinned control-plane launcher — always at top so the agent is discoverable */}
+      <Box paddingX={1}>
+        <Text wrap="truncate">
+          <Text color={INK_COLORS.accent}>{CHARS.pointer} Control plane</Text>
+          <Text color={INK_COLORS.textDim}>{`  ${CHARS.separator}  press `}</Text>
+          <Text color={INK_COLORS.accent} bold>C</Text>
+        </Text>
       </Box>
 
       {/* Inline conversations section */}
@@ -308,12 +327,16 @@ export const ProjectPane = React.memo(function ProjectPane({
         // Discovered separator removed — all projects shown as a flat list
         const showSeparator = false;
 
-        // Small indicator: ✶ for active, ○ for idle, space for none
+        // Small indicator: ⊘ for hidden, ● for active, ○ for idle, space for none
         const isActiveSession = activeSession && !activeSession.idle;
-        const sessionIndicator = activeSession
+        const sessionIndicator = project.hidden
+          ? '⊘'
+          : activeSession
           ? (isActiveSession ? '●' : '○')
           : ' ';
-        const indicatorColor = isActiveSession ? INK_COLORS.green : INK_COLORS.textDim;
+        const indicatorColor = project.hidden
+          ? INK_COLORS.yellow
+          : isActiveSession ? INK_COLORS.green : INK_COLORS.textDim;
 
         const issueBadgeLen = issueCount > 0 ? 3 : 0; // " ⚠N"
         const effectiveNameWidth = nameWidth;

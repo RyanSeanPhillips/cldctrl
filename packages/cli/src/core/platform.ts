@@ -2,7 +2,7 @@
  * OS detection, command availability, path safety, terminal detection.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -50,6 +50,20 @@ export function isCommandAvailable(cmd: string): boolean {
   }
   cmdCache.set(cmd, available);
   return available;
+}
+
+/**
+ * Warm the isCommandAvailable cache in the background so the first launch
+ * doesn't pay a blocking `where`/`which` spawn inside the keyboard handler.
+ */
+export function prewarmCommandCache(cmds: string[]): void {
+  const which = getPlatform() === 'windows' ? 'where' : 'which';
+  for (const cmd of cmds) {
+    if (cmdCache.has(cmd)) continue;
+    execFile(which, [cmd], (err) => {
+      if (!cmdCache.has(cmd)) cmdCache.set(cmd, !err);
+    });
+  }
 }
 
 /**
@@ -143,6 +157,30 @@ export function openInExplorer(dirPath: string): boolean {
       break;
   }
   return true;
+}
+
+/**
+ * Open a URL in the user's default browser (cross-platform). Best-effort.
+ */
+export function openUrl(url: string): boolean {
+  const platform = getPlatform();
+  try {
+    switch (platform) {
+      case 'windows':
+        // `start` is a cmd builtin; the empty "" is the window title arg.
+        spawn.spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+        break;
+      case 'macos':
+        spawn.spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+        break;
+      case 'linux':
+        spawn.spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+        break;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

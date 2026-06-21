@@ -47,13 +47,15 @@ export const StatusBar = React.memo(function StatusBar({ mode, stats, width, foc
   const hintPairs: [string, string][] =
     mode === 'filter'
       ? [['Type', 'filter'], ['Enter', 'select'], ['Esc', 'cancel']]
+      : mode === 'addproject'
+        ? [['Type', 'path'], ['Enter', 'add'], ['Esc', 'cancel']]
       : mode === 'prompt'
         ? [['Type', 'prompt'], ['Enter', 'launch'], ['Esc', 'cancel']]
         : leftPaneMode === 'conversations'
           ? [['j/k', 'nav'], ['Enter', 'focus'], ['Tab', 'expand'], ['Esc', 'projects'], ['?', 'help'], ['q', 'quit']]
           : focusPane === 'details'
             ? [['j/k', 'nav'], ['Enter', 'resume'], ['Esc', 'back'], ['q', 'quit']]
-            : [['j/k', 'nav'], ['/', 'filter'], ['Tab', 'details'], ['l', 'live'], ['S', 'scan'], ['H', 'hidden'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
+            : [['j/k', 'nav'], ['/', 'filter'], ['Tab', 'details'], ['l', 'live'], ['a', 'add'], ['S', 'scan'], ['H', 'hidden'], [',', 'settings'], ['?', 'help'], ['q', 'quit']];
   const hintsText = hintPairs.map(([k, l]) => `${k}:${l}`).join('  ');
 
   // Context size for selected conversation

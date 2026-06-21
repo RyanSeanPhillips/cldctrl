@@ -1,0 +1,127 @@
+/**
+ * Shared shape of the `/api/overview` payload. Imported by BOTH the server
+ * (`serve.ts` `buildOverview()`) and the browser client so they cannot drift.
+ */
+
+export interface UsageWindow {
+  tokens: number;
+  messages: number;
+  percent: number | null; // null = no live rate data yet (show est. tokens)
+  resetIn: string | null;
+}
+
+export interface HeatCell {
+  date: string; // YYYY-MM-DD
+  value: number;
+}
+
+export interface TouchedFile {
+  path: string; // project-relative, forward slashes
+  reads: number;
+  writes: number;
+  lastTs: number;
+}
+
+export interface SessionInfo {
+  id: string | null;
+  project: string;
+  path: string;
+  status: 'active' | 'idle';
+  currentAction: string | null;
+  lastActivity: string; // ISO
+  tokens: number;
+  messages: number;
+  assistantTurns: number;
+  toolCalls: number;
+  contextSize: number;
+  durationMs: number;
+  model: string | null;
+  files: TouchedFile[];
+}
+
+export interface ProjectInfo {
+  name: string;
+  path: string;
+  active: boolean;
+  branch: string | null;
+  dirty: number;
+  ahead: number;
+}
+
+export interface OverviewPayload {
+  version: string;
+  generatedAt: string; // ISO
+  tier: string | null;
+  features: { agentTerminal: boolean };
+  usage: {
+    fiveHour: UsageWindow;
+    sevenDay: UsageWindow;
+    live: boolean;
+    overage: { percent: number; status: string; resetIn: string } | null;
+    daily: HeatCell[];
+    dailyCommits: HeatCell[];
+  };
+  sessions: SessionInfo[];
+  projects: ProjectInfo[];
+}
+
+export interface TranscriptEntry {
+  role: 'user' | 'assistant' | 'tool';
+  text: string;
+}
+
+// ── project detail (fetched on tab open) ─────────────────────
+
+export interface ProjectCommit {
+  hash: string;
+  subject: string;
+  date: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface ProjectIssue {
+  number: number;
+  title: string;
+  url: string;
+  createdAt: string;
+  labels: string[];
+  author?: string;
+}
+
+export interface ProjectSessionRow {
+  id: string;
+  summary: string;
+  firstPrompt: string | null;
+  modified: string;
+  branch: string | null;
+  tokens: number;
+  messages: number;
+  cost: number | null;
+}
+
+export interface ProjectActivity {
+  tokens: HeatCell[];
+  commits: HeatCell[];
+}
+
+export interface FileEntry {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  fileIcon: string;
+  iconColor: string | null;
+  isClaude: boolean;
+  childCount: number | null;
+}
+
+export type DetailTab = 'sessions' | 'commits' | 'issues' | 'files';
+
+export interface SearchResult {
+  sessionId: string;
+  project: string;
+  projectPath: string;
+  date: string;
+  snippet: string;
+  count: number;
+}

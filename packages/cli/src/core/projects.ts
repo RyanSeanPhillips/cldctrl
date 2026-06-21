@@ -128,6 +128,36 @@ export function extractProjectName(projectPath: string): string {
   return basename;
 }
 
+// ── Non-project path filtering ──────────────────────────────
+
+/**
+ * True if a path should never appear as a project: the home root, OS shell
+ * folders (Documents/Desktop/Downloads/…), or paths buried inside a Python
+ * environment's site-packages. Applied across ALL discovery sources (Claude
+ * session discovery AND the filesystem-scan index) so noise can't sneak in via
+ * one path while being filtered on another.
+ */
+export function isNonProjectPath(projectPath: string): boolean {
+  const basename = path.basename(projectPath).toLowerCase();
+  const parent = path.dirname(projectPath);
+
+  const isUserRoot =
+    normalizePathForCompare(projectPath) === normalizePathForCompare(os.homedir());
+
+  const isShellFolder =
+    ['documents', 'desktop', 'downloads', 'pictures', 'music', 'videos'].includes(basename) &&
+    (parent === os.homedir() || parent.includes('OneDrive'));
+
+  // Anything inside a Python env's site-packages (or its parents) is library
+  // code, not a user project.
+  const norm = normalizePathForCompare(projectPath);
+  const inSitePackages =
+    norm.includes(`${path.sep}site-packages${path.sep}`) ||
+    norm.endsWith(`${path.sep}site-packages`);
+
+  return isUserRoot || isShellFolder || inSitePackages;
+}
+
 // ── Discovery ───────────────────────────────────────────────
 
 /**
@@ -175,12 +205,7 @@ export function discoverProjects(): Array<{ name: string; path: string; slug: st
     if (!projectPath) continue;
 
     // Skip common non-project directories (Documents, Desktop, home root, etc.)
-    const basename = path.basename(projectPath).toLowerCase();
-    const parent = path.dirname(projectPath);
-    const isUserRoot = normalizePathForCompare(projectPath) === normalizePathForCompare(os.homedir());
-    const isShellFolder = ['documents', 'desktop', 'downloads', 'pictures', 'music', 'videos'].includes(basename)
-      && (parent === os.homedir() || parent.includes('OneDrive'));
-    if (isUserRoot || isShellFolder) continue;
+    if (isNonProjectPath(projectPath)) continue;
 
     // Derive a display name from project metadata, falling back to folder name
     const name = extractProjectName(projectPath);
@@ -387,7 +412,8 @@ function filterNestedProjects(projects: Project[]): void {
  * Build the unified project list: pinned first, then discovered.
  * Deduplicates by path (case-insensitive on Windows).
  */
-export function buildProjectList(config: Config): Project[] {
+export function buildProjectList(config: Config, opts: { includeHidden?: boolean } = {}): Project[] {
+  const includeHidden = opts.includeHidden ?? false;
   const projects: Project[] = [];
   const seenPaths = new Set<string>();
   const hiddenSet = new Set(config.hidden_projects.map((p) => normalizePathForCompare(p)));
@@ -396,7 +422,7 @@ export function buildProjectList(config: Config): Project[] {
   // Add configured (pinned) projects
   for (const p of config.projects) {
     const key = normalizePathForCompare(p.path);
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
     seenPaths.add(key);
 
     // Use config name if customized, otherwise try to extract from project metadata
@@ -410,6 +436,7 @@ export function buildProjectList(config: Config): Project[] {
       slug: getProjectSlug(p.path),
       pinned: true,
       discovered: false,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -420,7 +447,7 @@ export function buildProjectList(config: Config): Project[] {
   for (const d of discovered) {
     const key = normalizePathForCompare(d.path);
     if (seenPaths.has(key)) continue;
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
     seenPaths.add(key);
     nameCache[d.path] = d.name;
 
@@ -431,6 +458,7 @@ export function buildProjectList(config: Config): Project[] {
       pinned: false,
       discovered: true,
       lastActivity: d.lastActivity,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -439,7 +467,8 @@ export function buildProjectList(config: Config): Project[] {
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
+    if (isNonProjectPath(entry.path)) continue;
     seenPaths.add(key);
 
     let displayName: string;
@@ -452,6 +481,7 @@ export function buildProjectList(config: Config): Project[] {
       slug: getProjectSlug(entry.path),
       pinned: false,
       discovered: true,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -475,7 +505,8 @@ export function buildProjectList(config: Config): Project[] {
  * Falls back to path.basename() for uncached projects.
  * Also populates the cache for future runs.
  */
-export function buildProjectListFast(config: Config): Project[] {
+export function buildProjectListFast(config: Config, opts: { includeHidden?: boolean } = {}): Project[] {
+  const includeHidden = opts.includeHidden ?? false;
   const nameCache = readProjectNameCache();
   const projects: Project[] = [];
   const seenPaths = new Set<string>();
@@ -485,7 +516,7 @@ export function buildProjectListFast(config: Config): Project[] {
   // Add configured (pinned) projects
   for (const p of config.projects) {
     const key = normalizePathForCompare(p.path);
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
     seenPaths.add(key);
 
     const isDefaultName = p.name === path.basename(p.path);
@@ -499,6 +530,7 @@ export function buildProjectListFast(config: Config): Project[] {
       slug: getProjectSlug(p.path),
       pinned: true,
       discovered: false,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -509,7 +541,7 @@ export function buildProjectListFast(config: Config): Project[] {
   for (const d of discovered) {
     const key = normalizePathForCompare(d.path);
     if (seenPaths.has(key)) continue;
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
     seenPaths.add(key);
 
     projects.push({
@@ -519,6 +551,7 @@ export function buildProjectListFast(config: Config): Project[] {
       pinned: false,
       discovered: true,
       lastActivity: d.lastActivity,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -527,7 +560,8 @@ export function buildProjectListFast(config: Config): Project[] {
   for (const entry of indexed) {
     const key = normalizePathForCompare(entry.path);
     if (seenPaths.has(key)) continue;
-    if (hiddenSet.has(key)) continue;
+    if (hiddenSet.has(key) && !includeHidden) continue;
+    if (isNonProjectPath(entry.path)) continue;
     seenPaths.add(key);
 
     const displayName = nameCache[entry.path] ?? entry.name;
@@ -542,6 +576,7 @@ export function buildProjectListFast(config: Config): Project[] {
       slug: getProjectSlug(entry.path),
       pinned: false,
       discovered: true,
+      hidden: hiddenSet.has(key) || undefined,
     });
   }
 
@@ -603,12 +638,7 @@ function discoverProjectsFast(
     if (!projectPath) continue;
 
     // Skip common non-project directories (Documents, Desktop, home root, etc.)
-    const basename = path.basename(projectPath).toLowerCase();
-    const parent = path.dirname(projectPath);
-    const isUserRoot = normalizePathForCompare(projectPath) === normalizePathForCompare(os.homedir());
-    const isShellFolder = ['documents', 'desktop', 'downloads', 'pictures', 'music', 'videos'].includes(basename)
-      && (parent === os.homedir() || parent.includes('OneDrive'));
-    if (isUserRoot || isShellFolder) continue;
+    if (isNonProjectPath(projectPath)) continue;
 
     // Use cached name or basename (NO git, NO metadata reads)
     const name = nameCache[projectPath] ?? path.basename(projectPath);

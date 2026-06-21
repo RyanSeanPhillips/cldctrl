@@ -34,6 +34,26 @@ function stripControlSequences(str: string): string {
   return result;
 }
 
+// Escape hatch to write a raw byte sequence straight to the terminal, bypassing
+// the frame interceptor entirely. Set while the renderer is active so callers
+// (e.g. the attention bell) can reach the real terminal without their bytes
+// being stripped or clobbering the current frame. Null when not alt-screen.
+let rawTerminalWrite: ((seq: string) => void) | null = null;
+
+/**
+ * Ring the terminal bell (BEL) for attention. Goes straight to the real
+ * terminal — bypasses the diff renderer's frame logic (which would otherwise
+ * either strip it or overwrite a row). BEL doesn't move the cursor, so it's
+ * safe to interleave mid-frame. Windows Terminal flashes the taskbar/window on
+ * BEL when bellStyle includes "window"/"taskbar".
+ */
+export function ringAttentionBell(): void {
+  try {
+    if (rawTerminalWrite) rawTerminalWrite('\x07');
+    else process.stdout.write('\x07');
+  } catch { /* never let an attention cue throw */ }
+}
+
 export function enableDiffRendering(): () => void {
   const stdout = process.stdout;
   const stderr = process.stderr;
@@ -48,6 +68,9 @@ export function enableDiffRendering(): () => void {
   function realWrite(data: string): boolean {
     return originalWrite.call(stdout, data);
   }
+
+  // Expose the raw writer so the attention bell can bypass the frame logic.
+  rawTerminalWrite = (seq: string) => { realWrite(seq); };
 
   function firePendingCallbacks(): void {
     const cbs = pendingCallbacks;
@@ -171,6 +194,7 @@ export function enableDiffRendering(): () => void {
 
   return () => {
     active = false;
+    rawTerminalWrite = null;
     (stdout as any).write = originalWrite;
     (stderr as any).write = originalStderrWrite;
   };

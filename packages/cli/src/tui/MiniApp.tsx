@@ -11,6 +11,7 @@ import path from 'node:path';
 import { useMiniState } from './hooks/useMiniState.js';
 import { useMiniKeyboard } from './hooks/useMiniKeyboard.js';
 import { getRecentSessions } from '../core/sessions.js';
+import { prewarmCommandCache, getPlatform } from '../core/platform.js';
 import { isDemoMode, demoSessions } from '../core/demo-data.js';
 import { MiniProjectList } from './components/MiniProjectList.js';
 import { MiniActionMenu, MiniSessionList, buildActions } from './components/MiniActionMenu.js';
@@ -68,6 +69,12 @@ function MiniApp() {
     writeTimings();
     try { fs.writeFileSync(READY_SIGNAL_PATH, String(process.pid)); } catch {}
     return () => { try { fs.unlinkSync(READY_SIGNAL_PATH); } catch {} };
+  }, []);
+
+  // Pre-warm launch command availability (claude/wt) so the launch keypress
+  // doesn't pay blocking `where`/`which` spawns
+  useEffect(() => {
+    prewarmCommandCache(getPlatform() === 'windows' ? ['claude', 'wt'] : ['claude']);
   }, []);
 
   // Resize terminal to fit content (ANSI xterm window manipulation)

@@ -2,6 +2,13 @@
 
 Cross-platform mission control for Claude Code. Node.js CLI/TUI with React/Ink.
 
+> **Project model:** see [PROJECT-MODEL.md](./PROJECT-MODEL.md) for how projects are
+> registered, discovered, named, and added/removed. The MCP server can now stand up a
+> new project end-to-end via `create_project` (folder + CLAUDE.md + git init + config
+> registration, optionally launching it) and refresh discovery via `rescan_projects` —
+> so `launch_session` works on freshly-created folders without a manual TUI `S`-scan.
+> See [NEEDED-UPGRADES.md](./NEEDED-UPGRADES.md) for the original scope.
+
 ## Quick Reference
 
 - **Package**: `packages/cli/` — monorepo, single package for now
@@ -29,8 +36,13 @@ cc launch <name>      # launch project in Claude Code
 cc stats [--json]     # daily usage stats
 cc issues [project]   # GitHub issues
 cc summarize          # generate AI summaries for all sessions
+cc control            # open mission-control chat (cross-project planning/dispatch)
+cc nudge [--notify]   # check task deadlines vs active work, surface what's due
 cc setup              # install Ctrl+Up hotkey
 cc daemon             # start background poller
+
+# Browser dashboard (localhost-only, prototype)
+cc serve [--port 2533]
 
 # Demo mode (synthetic data for screenshots)
 cc --demo [full|fresh|no-github|minimal]
@@ -53,7 +65,14 @@ src/
 ├── config.ts             Zod-validated config with migration v1→v4
 ├── constants.ts          Colors, chars, defaults, shared formatters
 ├── types.ts              All type definitions (Config, Project, Session, etc.)
-├── daemon.ts             Background poller: git/issues/stats → cache.json
+├── daemon.ts             Background poller: git/issues/stats → cache.json;
+│                         also fires deadline/focus nudges (control.ts) once per tier
+├── serve.ts              `cc serve` browser dashboard (localhost HTTP, embedded HTML,
+│                         transcript tail + launch endpoints; CSRF via X-CLDCTRL header)
+├── mcp-server.ts         stdio MCP server (registered globally in ~/.claude.json):
+│                         list_projects, get_project_context, get_active_sessions,
+│                         launch_session, rescan_projects, create_project,
+│                         hide_project, unhide_project, read_tasks, upsert_task
 ├── core/
 │   ├── activity.ts       Full session activity parsing (tools, models, tokens)
 │   ├── analyzer.ts       Session analysis to suggest skills and project memories
@@ -61,6 +80,15 @@ src/
 │   ├── claude-cli.ts     Claude Code CLI interaction helpers
 │   ├── claude-usage.ts   Rate limit probing via API, tier detection, overage tracking
 │   ├── command-usage.ts  Slash command usage scanning
+│   ├── create-project.ts Create+register a project end-to-end (folder, CLAUDE.md,
+│   │                     git init, config registration) + rescanProjects() +
+│   │                     hide/unhideProjectPath(); backs the create_project /
+│   │                     rescan_projects / hide_project / unhide_project MCP tools
+│   ├── control.ts        `cc control` mission-control workspace: persona CLAUDE.md +
+│   │                     tasks.json store + recaps/ under config dir; bootstrap +
+│   │                     read/upsert task helpers (backs the MCP task tools) +
+│   │                     deadline/focus nudge engine (computeNudges + dedup state,
+│   │                     consumed by the daemon and `cc nudge`)
 │   ├── demo-data.ts      Synthetic data for --demo mode
 │   ├── filetree.ts       File tree: lazy dir reading, gitignore, icons, preview
 │   ├── git.ts            Git status + recent commits via child process
@@ -87,7 +115,9 @@ src/
 └── tui/
     ├── App.tsx            Root TUI: split-pane layout, data orchestration
     ├── MiniApp.tsx        Mini popup: 3-phase wizard
-    ├── diffRenderer.ts    Differential screen rendering (eliminates flicker)
+    ├── diffRenderer.ts    Differential screen rendering (eliminates flicker);
+    │                      exports ringAttentionBell() — BEL via the captured raw
+    │                      stdout write, bypassing frame logic (attention flash)
     ├── helpItems.ts       Help overlay key/description pairs
     ├── snapshot.tsx        Screenshot capture for testing
     ├── components/
@@ -136,6 +166,9 @@ docs/
 3. TUI uses `buildProjectListFast()` — cached names, no git spawns
 4. Background hooks read daemon cache for instant git statuses + calendar data
 5. Full project names (with git remote extraction) refresh 500ms after mount
+6. `prewarmCommandCache(['claude', 'wt'])` on App/MiniApp mount — warms the
+   `where`/`which` cache async so the first launch keypress doesn't pay
+   blocking spawns inside the keyboard handler
 
 ### Render Performance
 
@@ -227,6 +260,15 @@ Session files can reach 50MB. Always read only what you need:
 - `getProjectPathFromSlug()`: reads first 32KB + regex fallback for truncated lines
 - `tailer.ts`: caps initial read to last 1MB
 - `sessions.ts`: streams with readline, respects `maxSessionFileSize`
+- Rolling 5h/7d usage (`sessions.ts`): per-file **10-min bucketed counts** cached
+  by `(mtime, size)` and persisted to `usage-buckets.json` (sync-flushed on
+  process exit — the debounced timer is unref'd and won't fire in short CLI runs).
+  A poll tick costs one `stat()` per file; only changed files are re-parsed.
+- `activity.ts` (`parseSessionActivity`): **incremental byte-offset parsing** —
+  running totals per file, only appended bytes parsed per poll (same pattern as
+  `tailer.ts`). Returns the same snapshot reference when the file is unchanged
+  (required by `useActiveProcesses` equality checks — don't return fresh copies
+  for unchanged files).
 
 ### 7. Session detection and idle tracking (NEW)
 
@@ -248,7 +290,12 @@ Hidden projects with active sessions are auto-unhidden: `useActiveProcesses` rec
 `hiddenPaths` so mtime detection can find them, and the auto-add effect dispatches
 `UNHIDE_PATHS` to remove them from `config.hidden_projects`.
 
-`H` key toggles `showHidden` state (display integration pending).
+`H` toggles `showHidden`: when on, hidden projects are listed (dimmed, `⊘` marker,
+"(showing hidden)" in the header) via `buildProjectList*({ includeHidden })`. `h`
+hides the selected project, or unhides it when it's a shown-hidden one — both with
+status-bar feedback. `a` opens the add-project bar (`addproject` mode) wired to
+`addOrCreateProject()`: an existing folder is registered as-is, a missing one is
+scaffolded (folder + CLAUDE.md + git init) via `create-project.ts`.
 
 ### 8. File tree and scanner
 

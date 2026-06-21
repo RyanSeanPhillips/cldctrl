@@ -30,6 +30,8 @@ type Action =
   | { type: 'SET_MODE'; mode: AppMode }
   | { type: 'SET_FILTER'; text: string }
   | { type: 'SET_PROMPT'; text: string }
+  | { type: 'SET_ADD_PROJECT_TEXT'; text: string }
+  | { type: 'PROJECT_ADDED'; config: Config; selectPath: string }
   | { type: 'SET_SCROLL_OFFSET'; offset: number }
   | { type: 'SELECT_INDEX'; index: number }
   | { type: 'TOGGLE_PIN'; index: number }
@@ -109,6 +111,8 @@ function reducer(state: AppState, action: Action): AppState {
         filterText: '',
         // Clear prompt text when entering prompt mode (fresh start each time)
         promptText: action.mode === 'prompt' ? '' : state.promptText,
+        // Clear add-project text when entering add-project mode (fresh start each time)
+        addProjectText: action.mode === 'addproject' ? '' : state.addProjectText,
         selectedIndex: action.mode === 'filter' ? 0 : state.selectedIndex,
         // Clear active game when leaving game mode
         activeGame: action.mode === 'game' ? state.activeGame : null,
@@ -135,6 +139,25 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'SET_PROMPT':
       return { ...state, promptText: action.text };
+
+    case 'SET_ADD_PROJECT_TEXT':
+      return { ...state, addProjectText: action.text };
+
+    case 'PROJECT_ADDED': {
+      // Config already persisted to disk by the core add/create call, so we do
+      // NOT set pendingConfigSave here (avoids a redundant save).
+      const projects = buildProjectListFast(action.config, { includeHidden: state.showHidden });
+      const idx = projects.findIndex((p) => pathsEqual(p.path, action.selectPath));
+      return {
+        ...state,
+        config: action.config,
+        projects,
+        mode: 'normal',
+        leftSection: 'projects',
+        focusPane: 'projects',
+        selectedIndex: idx >= 0 ? idx : state.selectedIndex,
+      };
+    }
 
     case 'SET_SCROLL_OFFSET':
       return { ...state, scrollOffset: action.offset };
@@ -175,13 +198,17 @@ function reducer(state: AppState, action: Action): AppState {
 
       // Schedule async save
       pendingConfigSave = config;
-      const projects = buildProjectListFast(config);
+      const projects = buildProjectListFast(config, { includeHidden: state.showHidden });
       const newIdx = Math.min(state.selectedIndex, projects.length - 1);
       return { ...state, config, projects, selectedIndex: Math.max(0, newIdx) };
     }
 
-    case 'TOGGLE_SHOW_HIDDEN':
-      return { ...state, showHidden: !state.showHidden };
+    case 'TOGGLE_SHOW_HIDDEN': {
+      const showHidden = !state.showHidden;
+      const projects = buildProjectListFast(state.config, { includeHidden: showHidden });
+      const newIdx = Math.max(0, Math.min(state.selectedIndex, projects.length - 1));
+      return { ...state, showHidden, projects, selectedIndex: newIdx };
+    }
 
     case 'UNHIDE_PATHS': {
       if (action.paths.length === 0) return state;
@@ -192,11 +219,13 @@ function reducer(state: AppState, action: Action): AppState {
       );
       pendingConfigSave = config;
       pendingConfigRevision++;
-      return { ...state, config };
+      const projects = buildProjectListFast(config, { includeHidden: state.showHidden });
+      const newIdx = Math.max(0, Math.min(state.selectedIndex, projects.length - 1));
+      return { ...state, config, projects, selectedIndex: newIdx };
     }
 
     case 'REFRESH_PROJECTS': {
-      const projects = buildProjectListFast(state.config);
+      const projects = buildProjectListFast(state.config, { includeHidden: state.showHidden });
       return { ...state, projects };
     }
 
@@ -320,6 +349,7 @@ function initState(): AppState {
       mode: 'normal',
       filterText: '',
       promptText: '',
+      addProjectText: '',
       scrollOffset: 0,
       detailIndex: 0,
       detailSection: 'sessions',
@@ -350,6 +380,7 @@ function initState(): AppState {
     mode: 'normal',
     filterText: '',
     promptText: '',
+    addProjectText: '',
     scrollOffset: 0,
     detailIndex: 0,
     detailSection: 'sessions',

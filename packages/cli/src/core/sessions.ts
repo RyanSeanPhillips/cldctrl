@@ -529,105 +529,174 @@ export async function getRecentSessionsAcrossProjects(
 const ROLLING_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
 const TIMESTAMP_RE = /"timestamp"\s*:\s*"([^"]+)"/;
 
-/**
- * Count weighted tokens/messages only from JSONL lines whose timestamp >= cutoffMs.
- * Lines without a parseable timestamp inherit the last seen timestamp.
- * Uses RATE_LIMIT_TOKEN_REGEXES with weights that match Anthropic's unified rate limit
- * calculation (cache_read at 5%, cache_creation at 25%, others at 100%).
- */
-async function getSessionStatsSince(
-  sessionFilePath: string,
-  cutoffMs: number,
-): Promise<SessionStats | null> {
-  ensureStatsCacheLoaded();
+// ── Bucketed usage cache ─────────────────────────────────────
+// Per-file weighted token/message counts, bucketed into 10-minute intervals
+// and keyed by (mtime, size). Rolling 5h/7d windows are computed by summing
+// buckets, so a poll tick costs one stat() per file instead of a full
+// re-read + regex scan. Persisted to usage-buckets.json so TUI/daemon
+// restarts don't re-parse weeks of JSONL.
+
+const BUCKET_MS = 10 * 60_000;
+const BUCKET_RETENTION_MS = 8 * 24 * 60 * 60 * 1000; // slightly past the 7d window
+const MAX_BUCKET_FILES = 400;
+
+interface FileUsageBuckets {
+  /** `${mtimeMs}|${size}` — invalidated when the file changes */
+  key: string;
+  /** bucket start epoch ms (string key) -> [weightedTokens, messages] */
+  buckets: Record<string, [number, number]>;
+}
+
+const bucketCache = new Map<string, FileUsageBuckets>();
+let bucketCacheLoaded = false;
+let bucketCacheDirty = false;
+let bucketCacheFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getBucketCachePath(): string {
+  return path.join(getConfigDir(), 'usage-buckets.json');
+}
+
+function ensureBucketCacheLoaded(): void {
+  if (bucketCacheLoaded) return;
+  bucketCacheLoaded = true;
   try {
-    const stat = fs.statSync(sessionFilePath);
-    if (stat.size > DEFAULTS.maxSessionFileSize) return null;
-
-    let messages = 0;
-    let tokens = 0;
-    let lastTs = 0; // track most recent timestamp
-
-    const stream = fs.createReadStream(sessionFilePath, { encoding: 'utf-8' });
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-
-    try {
-      for await (const line of rl) {
-        // Extract timestamp from this line
-        const tsMatch = TIMESTAMP_RE.exec(line);
-        if (tsMatch) {
-          const ts = new Date(tsMatch[1]).getTime();
-          if (!isNaN(ts)) lastTs = ts;
-        }
-
-        // Skip lines before the cutoff
-        if (lastTs < cutoffMs) continue;
-
-        if (line.includes('"type":"user"') || line.includes('"type": "user"')) {
-          messages++;
-        }
-        for (const { re, weight } of RATE_LIMIT_TOKEN_REGEXES) {
-          re.lastIndex = 0;
-          let match: RegExpExecArray | null;
-          while ((match = re.exec(line)) !== null) {
-            tokens += parseInt(match[1], 10) * weight;
-          }
-        }
+    const cachePath = getBucketCachePath();
+    if (!fs.existsSync(cachePath)) return;
+    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    if (raw?.version !== 1 || typeof raw.files !== 'object' || raw.files === null) return;
+    for (const [filePath, entry] of Object.entries(raw.files)) {
+      const e = entry as FileUsageBuckets;
+      if (typeof e?.key === 'string' && typeof e.buckets === 'object' && e.buckets !== null) {
+        bucketCache.set(filePath, { key: e.key, buckets: e.buckets });
       }
-    } finally {
-      rl.close();
-      stream.destroy();
     }
-
-    return { messages, tokens: Math.round(tokens) };
+    log('bucket_cache_loaded', { entries: bucketCache.size });
   } catch (err) {
-    log('error', { function: 'getSessionStatsSince', message: String(err) });
-    return null;
+    log('bucket_cache_load_error', { message: String(err) });
   }
 }
 
-export async function getRollingUsageStats(claudeProjectsDir: string): Promise<UsageStats> {
-  const now = Date.now();
-  const cutoff = now - ROLLING_WINDOW_MS;
-  let totalTokens = 0;
-  let totalMessages = 0;
-
-  if (!fs.existsSync(claudeProjectsDir)) {
-    return { tokens: 0, messages: 0, date: new Date().toISOString() };
-  }
-
+function saveBucketCache(): void {
   try {
-    const slugDirs = fs.readdirSync(claudeProjectsDir, { withFileTypes: true });
+    const cutoff = Date.now() - BUCKET_RETENTION_MS;
+    const live = [...bucketCache.entries()].filter(([, e]) => {
+      for (const k in e.buckets) {
+        if (Number(k) + BUCKET_MS > cutoff) return true;
+      }
+      return false;
+    });
+    // Map insertion order ≈ recency (entries re-inserted on re-parse)
+    const files: Record<string, FileUsageBuckets> = {};
+    for (const [p, e] of live.slice(-MAX_BUCKET_FILES)) files[p] = e;
 
-    for (const dir of slugDirs) {
-      if (!dir.isDirectory()) continue;
-      const slugPath = path.join(claudeProjectsDir, dir.name);
-
-      try {
-        const files = fs.readdirSync(slugPath)
-          .filter((f) => f.endsWith('.jsonl'));
-
-        for (const f of files) {
-          const filePath = path.join(slugPath, f);
-          try {
-            const stat = fs.statSync(filePath);
-            if (stat.mtimeMs < cutoff) continue;
-            if (stat.size > DEFAULTS.maxSessionFileSize) continue;
-
-            const stats = await getSessionStatsSince(filePath, cutoff);
-            if (stats) {
-              totalTokens += stats.tokens;
-              totalMessages += stats.messages;
-            }
-          } catch { /* skip */ }
-        }
-      } catch { /* skip */ }
-    }
+    const cachePath = getBucketCachePath();
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    const tmpPath = cachePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify({ version: 1, files }));
+    fs.renameSync(tmpPath, cachePath);
+    bucketCacheDirty = false;
+    log('bucket_cache_saved', { entries: live.length });
   } catch (err) {
-    log('error', { function: 'getRollingUsageStats', message: String(err) });
+    log('bucket_cache_save_error', { message: String(err) });
+  }
+}
+
+let bucketCacheExitHookSet = false;
+
+function scheduleBucketCacheFlush(): void {
+  if (bucketCacheFlushTimer) clearTimeout(bucketCacheFlushTimer);
+  bucketCacheFlushTimer = setTimeout(() => {
+    if (bucketCacheDirty) saveBucketCache();
+  }, STATS_CACHE_FLUSH_DELAY);
+  bucketCacheFlushTimer.unref();
+
+  // Unref'd timer never fires in short-lived CLI runs — flush sync on exit
+  if (!bucketCacheExitHookSet) {
+    bucketCacheExitHookSet = true;
+    process.on('exit', () => {
+      if (bucketCacheDirty) saveBucketCache();
+    });
+  }
+}
+
+/**
+ * Parse a JSONL file into time-bucketed weighted token/message counts.
+ * Lines without a parseable timestamp inherit the last seen timestamp.
+ * Uses RATE_LIMIT_TOKEN_REGEXES weights to approximate Anthropic's unified
+ * rate limit accounting (cache_read 10%, cache_creation 25%, others 100%).
+ */
+async function parseFileBuckets(filePath: string, key: string): Promise<FileUsageBuckets> {
+  const buckets: Record<string, [number, number]> = {};
+  let lastTs = 0;
+
+  const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      const tsMatch = TIMESTAMP_RE.exec(line);
+      if (tsMatch) {
+        const ts = new Date(tsMatch[1]).getTime();
+        if (!isNaN(ts)) lastTs = ts;
+      }
+
+      let messages = 0;
+      let tokens = 0;
+      if (line.includes('"type":"user"') || line.includes('"type": "user"')) {
+        messages = 1;
+      }
+      for (const { re, weight } of RATE_LIMIT_TOKEN_REGEXES) {
+        re.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(line)) !== null) {
+          tokens += parseInt(match[1], 10) * weight;
+        }
+      }
+      if (messages === 0 && tokens === 0) continue;
+
+      const bucketKey = String(lastTs - (lastTs % BUCKET_MS));
+      const bucket = buckets[bucketKey] ?? (buckets[bucketKey] = [0, 0]);
+      bucket[0] += tokens;
+      bucket[1] += messages;
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
   }
 
-  return { tokens: totalTokens, messages: totalMessages, date: new Date().toISOString() };
+  return { key, buckets };
+}
+
+/** Get (cached) usage buckets for a file; re-parses only when mtime/size change. */
+async function getFileUsageBuckets(filePath: string, stat: fs.Stats): Promise<FileUsageBuckets> {
+  ensureBucketCacheLoaded();
+  const key = `${stat.mtimeMs}|${stat.size}`;
+  const cached = bucketCache.get(filePath);
+  if (cached && cached.key === key) return cached;
+
+  const fresh = await parseFileBuckets(filePath, key);
+  // Delete-then-set refreshes insertion order so save-time capping keeps active files
+  bucketCache.delete(filePath);
+  bucketCache.set(filePath, fresh);
+  bucketCacheDirty = true;
+  scheduleBucketCacheFlush();
+  return fresh;
+}
+
+/** Sum buckets overlapping [cutoffMs, now). Bucket granularity bounds the window error at 10 min. */
+function sumBucketsSince(entry: FileUsageBuckets, cutoffMs: number): { tokens: number; messages: number } {
+  let tokens = 0;
+  let messages = 0;
+  for (const k in entry.buckets) {
+    if (Number(k) + BUCKET_MS > cutoffMs) {
+      tokens += entry.buckets[k][0];
+      messages += entry.buckets[k][1];
+    }
+  }
+  return { tokens, messages };
+}
+
+export async function getRollingUsageStats(claudeProjectsDir: string): Promise<UsageStats> {
+  return (await getRollingUsageWindowed(claudeProjectsDir)).fiveHour;
 }
 
 /** 7-day rolling window (for local 7d estimate when API probe unavailable). */
@@ -639,8 +708,8 @@ export interface WindowedUsageStats {
 }
 
 /**
- * Get both 5h and 7d rolling usage stats in a single pass.
- * Used to provide local 5h/7d estimates when the API rate limit probe is unavailable.
+ * Get both 5h and 7d rolling usage stats from the bucketed usage cache.
+ * Unchanged files cost one stat() each; only changed files are re-parsed.
  */
 export async function getRollingUsageWindowed(claudeProjectsDir: string): Promise<WindowedUsageStats> {
   const now = Date.now();
@@ -673,20 +742,15 @@ export async function getRollingUsageWindowed(claudeProjectsDir: string): Promis
             if (stat.mtimeMs < cutoff7d) continue; // Skip files untouched in 7d
             if (stat.size > DEFAULTS.maxSessionFileSize) continue;
 
-            // Parse the file once but bucket tokens into both windows
-            const stats7d = await getSessionStatsSince(filePath, cutoff7d);
-            if (stats7d) {
-              tok7d += stats7d.tokens;
-              msg7d += stats7d.messages;
-            }
+            const entry = await getFileUsageBuckets(filePath, stat);
+            const w7 = sumBucketsSince(entry, cutoff7d);
+            tok7d += w7.tokens;
+            msg7d += w7.messages;
 
-            // Only parse for 5h if file was touched in the 5h window
             if (stat.mtimeMs >= cutoff5h) {
-              const stats5h = await getSessionStatsSince(filePath, cutoff5h);
-              if (stats5h) {
-                tok5h += stats5h.tokens;
-                msg5h += stats5h.messages;
-              }
+              const w5 = sumBucketsSince(entry, cutoff5h);
+              tok5h += w5.tokens;
+              msg5h += w5.messages;
             }
           } catch { /* skip */ }
         }
@@ -697,7 +761,7 @@ export async function getRollingUsageWindowed(claudeProjectsDir: string): Promis
   }
 
   return {
-    fiveHour: { tokens: tok5h, messages: msg5h, date },
-    sevenDay: { tokens: tok7d, messages: msg7d, date },
+    fiveHour: { tokens: Math.round(tok5h), messages: msg5h, date },
+    sevenDay: { tokens: Math.round(tok7d), messages: msg7d, date },
   };
 }

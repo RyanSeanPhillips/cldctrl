@@ -26,10 +26,12 @@ import { useKeyboard } from './hooks/useKeyboard.js';
 import { useFileTree } from './hooks/useFileTree.js';
 import { getRecentSessionsWithChildren, getRecentSessionsAcrossProjects } from '../core/sessions.js';
 import { buildProjectList, extractProjectName, getProjectSlug } from '../core/projects.js';
-import { normalizePathForCompare } from '../core/platform.js';
+import { normalizePathForCompare, prewarmCommandCache, getPlatform } from '../core/platform.js';
 import { scanForProjects, mergeScannedProjects } from '../core/scanner.js';
 import { mergeIntoIndex, getLastScanTime } from '../core/project-index.js';
 import { readDaemonCache } from '../core/background.js';
+import { computeNudges, readTaskStore } from '../core/control.js';
+import { ringAttentionBell } from './diffRenderer.js';
 import { isDemoMode, demoSessions, demoIssueCounts, DEMO_SKILLS_DATA } from '../core/demo-data.js';
 import { ProjectPane } from './components/ProjectPane.js';
 import { DetailPane } from './components/DetailPane.js';
@@ -50,7 +52,8 @@ const ClockDisplay = React.memo(function ClockDisplay() {
   return <Text color={INK_COLORS.textDim}>{clock}  v{VERSION}</Text>;
 });
 import { GameScreen } from './games/GameScreen.js';
-import { isFeatureEnabled } from '../config.js';
+import { isFeatureEnabled, loadConfig } from '../config.js';
+import { addOrCreateProject } from '../core/create-project.js';
 import { focusWindowByTitle } from '../core/platform.js';
 import { DEFAULTS, INK_COLORS, APP_NAME, VERSION } from '../constants.js';
 import { getSkillsSummary } from '../core/skills.js';
@@ -105,6 +108,12 @@ export function App() {
     }, 500);
     return () => { cancelled = true; clearTimeout(timer); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-warm launch command availability (claude/wt) so the first launch
+  // doesn't pay blocking `where`/`which` spawns inside the keyboard handler
+  useEffect(() => {
+    prewarmCommandCache(getPlatform() === 'windows' ? ['claude', 'wt'] : ['claude']);
+  }, []);
 
   // Skills/commands discovery (deferred — sync FS reads, not needed for first paint)
   const [skillsData, setSkillsData] = useState(() =>
@@ -296,6 +305,24 @@ export function App() {
     setTimeout(() => setLaunchMsg(''), 3000);
   }, []);
 
+  // Persistent "+N new" badge after a scan; cleared on the next navigation.
+  const [scanBadge, setScanBadge] = useState<string>('');
+  useEffect(() => { setScanBadge(''); }, [state.selectedIndex]);
+
+  // Add / create a project from the TUI (existing folder → register; new → scaffold).
+  const onAddProject = useCallback((rawPath: string) => {
+    if (isDemoMode()) { dispatch({ type: 'SET_MODE', mode: 'normal' }); return; }
+    const result = addOrCreateProject(rawPath);
+    if (result.success && result.project) {
+      const { config } = loadConfig();
+      dispatch({ type: 'PROJECT_ADDED', config, selectPath: result.project.path });
+      onLaunchFeedback(result.message);
+    } else {
+      dispatch({ type: 'SET_MODE', mode: 'normal' });
+      onLaunchFeedback(result.message);
+    }
+  }, [dispatch, onLaunchFeedback]);
+
   // Auto-summarize: sweep all projects at startup, issues on selection
   const { revision: summaryRevision, isSummarizing } = useAutoSummarize(state.projects, settledPath, issues);
 
@@ -466,6 +493,7 @@ export function App() {
           const merged = mergeScannedProjects(projectsRef.current, results, configRef.current);
           dispatch({ type: 'SCAN_COMPLETE', projects: merged });
           const newCount = merged.length - projectsRef.current.length;
+          setScanBadge(newCount > 0 ? `+${newCount} new` : '');
           onLaunchFeedback(newCount > 0 ? `Found ${newCount} new project${newCount === 1 ? '' : 's'}` : 'No new projects found');
         }
       } catch {
@@ -506,6 +534,42 @@ export function App() {
       return b.lastActivity.getTime() - a.lastActivity.getTime(); // most recent first
     });
   }, [allSessions, enrichedProcesses, settledProject]);
+
+  // ── Attention bell ──────────────────────────────────────
+  // Ring the terminal (BEL → taskbar/window flash) when a fresh deadline/focus
+  // nudge appears while the dashboard is open. In-memory dedup, independent of
+  // the daemon's persisted nudge-state, so an open dashboard reliably flashes.
+  const nudgedKeysRef = useRef<Set<string>>(new Set());
+  const activeProjNamesRef = useRef<string[]>([]);
+  useEffect(() => {
+    const nameByPath = new Map(
+      filteredProjects.map(p => [normalizePathForCompare(p.path), p.name]),
+    );
+    activeProjNamesRef.current = [...new Set(
+      sortedConversations
+        .filter(c => !c.idle)
+        .map(c => nameByPath.get(normalizePathForCompare(c.projectPath)) || '')
+        .filter(Boolean),
+    )];
+  }, [sortedConversations, filteredProjects]);
+  useEffect(() => {
+    if (isDemoMode()) return;
+    const check = () => {
+      try {
+        const { tasks } = readTaskStore();
+        if (tasks.length === 0) return;
+        const nudges = computeNudges({ tasks, activeProjects: activeProjNamesRef.current });
+        const fresh = nudges.filter(n => !nudgedKeysRef.current.has(n.key));
+        if (fresh.length === 0) return;
+        for (const n of fresh) nudgedKeysRef.current.add(n.key);
+        ringAttentionBell();
+        onLaunchFeedback(`${fresh[0].title} — ${fresh[0].message}`);
+      } catch { /* attention cue must never break the TUI */ }
+    };
+    check();
+    const id = setInterval(check, 60_000);
+    return () => clearInterval(id);
+  }, [onLaunchFeedback]);
 
   // ── Recent conversations across all projects (`R` view) ──
   // Fetched lazily when the view opens; the previous list stays visible while
@@ -600,6 +664,7 @@ export function App() {
     onFileCollapse,
     onFileOpen,
     onStartScan: startScan,
+    onAddProject,
     onCheckUpdate: () => {
       onLaunchFeedback('Checking for updates...');
       import('../core/update-check.js').then(m => m.checkForUpdate(true)).then(v => {
@@ -730,6 +795,8 @@ export function App() {
             conversations={sortedConversations}
             conversationIndex={state.conversationIndex}
             leftSection={state.leftSection}
+            showHidden={state.showHidden}
+            scanBadge={scanBadge}
           />
         )}
         {showRight && (state.leftSection === 'conversations' ? (
@@ -780,6 +847,17 @@ export function App() {
         text={state.promptText}
         projectName={selectedProject?.name}
       />
+      {state.mode === 'addproject' && (
+        <Box paddingX={1}>
+          <Text color={INK_COLORS.accent}>{'+ '}</Text>
+          <Text color={INK_COLORS.textDim}>add project: </Text>
+          <Text color={INK_COLORS.text}>{state.addProjectText}</Text>
+          <Text color={INK_COLORS.textDim}>▌</Text>
+          {!state.addProjectText && (
+            <Text color={INK_COLORS.textDim}> type or paste a folder path (created if missing)</Text>
+          )}
+        </Box>
+      )}
 
       {/* Status bar — always mounted to avoid layout shifts from conditional rendering */}
       <StatusBar
