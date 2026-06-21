@@ -11,6 +11,20 @@ import type {
 
 export type SortKey = 'tokens' | 'share' | 'msgs' | 'tr' | 'ctx' | 'dur' | 'ago';
 
+export interface CockpitTile {
+  id: string;          // 'resume:<sessionId>'
+  sessionId: string;
+  projectPath: string;
+  title: string;
+}
+
+export interface CockpitState {
+  tiles: CockpitTile[];
+  layout: 'cols1' | 'cols2' | 'grid';
+  open: boolean;
+  maximized: string | null; // tile id shown full-bleed
+}
+
 export interface UiState {
   expandedSessionId: string | null;
   selectedProject: string | null; // project path — when set, main shows project detail
@@ -18,6 +32,7 @@ export interface UiState {
   newSessionOpen: boolean;         // the "New session" prompt form in the detail header
   newSessionDraft: string;         // typed prompt, preserved across polls
   dockOpen: boolean;
+  cockpit: CockpitState;
   sortKey: SortKey;
   sortDir: 1 | -1;                 // 1 = desc, -1 = asc
 }
@@ -64,6 +79,7 @@ const state: State = {
     newSessionOpen: false,
     newSessionDraft: '',
     dockOpen: false,
+    cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null },
     sortKey: 'tokens',
     sortDir: 1,
   },
@@ -128,6 +144,12 @@ export function setDetail(patch: Partial<DetailState>): void {
 /** Patch the search slice. */
 export function setSearch(patch: Partial<SearchState>): void {
   Object.assign(state.search, patch);
+  notify();
+}
+
+/** Patch the cockpit slice (nested under ui). */
+export function setCockpit(patch: Partial<CockpitState>): void {
+  Object.assign(state.ui.cockpit, patch);
   notify();
 }
 

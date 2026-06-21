@@ -14,6 +14,12 @@ const svgWrap = (path: Tpl) => html`<svg viewBox="0 0 24 24" width="14" height="
 const iPlay = () => svgWrap(html`<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"></polygon>`);
 const iTerminal = () => svgWrap(html`<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>`);
 const iBranch = () => svgWrap(html`<circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="7" r="2.4"></circle><path d="M6 8.4v7.2M8.4 6.4H14a3 3 0 0 1 3 3v0"></path>`);
+const iGrid = () => svgWrap(html`<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>`);
+
+/** "Open here" button — opens a conversation as a live terminal tile in the cockpit. */
+function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl {
+  return html`<button class="btn" data-act="openincockpit" data-id=${sessionId} data-path=${projectPath} data-title=${title}>${iGrid()} Open here</button>`;
+}
 
 // ── small viz helpers ────────────────────────────────────────
 function heatLevel(v: number, max: number): number {
@@ -64,7 +70,7 @@ function themeSwitch(): Tpl {
 }
 
 // ── usage header (sticky) ────────────────────────────────────
-function topbar(d: OverviewPayload, connError: boolean): Tpl {
+function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
   return html`<header class="topbar">
@@ -82,6 +88,7 @@ function topbar(d: OverviewPayload, connError: boolean): Tpl {
     <div class="topbar-right">
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
+      ${cockpitCount > 0 ? html`<button class="btn" data-act="cockpit-open" title="Open the conversation cockpit">${iGrid()} Cockpit <span class="num">${cockpitCount}</span></button>` : ''}
       ${themeSwitch()}
       ${d.features.agentTerminal
         ? html`<button class="btn" data-act="dockToggle" title="Agent control plane">${iTerminal()} Agent</button>`
@@ -196,6 +203,7 @@ function sessionDetail(s: SessionInfo, state: State): Tpl {
     </div>
     ${s.id ? html`<div class="detail-actions">
       <button class="btn primary" data-act="resume" data-id=${s.id} data-path=${s.path}>${iPlay()} Resume in terminal</button>
+      ${cockpitBtn(s.id, s.path, s.project)}
     </div>` : ''}
   </div>`;
 }
@@ -302,7 +310,10 @@ function sessionsTab(state: State, projectPath: string): Tpl {
             ${s.cost != null ? html`<span class="sep">·</span><span class="num">$${s.cost.toFixed(2)}</span>` : ''}
           </div>
         </div>
-        <button class="btn" data-act="resume" data-id=${s.id} data-path=${projectPath}>${iPlay()} Resume</button>
+        <div class="res-actions">
+          ${cockpitBtn(s.id, projectPath, projectPath.split(/[/\\]/).pop() || projectPath)}
+          <button class="btn" data-act="resume" data-id=${s.id} data-path=${projectPath}>${iPlay()} Resume</button>
+        </div>
       </div>
       ${expanded ? html`<div class="detail">
         ${s.firstPrompt ? html`<div class="first-prompt">❯ ${s.firstPrompt}</div>` : ''}
@@ -438,7 +449,10 @@ function searchView(state: State): Tpl {
               <span class="sep">·</span><span class="num">${r.count} match${r.count === 1 ? '' : 'es'}</span>
             </div>
           </div>
-          <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath}>${iPlay()} Resume</button>
+          <div class="res-actions">
+            ${cockpitBtn(r.sessionId, r.projectPath, r.project)}
+            <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath}>${iPlay()} Resume</button>
+          </div>
         </div>`)}</div>`}
   </section>`;
 }
@@ -451,7 +465,7 @@ export function appView(state: State): Tpl {
   const showDetail = !showSearch && !!state.ui.selectedProject;
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   return html`
-    ${topbar(d, state.connError)}
+    ${topbar(d, state.connError, state.ui.cockpit.tiles.length)}
     <div class="body">
       ${sidebar(d, state.ui, state.search.query, matchPaths)}
       <main class="main">

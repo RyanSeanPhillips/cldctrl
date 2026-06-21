@@ -1,8 +1,8 @@
 import './app.css';
 import { render } from 'uhtml';
 import { appView } from './views.js';
-import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch } from './store.js';
-import type { SortKey } from './store.js';
+import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit } from './store.js';
+import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
@@ -10,6 +10,7 @@ import {
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
+import { syncCockpit, restartTile } from './cockpit.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
@@ -40,6 +41,7 @@ function renderApp(): void {
   render(appRoot, appView(state) as Node);
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   syncDock();
+  syncCockpit();
 
   if (searchHadFocus) {
     const inp = document.getElementById('search-input') as HTMLInputElement | null;
@@ -130,6 +132,34 @@ document.addEventListener('click', async (ev) => {
   const ui = getState().ui;
 
   if (act === 'theme') { applyTheme(el.dataset.theme as ThemeId); renderApp(); }
+  else if (act === 'openincockpit') {
+    const id = 'resume:' + el.dataset.id;
+    const cp = getState().ui.cockpit;
+    const tile: CockpitTile = { id, sessionId: el.dataset.id!, projectPath: el.dataset.path!, title: el.dataset.title || el.dataset.path! };
+    const tiles = cp.tiles.some((t) => t.id === id) ? cp.tiles : [...cp.tiles, tile];
+    setCockpit({ tiles, open: true, maximized: null });
+  } else if (act === 'cockpit-open') {
+    setCockpit({ open: true });
+  } else if (act === 'cockpit-close') {
+    setCockpit({ open: false });
+  } else if (act === 'cockpit-layout') {
+    setCockpit({ layout: el.dataset.layout as 'cols1' | 'cols2' | 'grid', maximized: null });
+  } else if (act === 'tile-close') {
+    const cp = getState().ui.cockpit;
+    const tiles = cp.tiles.filter((t) => t.id !== el.dataset.id);
+    setCockpit({ tiles, open: tiles.length > 0 && cp.open, maximized: cp.maximized === el.dataset.id ? null : cp.maximized });
+  } else if (act === 'tile-max') {
+    const cp = getState().ui.cockpit;
+    setCockpit({ maximized: cp.maximized === el.dataset.id ? null : el.dataset.id! });
+  } else if (act === 'tile-restart') {
+    restartTile(el.dataset.id!);
+  } else if (act === 'tile-focus') {
+    // header click focuses the terminal (but not when a header button was hit)
+    if (!(ev.target as HTMLElement).closest('.btn')) {
+      const term = (el.closest('.tile') as HTMLElement)?.querySelector('.xterm-helper-textarea') as HTMLElement | null;
+      term?.focus();
+    }
+  }
   else if (act === 'dockToggle') { toggleDock(); }
   else if (act === 'dockClose') { closeDock(); }
   else if (act === 'dockRestart') { restartDock(); }

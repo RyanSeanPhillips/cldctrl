@@ -30,7 +30,7 @@ function setStatus(text: string, on: boolean): void {
 
 /** Build an xterm theme from the active CSS variables so the terminal matches
  *  whichever dashboard theme is selected. */
-function termTheme(): Record<string, string> {
+export function termTheme(): Record<string, string> {
   const cs = getComputedStyle(document.body);
   const v = (n: string, fallback: string) => cs.getPropertyValue(n).trim() || fallback;
   return {

@@ -494,6 +494,19 @@ const SHELL = `<!doctype html>
 </head>
 <body>
 <div id="app"><div class="loading">Loading dashboard…</div></div>
+<div id="cockpit">
+  <div id="cockpit-bar">
+    <span id="cockpit-title">Cockpit</span>
+    <div class="cp-layouts">
+      <button class="btn icon" data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
+      <button class="btn icon" data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
+      <button class="btn icon" data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
+    </div>
+    <span class="sp"></span>
+    <button class="btn" data-act="cockpit-close" title="Back to dashboard">&#10005; Close cockpit</button>
+  </div>
+  <div id="cockpit-grid" class="cockpit-grid cols2"></div>
+</div>
 <aside id="dock" class="dock">
   <button class="dock-rail" data-act="dockToggle" title="Agent control plane">
     <span class="dot" id="dock-dot-rail"></span>
@@ -570,129 +583,138 @@ function serveWebAsset(res: http.ServerResponse, pathname: string): void {
   fs.createReadStream(resolved).pipe(res);
 }
 
-// The control plane is a singleton workspace, so its PTY is shared across every
-// connected browser tab and survives dock-close / page-reload. Reconnecting
-// clients get a replay of recent output so they see the current screen, and the
-// session is only killed once no client has been attached for IDLE_KILL_MS.
+// Named-terminal registry. Each PTY (the control-plane agent, or a resumed
+// conversation in the cockpit) is shared across browser tabs and survives
+// reload: reconnecting clients get a replay of recent output, and a terminal is
+// only killed once no client has been attached for IDLE_KILL_MS. Keyed by id —
+// 'control' for the dock agent, 'resume:<sessionId>' for cockpit conversations.
 const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface ControlSession {
+interface TermMeta { kind: 'control' | 'resume'; sessionId?: string; projectPath?: string; }
+interface TermSession {
+  meta: TermMeta;
   term: any;                                   // node-pty instance
   clients: Set<any>;                           // attached WebSockets
   buffer: string;                              // recent output, capped, for replay
   idleTimer: ReturnType<typeof setTimeout> | null;
 }
-let control: ControlSession | null = null;
+const terminals = new Map<string, TermSession>();
 
-/** Spawn the control-plane `claude` session in a PTY. Returns null on failure. */
-function spawnControlPty(): ControlSession | null {
+/** cwd + claude command for a terminal kind. Returns null if it can't be built. */
+function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
+  if (meta.kind === 'control') {
+    try { ensureControlWorkspace(); } catch { return null; }
+    return { cwd: getControlDir(), cmd: `claude ${hasControlHistory() ? '--continue' : ''}`.trim() };
+  }
+  if (meta.kind === 'resume' && meta.projectPath && meta.sessionId) {
+    return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
+  }
+  return null;
+}
+
+/** Spawn a PTY for the given terminal id. Returns null on failure. */
+function spawnTerm(id: string, meta: TermMeta): TermSession | null {
   let pty: any;
   try { pty = require('node-pty'); }
-  catch (err) { log('error', { function: 'spawnControlPty', message: 'node-pty load failed: ' + String(err) }); return null; }
+  catch (err) { log('error', { function: 'spawnTerm', message: 'node-pty load failed: ' + String(err) }); return null; }
 
-  let cwd: string;
-  try { ensureControlWorkspace(); cwd = getControlDir(); }
-  catch (err) { log('error', { function: 'spawnControlPty', message: 'control workspace: ' + String(err) }); return null; }
+  const spec = termCommand(meta);
+  if (!spec) { log('error', { function: 'spawnTerm', message: 'bad terminal spec: ' + id }); return null; }
 
   const env = getCleanEnv();
   const isWin = getPlatform() === 'windows';
-  const cmd = `claude ${hasControlHistory() ? '--continue' : ''}`.trim();
   const file = isWin ? 'cmd.exe' : 'bash';
-  const args = isWin ? ['/c', cmd] : ['-lc', cmd];
+  const args = isWin ? ['/c', spec.cmd] : ['-lc', spec.cmd];
 
   let term: any;
   try {
-    term = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd, env });
+    term = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: spec.cwd, env });
   } catch (err) {
-    log('error', { function: 'spawnControlPty', message: 'spawn failed: ' + String(err) });
+    log('error', { function: 'spawnTerm', message: 'spawn failed: ' + String(err) });
     return null;
   }
-  log('serve_agent', { event: 'spawn', cwd });
+  log('serve_term', { event: 'spawn', id, cwd: spec.cwd });
 
-  const session: ControlSession = { term, clients: new Set(), buffer: '', idleTimer: null };
+  const session: TermSession = { meta, term, clients: new Set(), buffer: '', idleTimer: null };
   term.onData((d: string) => {
     session.buffer += d;
-    if (session.buffer.length > REPLAY_CAP_BYTES) {
-      session.buffer = session.buffer.slice(session.buffer.length - REPLAY_CAP_BYTES);
-    }
+    if (session.buffer.length > REPLAY_CAP_BYTES) session.buffer = session.buffer.slice(session.buffer.length - REPLAY_CAP_BYTES);
     for (const c of session.clients) { try { c.send(d); } catch { /* socket closed */ } }
   });
   term.onExit(() => {
     for (const c of session.clients) {
-      try { c.send('\r\n\x1b[2m[control session ended]\x1b[0m\r\n'); c.close(); } catch { /* noop */ }
+      try { c.send('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); c.close(); } catch { /* noop */ }
     }
-    if (control === session) control = null;
-    log('serve_agent', { event: 'exit' });
+    if (terminals.get(id) === session) terminals.delete(id);
+    log('serve_term', { event: 'exit', id });
   });
+  terminals.set(id, session);
   return session;
 }
 
-/** Kill the current control PTY (its onExit clears `control` and notifies clients). */
-function killControl(): void {
-  if (!control) return;
-  if (control.idleTimer) { clearTimeout(control.idleTimer); control.idleTimer = null; }
-  try { control.term.kill(); } catch { /* ignore */ }
+function killTerm(id: string): void {
+  const s = terminals.get(id);
+  if (!s) return;
+  if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+  try { s.term.kill(); } catch { /* ignore */ }
 }
 
-/** Attach a browser WebSocket to the (lazily-spawned) shared control session. */
-function attachAgent(ws: any): void {
-  if (!control) {
-    control = spawnControlPty();
-    if (!control) {
-      try { ws.send('\r\n\x1b[31mAgent terminal unavailable (failed to start control session).\x1b[0m\r\n'); ws.close(); } catch { /* noop */ }
+/** Attach a browser WebSocket to the (lazily-spawned) terminal `id`. */
+function attachTerm(ws: any, id: string, meta: TermMeta): void {
+  let session = terminals.get(id);
+  if (!session) {
+    session = spawnTerm(id, meta) ?? undefined;
+    if (!session) {
+      try { ws.send('\r\n\x1b[31mTerminal unavailable (failed to start).\x1b[0m\r\n'); ws.close(); } catch { /* noop */ }
       return;
     }
   }
-  const session = control;
-  if (session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null; }
-  session.clients.add(ws);
+  const s = session;
+  if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+  s.clients.add(ws);
 
-  // Replay recent output so this client sees the current screen. The client
-  // sends a resize right after connecting, which makes claude repaint a fresh
-  // frame on top of the replayed scrollback.
-  if (session.buffer) {
-    try { ws.send(CLEAR_SCREEN); ws.send(session.buffer); } catch { /* noop */ }
-  }
+  // Replay recent output; the client's post-connect resize makes claude repaint.
+  if (s.buffer) { try { ws.send(CLEAR_SCREEN); ws.send(s.buffer); } catch { /* noop */ } }
 
   ws.on('message', (raw: any) => {
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
+    const cur = terminals.get(id);
     if (msg.type === 'input' && typeof msg.data === 'string') {
-      try { control?.term.write(msg.data); } catch { /* ignore */ }
+      try { cur?.term.write(msg.data); } catch { /* ignore */ }
     } else if (msg.type === 'resize') {
       const cols = Math.min(500, Math.max(2, msg.cols | 0));
       const rows = Math.min(200, Math.max(1, msg.rows | 0));
-      try { control?.term.resize(cols, rows); } catch { /* ignore */ }
+      try { cur?.term.resize(cols, rows); } catch { /* ignore */ }
     } else if (msg.type === 'restart') {
-      // Tear down the old PTY without dropping its sockets, then respawn and
-      // re-attach every client so the dock stays connected across the restart.
-      if (control) {
-        const carried = new Set(control.clients);
-        control.clients.clear();   // stop the old onExit from closing these sockets
-        killControl();
-        control = spawnControlPty();
-        if (control) {
-          for (const c of carried) { control.clients.add(c); try { c.send(CLEAR_SCREEN); } catch { /* noop */ } }
-        } else {
-          for (const c of carried) { try { c.send('\r\n\x1b[31mRestart failed.\x1b[0m\r\n'); c.close(); } catch { /* noop */ } }
-        }
+      const old = terminals.get(id);
+      if (old) {
+        const carried = new Set(old.clients);
+        old.clients.clear();        // stop the old onExit from closing these sockets
+        killTerm(id);
+        const fresh = spawnTerm(id, meta);
+        if (fresh) { for (const c of carried) { fresh.clients.add(c); try { c.send(CLEAR_SCREEN); } catch { /* noop */ } } }
+        else { for (const c of carried) { try { c.send('\r\n\x1b[31mRestart failed.\x1b[0m\r\n'); c.close(); } catch { /* noop */ } } }
       }
     }
   });
   ws.on('close', () => {
-    if (!control) return;
-    control.clients.delete(ws);
-    if (control.clients.size === 0 && !control.idleTimer) {
-      control.idleTimer = setTimeout(() => { log('serve_agent', { event: 'idle_kill' }); killControl(); }, IDLE_KILL_MS);
+    const cur = terminals.get(id);
+    if (!cur) return;
+    cur.clients.delete(ws);
+    if (cur.clients.size === 0 && !cur.idleTimer) {
+      cur.idleTimer = setTimeout(() => { log('serve_term', { event: 'idle_kill', id }); killTerm(id); }, IDLE_KILL_MS);
     }
-    log('serve_agent', { event: 'detach' });
+    log('serve_term', { event: 'detach', id });
   });
   ws.on('error', () => { try { ws.close(); } catch { /* ignore */ } });
 }
 
-/** Wire a /ws/agent WebSocket endpoint onto the HTTP server (best-effort). */
+/** Wire the WebSocket terminal endpoints onto the HTTP server (best-effort).
+ *  /ws/agent → the control-plane agent; /ws/term?kind=resume&session=&path= → a
+ *  resumed conversation in the cockpit. */
 function setupAgentTerminal(server: http.Server): boolean {
   if (!AGENT_TERMINAL_AVAILABLE) return false;
   let WebSocketServer: any;
@@ -705,10 +727,21 @@ function setupAgentTerminal(server: http.Server): boolean {
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
     try {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (url.pathname !== '/ws/agent') { socket.destroy(); return; }
       if (!isLocalHost(req)) { socket.destroy(); return; }
-      wss.handleUpgrade(req, socket, head, (ws: any) => attachAgent(ws));
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (url.pathname === '/ws/agent') {
+        wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'control', { kind: 'control' }));
+        return;
+      }
+      if (url.pathname === '/ws/term' && url.searchParams.get('kind') === 'resume') {
+        const session = url.searchParams.get('session') ?? '';
+        const proj = resolveKnownProject(url.searchParams.get('path') ?? '');
+        if (!SAFE_SESSION_ID.test(session) || !proj) { socket.destroy(); return; }
+        const id = 'resume:' + session;
+        wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'resume', sessionId: session, projectPath: proj.path }));
+        return;
+      }
+      socket.destroy();
     } catch { socket.destroy(); }
   });
   return true;
