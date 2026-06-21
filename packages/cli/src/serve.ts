@@ -26,6 +26,7 @@ import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
 import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.js';
+import { captureScreenshot } from './core/screenshot.js';
 import { readDaemonCache } from './core/background.js';
 import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
@@ -518,6 +519,7 @@ const SHELL = `<!doctype html>
       <span class="dot" id="dock-dot"></span>
       <span class="dock-title">Agent · control plane</span>
       <span class="sp"></span>
+      <button class="btn icon" data-act="dock-shot" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="dockRestart" title="Restart session">↻</button>
       <button class="btn icon" data-act="dockClose" title="Close">✕</button>
     </div>
@@ -810,6 +812,17 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         const body = await readJsonBody(req);
         const result = await handleLaunch(body);
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'POST' && url.pathname === '/api/screenshot') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const out = await captureScreenshot(body.mode === 'full' ? 'full' : 'region');
+        if (!out) { sendJson(res, 500, { error: 'Capture failed or cancelled' }); return; }
+        // Type the image path into the target terminal so the next prompt can use it.
+        const target = typeof body.target === 'string' ? body.target : 'control';
+        const t = terminals.get(target);
+        if (t) { try { t.term.write(out + ' '); } catch { /* ignore */ } }
+        log('serve_shot', { target, injected: !!t });
+        sendJson(res, 200, { path: out, injected: !!t });
       } else if (req.method === 'POST' && url.pathname === '/api/bridge') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

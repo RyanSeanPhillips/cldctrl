@@ -36,6 +36,7 @@
     "bin",
     "hotkey.ps1",
     "desktop-probe.ps1",
+    "screenshot.ps1",
     "LICENSE"
   ],
   "main": "./dist/index.js",

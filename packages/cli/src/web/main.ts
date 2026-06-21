@@ -6,7 +6,7 @@ import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
@@ -61,6 +61,15 @@ function renderApp(): void {
   prevNewSessionOpen = state.ui.newSessionOpen;
 }
 subscribe(renderApp);
+
+// ── screenshot → terminal ────────────────────────────────────
+async function shoot(target: string): Promise<void> {
+  toast('Snip a region… (its path goes into the session)');
+  try {
+    const r = await postScreenshot(target, 'region');
+    toast(r.path ? '✓ Screenshot path added to the session' : '✗ ' + (r.error || 'cancelled'));
+  } catch { toast('✗ Screenshot failed'); }
+}
 
 // ── cockpit tile helpers ─────────────────────────────────────
 function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean): void {
@@ -188,6 +197,8 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dockToggle') { toggleDock(); }
   else if (act === 'dockClose') { closeDock(); }
   else if (act === 'dockRestart') { restartDock(); }
+  else if (act === 'dock-shot') { shoot('control'); }
+  else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
   else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {

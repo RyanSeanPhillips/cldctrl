@@ -64,6 +64,16 @@ export async function fetchSearch(q: string): Promise<SearchResult[]> {
   return (await r.json()).results ?? [];
 }
 
+/** Capture a screenshot and have the server type its path into a terminal. */
+export async function postScreenshot(target: string, mode: 'region' | 'full' = 'region'): Promise<{ path?: string; error?: string }> {
+  const r = await fetch('/api/screenshot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ target, mode }),
+  });
+  return r.json();
+}
+
 /** Publish what the user is searching/viewing so the control-plane agent can read it. */
 export async function postBridge(query: string, selectedProject: string | null): Promise<void> {
   try {
