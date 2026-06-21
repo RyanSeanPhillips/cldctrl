@@ -98,17 +98,21 @@ function gitBadge(p: ProjectInfo): Tpl | string {
     p.ahead ? html` <span class="ahead num">↑${p.ahead}</span>` : ''}</span>`;
 }
 
-function projectRow(p: ProjectInfo, ui: State['ui']): Tpl {
+const normPath = (p: string) => p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+
+function projectRow(p: ProjectInfo, ui: State['ui'], matchPaths: Set<string> | null): Tpl {
   const selected = ui.selectedProject === p.path;
   const dotCls = p.active ? 'dot active' : 'dot';
-  return html`<div class=${'proj-row' + (selected ? ' selected' : '')} data-act="selectproject" data-path=${p.path}>
+  let mark = '';
+  if (matchPaths) mark = matchPaths.has(normPath(p.path)) ? ' match' : ' dim';
+  return html`<div class=${'proj-row' + (selected ? ' selected' : '') + mark} data-act="selectproject" data-path=${p.path}>
     <span class=${dotCls}></span>
     <span class="proj-name">${p.name}</span>
     ${gitBadge(p)}
   </div>`;
 }
 
-function sidebar(d: OverviewPayload, ui: State['ui'], query: string): Tpl {
+function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths: Set<string> | null): Tpl {
   const searching = !!query.trim();
   return html`<aside class="sidebar">
     <div class="search-box">
@@ -118,9 +122,9 @@ function sidebar(d: OverviewPayload, ui: State['ui'], query: string): Tpl {
     <nav class="side-nav">
       <button class=${'nav-item' + (!ui.selectedProject && !searching ? ' selected' : '')} data-act="home">Conversations</button>
     </nav>
-    <div class="side-head">Projects <span class="hint">— click to inspect</span></div>
+    <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
     <div class="proj-list">
-      ${d.projects.length ? d.projects.map((p) => projectRow(p, ui)) : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
+      ${d.projects.length ? d.projects.map((p) => projectRow(p, ui, matchPaths)) : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
     </div>
   </aside>`;
 }
@@ -421,6 +425,9 @@ function searchView(state: State): Tpl {
       <h2>Search</h2>
       <span class="card-meta">${s.loading ? 'searching…' : s.results.length + ' session' + (s.results.length === 1 ? '' : 's')}</span>
     </div>
+    ${s.agentNote !== null ? html`<div class="agent-banner">
+      <span class="ab-tag">cldctrl agent</span>${s.agentNote ? html` ${s.agentNote}` : html` showed you these results for “${q}”.`}
+    </div>` : ''}
     ${s.results.length === 0
       ? html`<div class="empty">${s.loading ? 'Searching…' : 'No conversations match “' + q + '”.'}</div>`
       : html`<div class="dlist">${s.results.map((r) => html`<div class="drow search-res" data-act="openresult" data-path=${r.projectPath}>
@@ -442,10 +449,11 @@ export function appView(state: State): Tpl {
   if (!d) return html`<div class="loading">Loading dashboard…</div>`;
   const showSearch = !!state.search.query.trim();
   const showDetail = !showSearch && !!state.ui.selectedProject;
+  const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   return html`
     ${topbar(d, state.connError)}
     <div class="body">
-      ${sidebar(d, state.ui, state.search.query)}
+      ${sidebar(d, state.ui, state.search.query, matchPaths)}
       <main class="main">
         ${showSearch ? searchView(state)
           : showDetail ? projectDetail(d, state)

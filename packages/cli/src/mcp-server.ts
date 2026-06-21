@@ -40,6 +40,7 @@ import {
 } from './core/create-project.js';
 import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/control.js';
 import { searchConversations } from './core/conversation-search.js';
+import { readDashboardContext, writeAgentSearch } from './core/dashboard-bridge.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
 import { log, initLogger } from './core/logger.js';
@@ -284,6 +285,35 @@ function handleSearchConversations(args: { query: string; limit?: number }): unk
   };
 }
 
+function handleGetDashboardContext(): unknown {
+  const ctx = readDashboardContext();
+  if (!ctx) return { active: false, note: 'The operator has no active dashboard search/selection (or the dashboard is not open).' };
+  return {
+    active: true,
+    query: ctx.query,
+    selectedProject: ctx.selectedProject,
+    resultCount: ctx.results.length,
+    results: ctx.results.slice(0, 20),
+    asOf: new Date(ctx.ts).toISOString(),
+  };
+}
+
+function handleShowSearchInDashboard(args: { query: string; sessionIds?: string[]; note?: string }): unknown {
+  const query = (args.query ?? '').trim();
+  if (!query) return { ok: false, error: 'Provide a non-empty query.' };
+  let results = searchConversations(query, 50);
+  if (Array.isArray(args.sessionIds) && args.sessionIds.length) {
+    const wanted = new Set(args.sessionIds);
+    results = results.filter((r) => wanted.has(r.sessionId));
+  }
+  writeAgentSearch({ query, results, note: args.note, ts: Date.now() });
+  return {
+    ok: true,
+    shown: results.length,
+    note: 'Pushed to the dashboard search area; it will appear within a few seconds if the dashboard is open.',
+  };
+}
+
 async function handleUpsertTask(args: {
   id?: string;
   title?: string;
@@ -506,6 +536,39 @@ async function main(): Promise<void> {
           required: ['query'],
         },
       },
+      {
+        name: 'get_dashboard_context',
+        description:
+          "See what the operator is currently looking at in the cldctrl browser dashboard: their active conversation search query, the matching sessions they're seeing, and any selected project. Use this when they say things like \"narrow down what I'm looking at\" or \"help me with this search\" so you act on their actual screen instead of guessing.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {},
+        },
+      },
+      {
+        name: 'show_search_in_dashboard',
+        description:
+          "Surface a conversation search in the operator's browser dashboard search area (the reverse of get_dashboard_context). Runs the search and pushes the results to their screen, optionally narrowed to a curated subset of sessionIds, with a short note explaining what you're showing. Use when you've found relevant past conversations and want the operator to see them.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The search query to run and display.',
+            },
+            sessionIds: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Optional: narrow the displayed results to just these sessionIds (a curated subset).',
+            },
+            note: {
+              type: 'string',
+              description: 'Optional short note shown above the results, e.g. "The 3 sessions where we built the diff renderer".',
+            },
+          },
+          required: ['query'],
+        },
+      },
     ],
   }));
 
@@ -553,6 +616,12 @@ async function main(): Promise<void> {
           break;
         case 'search_conversations':
           result = handleSearchConversations(args as { query: string; limit?: number });
+          break;
+        case 'get_dashboard_context':
+          result = handleGetDashboardContext();
+          break;
+        case 'show_search_in_dashboard':
+          result = handleShowSearchInDashboard(args as { query: string; sessionIds?: string[]; note?: string });
           break;
         case 'read_tasks':
           result = await handleReadTasks();

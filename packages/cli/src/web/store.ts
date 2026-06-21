@@ -38,6 +38,7 @@ export interface SearchState {
   query: string;
   results: SearchResult[];
   loading: boolean;
+  agentNote: string | null; // set when the agent pushed this search
 }
 
 export interface State {
@@ -67,7 +68,7 @@ const state: State = {
     sortDir: 1,
   },
   detail: emptyDetail(null),
-  search: { query: '', results: [], loading: false },
+  search: { query: '', results: [], loading: false, agentNote: null },
   transcript: null,
 };
 

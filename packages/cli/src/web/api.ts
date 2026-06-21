@@ -63,3 +63,14 @@ export async function fetchSearch(q: string): Promise<SearchResult[]> {
   if (!r.ok) throw new Error('search ' + r.status);
   return (await r.json()).results ?? [];
 }
+
+/** Publish what the user is searching/viewing so the control-plane agent can read it. */
+export async function postBridge(query: string, selectedProject: string | null): Promise<void> {
+  try {
+    await fetch('/api/bridge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+      body: JSON.stringify({ query, selectedProject }),
+    });
+  } catch { /* best-effort */ }
+}

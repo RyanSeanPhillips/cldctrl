@@ -6,7 +6,7 @@ import type { SortKey } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
@@ -104,9 +104,21 @@ async function refreshTranscript(): Promise<void> {
 }
 
 // ── poll loop (overview only — detail is event-driven) ───────
+let lastBridgeTs = 0;
 async function poll(): Promise<void> {
-  try { setData(await fetchOverview()); }
-  catch { setConnError(true); }
+  try {
+    const data = await fetchOverview();
+    setData(data);
+    // Adopt a search the control-plane agent pushed — but only a recent one, so
+    // a fresh page load doesn't resurrect a stale push.
+    const b = data.bridge;
+    if (b && b.ts > lastBridgeTs && Date.now() - b.ts < 5 * 60_000) {
+      lastBridgeTs = b.ts;
+      setSearch({ query: b.query, results: b.results, loading: false, agentNote: b.note ?? '' });
+    } else if (b && b.ts > lastBridgeTs) {
+      lastBridgeTs = b.ts; // mark seen without adopting
+    }
+  } catch { setConnError(true); }
   await refreshTranscript();
 }
 
@@ -122,7 +134,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dockClose') { closeDock(); }
   else if (act === 'dockRestart') { restartDock(); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
-  else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false }); }
+  else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {
     setSearch({ query: '', results: [] });
     setUi({ selectedProject: el.dataset.path!, expandedSessionId: null, newSessionOpen: false, newSessionDraft: '' });
@@ -181,15 +193,16 @@ document.addEventListener('input', (ev) => {
   if (t.id === 'newsession-prompt') { getState().ui.newSessionDraft = (t as HTMLInputElement).value; return; }
   if (t.id === 'search-input') {
     const q = (t as HTMLInputElement).value;
-    setSearch({ query: q });               // value === q on re-render, so cursor is preserved
+    setSearch({ query: q, agentNote: null });  // user-driven search; value === q so cursor is preserved
     if (searchTimer) clearTimeout(searchTimer);
-    if (!q.trim()) { setSearch({ results: [], loading: false }); return; }
+    if (!q.trim()) { setSearch({ results: [], loading: false }); postBridge('', getState().ui.selectedProject); return; }
     setSearch({ loading: true });
     searchTimer = setTimeout(async () => {
       try {
         const res = await fetchSearch(q);
         if (getState().search.query === q) setSearch({ results: res, loading: false });
       } catch { setSearch({ loading: false }); }
+      postBridge(q, getState().ui.selectedProject);  // publish what we're searching for the agent
     }, 250);
   }
 });

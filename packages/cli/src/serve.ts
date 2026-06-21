@@ -25,6 +25,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
+import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.js';
 import { readDaemonCache } from './core/background.js';
 import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
@@ -207,6 +208,7 @@ async function buildOverview(): Promise<unknown> {
       daily,
       dailyCommits: aggregateDaily(cache?.commitActivity, 28, 'commits'),
     },
+    bridge: readAgentSearch(),
     sessions: sessions.map(s => ({
       id: s.sessionId || null,
       project: nameMap.get(normalizePathForCompare(s.projectPath)) ?? path.basename(s.projectPath),
@@ -762,6 +764,17 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         const body = await readJsonBody(req);
         const result = await handleLaunch(body);
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'POST' && url.pathname === '/api/bridge') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const q = typeof body.query === 'string' ? body.query.slice(0, 500) : '';
+        writeDashboardContext({
+          query: q,
+          results: q.trim() ? searchConversations(q, 20) : [],
+          selectedProject: typeof body.selectedProject === 'string' ? body.selectedProject : null,
+          ts: Date.now(),
+        });
+        sendJson(res, 200, { ok: true });
       } else {
         sendJson(res, 404, { error: 'Not found' });
       }

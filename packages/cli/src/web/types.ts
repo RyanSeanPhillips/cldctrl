@@ -63,6 +63,8 @@ export interface OverviewPayload {
   };
   sessions: SessionInfo[];
   projects: ProjectInfo[];
+  /** A search the control-plane agent pushed to the dashboard (agent → dashboard). */
+  bridge: { query: string; note?: string; results: SearchResult[]; ts: number } | null;
 }
 
 export interface TranscriptEntry {

@@ -277,6 +277,16 @@ body.no-agent { padding-right: 0; }
 .search-res { cursor: pointer; }
 .search-res .drow-title { white-space: normal; font-size: 12.5px; color: var(--text-secondary); }
 .search-res:hover { background: var(--surface-2); border-radius: var(--r-sm); }
+.agent-banner { display: flex; align-items: center; gap: var(--s2); font-size: 12px; color: var(--text-secondary);
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--r-sm); padding: 6px 10px; margin-bottom: var(--s3); }
+.agent-banner .ab-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+  color: var(--on-accent); background: var(--accent); padding: 1px 7px; border-radius: var(--r-pill); }
+/* search highlighting of project rows */
+.proj-row.match .proj-name { color: var(--accent); font-weight: 600; }
+.proj-row.match { background: var(--accent-soft); border-radius: var(--r-sm); }
+.proj-row.dim { opacity: 0.4; }
+.proj-row.dim:hover { opacity: 0.7; }
 
 /* ── sidebar nav ──────────────────────────────────────────── */
 .side-nav { margin-bottom: var(--s4); }
