@@ -12,8 +12,9 @@ import type {
 export type SortKey = 'tokens' | 'share' | 'msgs' | 'tr' | 'ctx' | 'dur' | 'ago';
 
 export interface CockpitTile {
-  id: string;          // 'resume:<sessionId>'
-  sessionId: string;
+  id: string;                 // 'resume:<sessionId>' or 'new:<...>'
+  kind: 'resume' | 'new';
+  sessionId?: string;         // resume only
   projectPath: string;
   title: string;
 }
@@ -22,7 +23,10 @@ export interface CockpitState {
   tiles: CockpitTile[];
   layout: 'cols1' | 'cols2' | 'grid';
   open: boolean;
-  maximized: string | null; // tile id shown full-bleed
+  maximized: string | null;   // tile id shown full-bleed
+  addOpen: boolean;           // the "+ Add" picker overlay
+  addQuery: string;
+  addResults: SearchResult[];
 }
 
 export interface UiState {
@@ -79,7 +83,7 @@ const state: State = {
     newSessionOpen: false,
     newSessionDraft: '',
     dockOpen: false,
-    cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null },
+    cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null, addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
   },

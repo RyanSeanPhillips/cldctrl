@@ -497,6 +497,7 @@ const SHELL = `<!doctype html>
 <div id="cockpit">
   <div id="cockpit-bar">
     <span id="cockpit-title">Cockpit</span>
+    <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
     <div class="cp-layouts">
       <button class="btn icon" data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
       <button class="btn icon" data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
@@ -592,7 +593,7 @@ const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface TermMeta { kind: 'control' | 'resume'; sessionId?: string; projectPath?: string; }
+interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; }
 interface TermSession {
   meta: TermMeta;
   term: any;                                   // node-pty instance
@@ -610,6 +611,9 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
   }
   if (meta.kind === 'resume' && meta.projectPath && meta.sessionId) {
     return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
+  }
+  if (meta.kind === 'new' && meta.projectPath) {
+    return { cwd: meta.projectPath, cmd: 'claude' };
   }
   return null;
 }
@@ -733,13 +737,22 @@ function setupAgentTerminal(server: http.Server): boolean {
         wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'control', { kind: 'control' }));
         return;
       }
-      if (url.pathname === '/ws/term' && url.searchParams.get('kind') === 'resume') {
-        const session = url.searchParams.get('session') ?? '';
+      if (url.pathname === '/ws/term') {
+        const kind = url.searchParams.get('kind');
         const proj = resolveKnownProject(url.searchParams.get('path') ?? '');
-        if (!SAFE_SESSION_ID.test(session) || !proj) { socket.destroy(); return; }
-        const id = 'resume:' + session;
-        wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'resume', sessionId: session, projectPath: proj.path }));
-        return;
+        if (!proj) { socket.destroy(); return; }
+        if (kind === 'resume') {
+          const session = url.searchParams.get('session') ?? '';
+          if (!SAFE_SESSION_ID.test(session)) { socket.destroy(); return; }
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + session, { kind: 'resume', sessionId: session, projectPath: proj.path }));
+          return;
+        }
+        if (kind === 'new') {
+          const id = url.searchParams.get('id') ?? '';
+          if (!/^new:.{1,400}$/.test(id)) { socket.destroy(); return; }
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: proj.path }));
+          return;
+        }
       }
       socket.destroy();
     } catch { socket.destroy(); }

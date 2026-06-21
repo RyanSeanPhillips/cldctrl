@@ -32,19 +32,19 @@ let prevNewSessionOpen = false;
 function renderApp(): void {
   const state = getState();
 
-  // Preserve search-box focus + caret across the re-render (typing re-renders
+  // Preserve text-input focus + caret across the re-render (typing re-renders
   // the app to show results, and uhtml may recreate the input node).
   const active = document.activeElement as HTMLInputElement | null;
-  const searchHadFocus = active?.id === 'search-input';
-  const caret = searchHadFocus ? active!.selectionStart : null;
+  const focusedId = (active?.id === 'search-input' || active?.id === 'cockpit-add-search') ? active.id : null;
+  const caret = focusedId ? active!.selectionStart : null;
 
   render(appRoot, appView(state) as Node);
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   syncDock();
   syncCockpit();
 
-  if (searchHadFocus) {
-    const inp = document.getElementById('search-input') as HTMLInputElement | null;
+  if (focusedId) {
+    const inp = document.getElementById(focusedId) as HTMLInputElement | null;
     if (inp && document.activeElement !== inp) {
       inp.focus();
       if (caret != null) { try { inp.setSelectionRange(caret, caret); } catch { /* ignore */ } }
@@ -61,6 +61,16 @@ function renderApp(): void {
   prevNewSessionOpen = state.ui.newSessionOpen;
 }
 subscribe(renderApp);
+
+// ── cockpit tile helpers ─────────────────────────────────────
+function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean): void {
+  const id = 'resume:' + sessionId;
+  const cp = getState().ui.cockpit;
+  const tiles = cp.tiles.some((t) => t.id === id)
+    ? cp.tiles
+    : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title }];
+  setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null });
+}
 
 // ── project detail loading (on tab open, never on the poll) ──
 async function loadDetailIfNeeded(): Promise<void> {
@@ -126,6 +136,8 @@ async function poll(): Promise<void> {
 
 // ── event delegation ─────────────────────────────────────────
 document.addEventListener('click', async (ev) => {
+  // Click on the picker backdrop (but not its panel) closes it.
+  if ((ev.target as HTMLElement).classList?.contains('cp-add-backdrop')) { setCockpit({ addOpen: false }); return; }
   const el = (ev.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
   if (!el) return;
   const act = el.dataset.act;
@@ -133,11 +145,24 @@ document.addEventListener('click', async (ev) => {
 
   if (act === 'theme') { applyTheme(el.dataset.theme as ThemeId); renderApp(); }
   else if (act === 'openincockpit') {
-    const id = 'resume:' + el.dataset.id;
+    addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, true);
+  } else if (act === 'cockpit-add-toggle') {
     const cp = getState().ui.cockpit;
-    const tile: CockpitTile = { id, sessionId: el.dataset.id!, projectPath: el.dataset.path!, title: el.dataset.title || el.dataset.path! };
-    const tiles = cp.tiles.some((t) => t.id === id) ? cp.tiles : [...cp.tiles, tile];
-    setCockpit({ tiles, open: true, maximized: null });
+    setCockpit({ addOpen: !cp.addOpen, addQuery: '', addResults: [] });
+  } else if (act === 'cockpit-add-close') {
+    setCockpit({ addOpen: false });
+  } else if (act === 'cockpit-add-resume') {
+    addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, false);
+    setCockpit({ addOpen: false, addQuery: '', addResults: [] });
+  } else if (act === 'cockpit-add-new') {
+    const sel = document.getElementById('cockpit-new-project') as HTMLSelectElement | null;
+    const projectPath = sel?.value;
+    if (projectPath) {
+      const cp = getState().ui.cockpit;
+      const id = 'new:' + projectPath + ':' + Date.now();
+      const title = (projectPath.split(/[/\\]/).pop() || projectPath) + ' · new';
+      setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title }], open: true, maximized: null, addOpen: false });
+    }
   } else if (act === 'cockpit-open') {
     setCockpit({ open: true });
   } else if (act === 'cockpit-close') {
@@ -233,6 +258,17 @@ document.addEventListener('input', (ev) => {
         if (getState().search.query === q) setSearch({ results: res, loading: false });
       } catch { setSearch({ loading: false }); }
       postBridge(q, getState().ui.selectedProject);  // publish what we're searching for the agent
+    }, 250);
+  } else if (t.id === 'cockpit-add-search') {
+    const q = (t as HTMLInputElement).value;
+    setCockpit({ addQuery: q });
+    if (searchTimer) clearTimeout(searchTimer);
+    if (!q.trim()) { setCockpit({ addResults: [] }); return; }
+    searchTimer = setTimeout(async () => {
+      try {
+        const res = await fetchSearch(q);
+        if (getState().ui.cockpit.addQuery === q) setCockpit({ addResults: res });
+      } catch { /* ignore */ }
     }, 250);
   }
 });

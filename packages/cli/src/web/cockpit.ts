@@ -21,9 +21,10 @@ function esc(s: string): string {
 
 function wsUrl(t: CockpitTile): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return proto + '://' + location.host + '/ws/term?kind=resume'
-    + '&session=' + encodeURIComponent(t.sessionId)
-    + '&path=' + encodeURIComponent(t.projectPath);
+  const base = proto + '://' + location.host + '/ws/term?path=' + encodeURIComponent(t.projectPath);
+  return t.kind === 'new'
+    ? base + '&kind=new&id=' + encodeURIComponent(t.id)
+    : base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '');
 }
 
 function fitTile(t: LiveTile): void {

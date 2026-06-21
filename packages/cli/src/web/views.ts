@@ -457,6 +457,34 @@ function searchView(state: State): Tpl {
   </section>`;
 }
 
+function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
+  const cp = state.ui.cockpit;
+  if (!cp.addOpen) return '';
+  const q = cp.addQuery.trim();
+  const rows = q
+    ? cp.addResults.map((r) => ({ id: r.sessionId, path: r.projectPath, title: r.project, sub: r.snippet }))
+    : d.sessions.filter((s) => s.id).map((s) => ({ id: s.id!, path: s.path, title: s.project, sub: s.currentAction || s.status }));
+  return html`<div class="cp-add-backdrop">
+    <div class="cp-add">
+      <div class="cp-add-head"><span>Add to cockpit</span><button class="btn icon" data-act="cockpit-add-close" title="Close">&#10005;</button></div>
+      <input id="cockpit-add-search" class="search" placeholder="Search conversations to add…" .value=${cp.addQuery}>
+      <div class="cp-add-list">
+        ${rows.length ? rows.map((r) => html`<div class="cp-add-row">
+          <div class="cp-add-main"><div class="cp-add-title">${r.title}</div><div class="cp-add-sub">${r.sub}</div></div>
+          <button class="btn" data-act="cockpit-add-resume" data-id=${r.id} data-path=${r.path} data-title=${r.title}>+ Add</button>
+        </div>`) : html`<div class="empty">${q ? 'No matches.' : 'No recent conversations.'}</div>`}
+      </div>
+      <div class="cp-add-new">
+        <span class="cp-add-or">or start new in</span>
+        <select id="cockpit-new-project" class="cp-select">
+          ${d.projects.map((p) => html`<option value=${p.path}>${p.name}</option>`)}
+        </select>
+        <button class="btn primary" data-act="cockpit-add-new">${iPlay()} New session</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // ── root ─────────────────────────────────────────────────────
 export function appView(state: State): Tpl {
   const d = state.data;
@@ -474,5 +502,6 @@ export function appView(state: State): Tpl {
           : html`${activityCard(d)}${conversations(d, state)}`}
       </main>
     </div>
+    ${cockpitAddPanel(d, state)}
   `;
 }
