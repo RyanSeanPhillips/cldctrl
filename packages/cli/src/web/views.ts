@@ -481,6 +481,9 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
         </select>
         <button class="btn primary" data-act="cockpit-add-new">${iPlay()} New session</button>
       </div>
+      <label class="cp-wt"><input type="checkbox" id="cockpit-new-worktree"> ${iBranch()} Isolated worktree
+        <span class="cp-wt-hint">— runs on its own branch so it won't collide with other sessions</span></label>
+      <input id="cockpit-new-branch" class="search" placeholder="branch name (default: cockpit/session-N)" style="display:none">
     </div>
   </div>`;
 }

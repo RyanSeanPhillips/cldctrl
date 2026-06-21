@@ -17,6 +17,8 @@ export interface CockpitTile {
   sessionId?: string;         // resume only
   projectPath: string;
   title: string;
+  worktree?: boolean;         // new sessions: run in an isolated git worktree
+  branch?: string;            // the worktree branch
 }
 
 export interface CockpitState {

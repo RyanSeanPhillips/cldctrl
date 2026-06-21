@@ -394,6 +394,9 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cp-add-or { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
 .cp-select { flex: 1; min-width: 120px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
   border-radius: var(--r-sm); font: inherit; font-size: 12.5px; padding: 5px 8px; }
+.cp-wt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.cp-wt svg { color: var(--text-muted); }
+.cp-wt-hint { color: var(--text-muted); font-size: 11px; }
 @media (max-width: 1080px) {
   body.cockpit-open { padding-right: 0; }
   #cockpit { right: 0; }

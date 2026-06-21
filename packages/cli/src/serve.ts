@@ -27,6 +27,7 @@ import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
 import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
+import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
 import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
@@ -731,7 +732,7 @@ function setupAgentTerminal(server: http.Server): boolean {
     return false;
   }
   const wss = new WebSocketServer({ noServer: true });
-  server.on('upgrade', (req, socket, head) => {
+  server.on('upgrade', async (req, socket, head) => {
     try {
       if (!isLocalHost(req)) { socket.destroy(); return; }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -752,7 +753,12 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'new') {
           const id = url.searchParams.get('id') ?? '';
           if (!/^new:.{1,400}$/.test(id)) { socket.destroy(); return; }
-          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: proj.path }));
+          let cwd = proj.path;
+          if (url.searchParams.get('worktree') === '1') {
+            const wt = await createWorktree(proj.path, (url.searchParams.get('branch') || '').slice(0, 120));
+            if (wt) cwd = wt.path; // fall back to the project if not a git repo / git fails
+          }
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: cwd }));
           return;
         }
       }

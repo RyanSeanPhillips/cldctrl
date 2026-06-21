@@ -22,9 +22,12 @@ function esc(s: string): string {
 function wsUrl(t: CockpitTile): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const base = proto + '://' + location.host + '/ws/term?path=' + encodeURIComponent(t.projectPath);
-  return t.kind === 'new'
-    ? base + '&kind=new&id=' + encodeURIComponent(t.id)
-    : base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '');
+  if (t.kind === 'new') {
+    let u = base + '&kind=new&id=' + encodeURIComponent(t.id);
+    if (t.worktree) u += '&worktree=1&branch=' + encodeURIComponent(t.branch ?? '');
+    return u;
+  }
+  return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '');
 }
 
 function fitTile(t: LiveTile): void {

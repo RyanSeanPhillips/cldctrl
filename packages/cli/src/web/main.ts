@@ -168,9 +168,13 @@ document.addEventListener('click', async (ev) => {
     const projectPath = sel?.value;
     if (projectPath) {
       const cp = getState().ui.cockpit;
+      const wt = (document.getElementById('cockpit-new-worktree') as HTMLInputElement | null)?.checked ?? false;
+      const branchInput = (document.getElementById('cockpit-new-branch') as HTMLInputElement | null)?.value.trim();
+      const branch = wt ? (branchInput || 'cockpit/session-' + (cp.tiles.length + 1)) : undefined;
       const id = 'new:' + projectPath + ':' + Date.now();
-      const title = (projectPath.split(/[/\\]/).pop() || projectPath) + ' · new';
-      setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title }], open: true, maximized: null, addOpen: false });
+      const short = projectPath.split(/[/\\]/).pop() || projectPath;
+      const title = wt ? short + ' · ' + branch : short + ' · new';
+      setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title, worktree: wt, branch }], open: true, maximized: null, addOpen: false });
     }
   } else if (act === 'cockpit-open') {
     setCockpit({ open: true });
@@ -287,6 +291,14 @@ document.addEventListener('input', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && (ev.target as HTMLElement).id === 'newsession-prompt') {
     (document.querySelector('[data-act="newlaunch"]') as HTMLElement | null)?.click();
+  }
+});
+
+// Reveal the branch field when "Isolated worktree" is ticked.
+document.addEventListener('change', (ev) => {
+  if ((ev.target as HTMLElement).id === 'cockpit-new-worktree') {
+    const branch = document.getElementById('cockpit-new-branch') as HTMLInputElement | null;
+    if (branch) branch.style.display = (ev.target as HTMLInputElement).checked ? '' : 'none';
   }
 });
 
