@@ -29,7 +29,7 @@ import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
-import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
+import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, isCommandAvailable } from './core/platform.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
 import { launchAndTrack, getCleanEnv } from './core/launcher.js';
 import { getControlDir, hasControlHistory, ensureControlWorkspace } from './core/control.js';
@@ -151,6 +151,21 @@ function dominantModel(models: Record<string, number>): string | null {
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]{1,200}$/;
 const sessionFileMap = new Map<string, string>(); // sessionId -> JSONL path
 
+// ── Agents (vendor-neutral cockpit) ──────────────────────────
+// New cockpit sessions can run any installed CLI agent. Resume tiles + the dock
+// control agent stay Claude (they're Claude conversations).
+const KNOWN_AGENTS = [
+  { id: 'claude', label: 'Claude', cmd: 'claude' },
+  { id: 'codex', label: 'Codex', cmd: 'codex' },
+  { id: 'gemini', label: 'Gemini', cmd: 'gemini' },
+];
+function availableAgents(): Array<{ id: string; label: string; available: boolean }> {
+  return KNOWN_AGENTS.map((a) => ({ id: a.id, label: a.label, available: isCommandAvailable(a.cmd) }));
+}
+function agentCommand(agent?: string): string {
+  return KNOWN_AGENTS.find((a) => a.id === agent)?.cmd ?? 'claude';
+}
+
 // ── Overview payload ─────────────────────────────────────────
 
 async function buildOverview(): Promise<unknown> {
@@ -187,7 +202,7 @@ async function buildOverview(): Promise<unknown> {
     version: VERSION,
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
-    features: { agentTerminal: AGENT_TERMINAL_AVAILABLE },
+    features: { agentTerminal: AGENT_TERMINAL_AVAILABLE, agents: availableAgents() },
     usage: {
       fiveHour: {
         tokens: windowed.fiveHour.tokens,
@@ -596,7 +611,7 @@ const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; }
+interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; }
 interface TermSession {
   meta: TermMeta;
   term: any;                                   // node-pty instance
@@ -616,7 +631,7 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
     return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
   }
   if (meta.kind === 'new' && meta.projectPath) {
-    return { cwd: meta.projectPath, cmd: 'claude' };
+    return { cwd: meta.projectPath, cmd: agentCommand(meta.agent) };
   }
   return null;
 }
@@ -753,12 +768,13 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'new') {
           const id = url.searchParams.get('id') ?? '';
           if (!/^new:.{1,400}$/.test(id)) { socket.destroy(); return; }
+          const agent = url.searchParams.get('agent') ?? 'claude';
           let cwd = proj.path;
           if (url.searchParams.get('worktree') === '1') {
             const wt = await createWorktree(proj.path, (url.searchParams.get('branch') || '').slice(0, 120));
             if (wt) cwd = wt.path; // fall back to the project if not a git repo / git fails
           }
-          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: cwd }));
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: cwd, agent }));
           return;
         }
       }

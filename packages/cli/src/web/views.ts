@@ -481,6 +481,10 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
         </select>
         <button class="btn primary" data-act="cockpit-add-new">${iPlay()} New session</button>
       </div>
+      ${d.features.agents.length > 1 ? html`<div class="cp-agents"><span class="cp-add-or">agent</span>
+        ${d.features.agents.map((a) => html`<label class=${'cp-agent' + (a.available ? '' : ' off')} title=${a.available ? a.label : a.label + ' CLI not installed'}>
+          <input type="radio" name="cp-agent" value=${a.id} ?disabled=${!a.available} ?checked=${a.id === 'claude'}> ${a.label}${a.available ? '' : ' (install)'}</label>`)}
+      </div>` : ''}
       <label class="cp-wt"><input type="checkbox" id="cockpit-new-worktree"> ${iBranch()} Isolated worktree
         <span class="cp-wt-hint">— runs on its own branch so it won't collide with other sessions</span></label>
       <input id="cockpit-new-branch" class="search" placeholder="branch name (default: cockpit/session-N)" style="display:none">

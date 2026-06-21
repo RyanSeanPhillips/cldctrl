@@ -397,6 +397,9 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cp-wt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
 .cp-wt svg { color: var(--text-muted); }
 .cp-wt-hint { color: var(--text-muted); font-size: 11px; }
+.cp-agents { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.cp-agent { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-secondary); cursor: pointer; }
+.cp-agent.off { color: var(--text-faint); cursor: default; }
 @media (max-width: 1080px) {
   body.cockpit-open { padding-right: 0; }
   #cockpit { right: 0; }

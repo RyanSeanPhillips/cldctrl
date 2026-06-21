@@ -19,6 +19,7 @@ export interface CockpitTile {
   title: string;
   worktree?: boolean;         // new sessions: run in an isolated git worktree
   branch?: string;            // the worktree branch
+  agent?: string;             // new sessions: which CLI agent (claude/codex/gemini)
 }
 
 export interface CockpitState {

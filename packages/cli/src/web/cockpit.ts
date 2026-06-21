@@ -24,6 +24,7 @@ function wsUrl(t: CockpitTile): string {
   const base = proto + '://' + location.host + '/ws/term?path=' + encodeURIComponent(t.projectPath);
   if (t.kind === 'new') {
     let u = base + '&kind=new&id=' + encodeURIComponent(t.id);
+    if (t.agent) u += '&agent=' + encodeURIComponent(t.agent);
     if (t.worktree) u += '&worktree=1&branch=' + encodeURIComponent(t.branch ?? '');
     return u;
   }

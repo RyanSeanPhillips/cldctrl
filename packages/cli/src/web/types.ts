@@ -52,7 +52,7 @@ export interface OverviewPayload {
   version: string;
   generatedAt: string; // ISO
   tier: string | null;
-  features: { agentTerminal: boolean };
+  features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }> };
   usage: {
     fiveHour: UsageWindow;
     sevenDay: UsageWindow;

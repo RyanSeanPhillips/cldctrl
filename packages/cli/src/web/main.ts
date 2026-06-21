@@ -171,10 +171,12 @@ document.addEventListener('click', async (ev) => {
       const wt = (document.getElementById('cockpit-new-worktree') as HTMLInputElement | null)?.checked ?? false;
       const branchInput = (document.getElementById('cockpit-new-branch') as HTMLInputElement | null)?.value.trim();
       const branch = wt ? (branchInput || 'cockpit/session-' + (cp.tiles.length + 1)) : undefined;
+      const agent = (document.querySelector('input[name="cp-agent"]:checked') as HTMLInputElement | null)?.value || 'claude';
       const id = 'new:' + projectPath + ':' + Date.now();
       const short = projectPath.split(/[/\\]/).pop() || projectPath;
-      const title = wt ? short + ' · ' + branch : short + ' · new';
-      setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title, worktree: wt, branch }], open: true, maximized: null, addOpen: false });
+      const agentTag = agent !== 'claude' ? ' · ' + agent : '';
+      const title = (wt ? short + ' · ' + branch : short + ' · new') + agentTag;
+      setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title, worktree: wt, branch, agent }], open: true, maximized: null, addOpen: false });
     }
   } else if (act === 'cockpit-open') {
     setCockpit({ open: true });
