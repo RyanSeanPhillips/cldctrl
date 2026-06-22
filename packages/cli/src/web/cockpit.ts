@@ -69,6 +69,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const locBtns =
     (feats?.openExplorer ? `<button class="btn icon" data-act="tile-reveal" data-path="${pp}" title="Open project folder">&#128193;</button>` : '') +
     (feats?.openVscode ? `<button class="btn icon" data-act="tile-code" data-path="${pp}" title="Open in VS Code">&lt;/&gt;</button>` : '');
+  // Read the latest agent reply aloud (only when we know the session id).
+  const readBtn = meta.sessionId
+    ? `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId)}" title="Read the latest reply aloud">&#128266;</button>`
+    : '';
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
       <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
@@ -77,6 +81,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
       <button class="btn icon" data-act="tile-scratch" data-id="${esc(meta.id)}" title="Open a scratchpad to draft beside this chat">&#9998;</button>
+      ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>

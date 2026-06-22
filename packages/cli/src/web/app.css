@@ -439,6 +439,7 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .tile-status { font-size: 10.5px; color: var(--text-muted); }
 /* active read-aloud (stop state) */
 .tile-head .btn.icon.on { color: var(--accent); }
+.topbar .btn.icon.on { color: var(--accent); }
 /* restore-last-session banner (under the topbar) */
 .restore-banner { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); z-index: 40;
   display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4);

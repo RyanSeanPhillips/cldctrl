@@ -11,6 +11,7 @@ import {
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
 import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
+import { readSession, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
@@ -70,6 +71,9 @@ function renderApp(): void {
   const tr = document.getElementById('transcript');
   if (tr) tr.scrollTop = tr.scrollHeight;
 
+  const hf = document.querySelector('[data-act="handsfree-toggle"]') as HTMLElement | null;
+  if (hf) { hf.classList.toggle('on', isHandsFree()); if (isSpeaking()) hf.classList.add('on'); }
+
   if (state.ui.newSessionOpen && !prevNewSessionOpen) {
     const input = document.getElementById('newsession-prompt') as HTMLInputElement | null;
     if (input) { input.focus(); input.value = state.ui.newSessionDraft; }
@@ -86,6 +90,25 @@ async function shoot(target: string): Promise<void> {
     toast(r.path ? '✓ Screenshot path added to the session' : '✗ ' + (r.error || 'cancelled'));
   } catch { toast('✗ Screenshot failed'); }
 }
+
+// Which session a media-button / hands-free read targets: the most recently
+// active session that has an id.
+function latestActiveSessionId(): string | null {
+  const withId = (getState().data?.sessions ?? []).filter((s) => s.id);
+  if (!withId.length) return null;
+  const active = withId.filter((s) => s.status === 'active');
+  const pool = active.length ? active : withId;
+  pool.sort((a, b) => +new Date(b.lastActivity) - +new Date(a.lastActivity));
+  return pool[0].id ?? null;
+}
+
+// Reflect play/stop on every read-aloud button while speaking.
+onSpeechState((on) => {
+  document.querySelectorAll('[data-act="tile-readout"]').forEach((b) => {
+    b.innerHTML = on ? '&#9209;' : '&#128266;';
+    (b as HTMLElement).classList.toggle('on', on);
+  });
+});
 
 // ── open a project's location (file explorer / VS Code) ──────
 async function reveal(projectPath: string, target: 'explorer' | 'code'): Promise<void> {
@@ -302,6 +325,15 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
   else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
+  else if (act === 'tile-readout') { readSession(el.dataset.session); }
+  else if (act === 'handsfree-toggle') {
+    if (isHandsFree()) { disableHandsFree(); toast('Hands-free off'); }
+    else {
+      const ok = enableHandsFree(latestActiveSessionId);
+      toast(ok ? '🎧 Hands-free on — media buttons read the latest reply' : '✗ Media controls unavailable in this browser');
+    }
+    renderApp();
+  }
   else if (act === 'restore-accept') {
     const o = getState().ui.restoreOffer;
     if (o) { setCockpit({ tiles: o.tiles, layout: o.layout, open: true, maximized: null }); setUi({ restoreOffer: null, selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }

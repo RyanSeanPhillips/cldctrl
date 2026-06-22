@@ -92,6 +92,7 @@ function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): T
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
       ${themeSwitch()}
+      <button class="btn icon hands-free" data-act="handsfree-toggle" title="Hands-free listen — read the latest reply aloud; map Bluetooth/media buttons to play/stop">&#127911;</button>
       ${d.features.agentTerminal
         ? html`<button class="btn" data-act="dockToggle" title="CTRL — mission-control agent">${iTerminal()} CTRL</button>`
         : ''}
