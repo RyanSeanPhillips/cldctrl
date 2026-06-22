@@ -127,8 +127,7 @@ function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths:
       ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
     </div>
     <nav class="side-nav">
-      <button class=${'nav-item' + (!ui.selectedProject && !searching && !ui.cockpit.open ? ' selected' : '')} data-act="home">Conversations</button>
-      <button class=${'nav-item' + (ui.cockpit.open ? ' selected' : '')} data-act="cockpit-nav">Cockpit${ui.cockpit.tiles.length ? html` <span class="nav-count num">${ui.cockpit.tiles.length}</span>` : ''}</button>
+      <button class=${'nav-item' + (!ui.selectedProject && !searching ? ' selected' : '')} data-act="home">Conversations</button>
     </nav>
     <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
     <div class="proj-list">
@@ -493,16 +492,35 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
+// ── conversations-pane tabs (List / Cockpit) ─────────────────
+function convTabs(d: OverviewPayload, state: State): Tpl {
+  const cp = state.ui.cockpit;
+  const live = d.sessions.filter((s) => s.status === 'active').length;
+  return html`<div class="conv-tabs">
+    <button class=${'conv-tab' + (!cp.open ? ' active' : '')} data-act="view-list">List${live ? html` <span class="num">${live} live</span>` : ''}</button>
+    <button class=${'conv-tab' + (cp.open ? ' active' : '')} data-act="view-cockpit">Cockpit${cp.tiles.length ? html` <span class="num">${cp.tiles.length}</span>` : ''}</button>
+    ${cp.open ? html`<span class="sp"></span>
+      <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
+      <div class="cp-layouts">
+        <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
+        <button class=${'btn icon' + (cp.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
+        <button class=${'btn icon' + (cp.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
+      </div>` : ''}
+  </div>`;
+}
+
 // ── root ─────────────────────────────────────────────────────
 export function appView(state: State): Tpl {
   const d = state.data;
   if (!d) return html`<div class="loading">Loading dashboard…</div>`;
   const showSearch = !!state.search.query.trim();
-  const showCockpit = !showSearch && !state.ui.selectedProject && state.ui.cockpit.open;
-  const showDetail = !showSearch && !showCockpit && !!state.ui.selectedProject;
+  const home = !showSearch && !state.ui.selectedProject;     // the Conversations pane (List or Cockpit)
+  const showDetail = !showSearch && !home;
+  const showCockpit = home && state.ui.cockpit.open;
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   return html`
     ${topbar(d, state.connError, state.ui.cockpit.tiles.length)}
+    ${home ? convTabs(d, state) : ''}
     <div class="body">
       ${sidebar(d, state.ui, state.search.query, matchPaths)}
       <main class="main">

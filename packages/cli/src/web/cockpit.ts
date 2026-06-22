@@ -98,9 +98,6 @@ export function syncCockpit(): void {
   root.classList.toggle('open', show);
   grid.className = 'cockpit-grid ' + cp.layout + (cp.maximized ? ' has-max' : '');
 
-  const title = document.getElementById('cockpit-title');
-  if (title) title.textContent = 'Cockpit · ' + cp.tiles.length + ' session' + (cp.tiles.length === 1 ? '' : 's');
-
   // reconcile tiles
   const wanted = new Set(cp.tiles.map((t) => t.id));
   for (const id of [...tiles.keys()]) if (!wanted.has(id)) destroyTile(id);
@@ -109,11 +106,6 @@ export function syncCockpit(): void {
     if (!t) { t = createTile(meta); tiles.set(meta.id, t); grid.appendChild(t.el); }
     t.el.classList.toggle('maxed', cp.maximized === meta.id);
   }
-
-  // layout button active state
-  root.querySelectorAll('[data-act="cockpit-layout"]').forEach((b) => {
-    (b as HTMLElement).classList.toggle('on', (b as HTMLElement).dataset.layout === cp.layout);
-  });
 
   // Fit after layout settles, and again after the sidebar/width transition.
   if (show) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }

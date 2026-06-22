@@ -41,6 +41,8 @@ function renderApp(): void {
   render(appRoot, appView(state) as Node);
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   document.body.classList.toggle('sidebar-collapsed', state.ui.sidebarCollapsed);
+  const home = !state.search.query.trim() && !state.ui.selectedProject;
+  document.body.classList.toggle('conv-home', home);
   syncDock();
   syncCockpit();
 
@@ -204,7 +206,8 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
-  else if (act === 'cockpit-nav') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: true }); writeHash(); }
+  else if (act === 'view-list') { setCockpit({ open: false }); }
+  else if (act === 'view-cockpit') { setCockpit({ open: true }); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: false }); writeHash(); }
   else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {

@@ -511,18 +511,7 @@ const SHELL = `<!doctype html>
 </head>
 <body>
 <div id="app"><div class="loading">Loading dashboard…</div></div>
-<div id="cockpit">
-  <div id="cockpit-bar">
-    <span id="cockpit-title">Cockpit</span>
-    <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
-    <div class="cp-layouts">
-      <button class="btn icon" data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
-      <button class="btn icon" data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
-      <button class="btn icon" data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
-    </div>
-  </div>
-  <div id="cockpit-grid" class="cockpit-grid cols2"></div>
-</div>
+<div id="cockpit"><div id="cockpit-grid" class="cockpit-grid cols2"></div></div>
 <aside id="dock" class="dock">
   <button class="dock-rail" data-act="dockToggle" title="Agent control plane">
     <span class="dot" id="dock-dot-rail"></span>

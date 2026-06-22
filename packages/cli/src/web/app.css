@@ -29,6 +29,7 @@
   --topbar-h: 54px;
   --rail-w: 46px;
   --sidebar-w: 264px;
+  --convtabs-h: 44px;
   --dock-w: 460px;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Consolas, Menlo, monospace;
@@ -165,6 +166,20 @@ body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
   display: flex; flex-direction: column; gap: var(--s5); transition: margin .2s ease; }
 body.dock-open .main { margin-right: var(--dock-w); }
 body.no-agent .main { margin-right: 0; }
+body.conv-home .main { padding-top: calc(var(--convtabs-h) + var(--s4)); }
+
+/* Conversations-pane tabs (List / Cockpit) — fixed across the content area */
+.conv-tabs { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w);
+  height: var(--convtabs-h); display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s5);
+  background: var(--bg); border-bottom: 1px solid var(--border); z-index: 26; transition: left .2s ease, right .2s ease; }
+body.dock-open .conv-tabs { right: var(--dock-w); }
+.no-agent .conv-tabs { right: 0; }
+.conv-tabs .sp { margin-left: auto; }
+.conv-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted);
+  font: inherit; font-size: 13px; font-weight: 600; padding: 0 var(--s2); height: 100%; cursor: pointer; }
+.conv-tab:hover { color: var(--text-secondary); }
+.conv-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.conv-tab .num { color: var(--text-faint); font-weight: 400; font-size: 11.5px; }
 
 /* ── cards ────────────────────────────────────────────────── */
 .card {
@@ -183,7 +198,7 @@ body.no-agent .main { margin-right: 0; }
 .sidebar { padding: var(--s4); }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
-.proj-list { display: flex; flex-direction: column; gap: 2px; max-height: calc(100vh - var(--topbar-h) - 120px); overflow-y: auto; }
+.proj-list { display: flex; flex-direction: column; gap: 2px; }
 .proj-row { display: flex; align-items: center; gap: var(--s2); padding: 7px var(--s2); border-radius: var(--r-sm); cursor: pointer; transition: background .12s ease; }
 .proj-row:hover { background: var(--surface-2); }
 .proj.open > .proj-row { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
@@ -356,7 +371,7 @@ body.no-agent .main { margin-right: 0; }
 
 /* ── cockpit (grid of live conversation terminals) ────────── */
 /* Sits in the content area beside the (always-visible) sidebar — not an overlay. */
-#cockpit { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); bottom: 0; z-index: 25;
+#cockpit { position: fixed; top: calc(var(--topbar-h) + var(--convtabs-h)); left: var(--sidebar-w); right: var(--rail-w); bottom: 0; z-index: 25;
   background: var(--bg); display: none; flex-direction: column; transition: left .2s ease, right .2s ease; }
 #cockpit.open { display: flex; }
 .no-agent #cockpit { right: 0; }
