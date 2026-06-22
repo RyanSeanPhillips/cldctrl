@@ -51,7 +51,9 @@ export const AGENTS: AgentDef[] = [
   { id: 'claude', label: 'Claude', cmdName: 'claude', headless: (p) => ['-p', p], fallbacks: () => [] },
   {
     id: 'codex', label: 'Codex', cmdName: 'codex',
-    headless: (p, cwd) => ['exec', '--sandbox', 'read-only', ...(cwd ? ['-C', cwd] : []), p],
+    // --skip-git-repo-check lets exec run outside a git repo (control plane /
+    // non-repo dirs); safe since the sandbox is already read-only.
+    headless: (p, cwd) => ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', ...(cwd ? ['-C', cwd] : []), p],
     fallbacks: codexFallbacks,
   },
   { id: 'gemini', label: 'Gemini', cmdName: 'gemini', headless: (p) => ['-p', p], fallbacks: () => [] },
@@ -117,6 +119,18 @@ export function setAgentPath(id: string, exePath: string): { ok: boolean; error?
   } catch (e) { return { ok: false, error: String(e) }; }
 }
 
+/** Turn raw agent stderr into a shorter, clearer message for common failures. */
+function friendlyError(raw: string): string {
+  const low = raw.toLowerCase();
+  if (low.includes('trusted directory') || low.includes('git-repo-check')) {
+    return 'The agent refused the directory (git trust check). cldctrl passes --skip-git-repo-check; if this persists, update the agent CLI.';
+  }
+  if (low.includes('not logged in') || low.includes('unauthorized') || low.includes('auth')) {
+    return 'The agent appears unauthenticated — sign in to its CLI, then retry. (' + raw.slice(0, 160) + ')';
+  }
+  return raw.slice(0, 400);
+}
+
 export interface ConsultResult { ok: boolean; agent: string; output?: string; error?: string }
 
 /** Run `prompt` through another agent non-interactively and return its reply. */
@@ -141,7 +155,7 @@ export function consultAgent(agentId: string, prompt: string, cwd?: string, time
       clearTimeout(timer);
       const text = out.trim();
       if (text) finish({ ok: true, agent: agentId, output: text.slice(0, 16_000) });
-      else finish({ ok: false, agent: agentId, error: (err.trim() || 'exited ' + code).slice(0, 400) });
+      else finish({ ok: false, agent: agentId, error: friendlyError(err.trim() || 'exited ' + code) });
     });
   });
 }
