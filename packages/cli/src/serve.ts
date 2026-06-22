@@ -520,8 +520,6 @@ const SHELL = `<!doctype html>
       <button class="btn icon" data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
       <button class="btn icon" data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
     </div>
-    <span class="sp"></span>
-    <button class="btn" data-act="cockpit-close" title="Back to dashboard">&#10005; Close cockpit</button>
   </div>
   <div id="cockpit-grid" class="cockpit-grid cols2"></div>
 </div>

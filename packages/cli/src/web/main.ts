@@ -40,6 +40,7 @@ function renderApp(): void {
 
   render(appRoot, appView(state) as Node);
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
+  document.body.classList.toggle('sidebar-collapsed', state.ui.sidebarCollapsed);
   syncDock();
   syncCockpit();
 
@@ -79,6 +80,7 @@ function addResumeTile(sessionId: string, projectPath: string, title: string, op
     ? cp.tiles
     : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title }];
   setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null });
+  if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
 }
 
 // ── project detail loading (on tab open, never on the poll) ──
@@ -178,10 +180,6 @@ document.addEventListener('click', async (ev) => {
       const title = (wt ? short + ' · ' + branch : short + ' · new') + agentTag;
       setCockpit({ tiles: [...cp.tiles, { id, kind: 'new', projectPath, title, worktree: wt, branch, agent }], open: true, maximized: null, addOpen: false });
     }
-  } else if (act === 'cockpit-open') {
-    setCockpit({ open: true });
-  } else if (act === 'cockpit-close') {
-    setCockpit({ open: false });
   } else if (act === 'cockpit-layout') {
     setCockpit({ layout: el.dataset.layout as 'cols1' | 'cols2' | 'grid', maximized: null });
   } else if (act === 'tile-close') {
@@ -205,10 +203,13 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dockRestart') { restartDock(); }
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
-  else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+  else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
+  else if (act === 'cockpit-nav') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: true }); writeHash(); }
+  else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: false }); writeHash(); }
   else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {
     setSearch({ query: '', results: [] });
+    setCockpit({ open: false });
     setUi({ selectedProject: el.dataset.path!, expandedSessionId: null, newSessionOpen: false, newSessionDraft: '' });
     writeHash();
     loadDetailIfNeeded();

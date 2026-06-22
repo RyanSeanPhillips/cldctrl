@@ -39,7 +39,8 @@ export interface UiState {
   newSessionOpen: boolean;         // the "New session" prompt form in the detail header
   newSessionDraft: string;         // typed prompt, preserved across polls
   dockOpen: boolean;
-  cockpit: CockpitState;
+  sidebarCollapsed: boolean;
+  cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
   sortKey: SortKey;
   sortDir: 1 | -1;                 // 1 = desc, -1 = asc
 }
@@ -86,6 +87,7 @@ const state: State = {
     newSessionOpen: false,
     newSessionDraft: '',
     dockOpen: false,
+    sidebarCollapsed: false,
     cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null, addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,

@@ -87,13 +87,15 @@ function destroyTile(id: string): void {
 
 /** Reconcile the imperative cockpit DOM/PTYs with the store's cockpit state. */
 export function syncCockpit(): void {
-  const cp = getState().ui.cockpit;
+  const st = getState();
+  const cp = st.ui.cockpit;
   const root = document.getElementById('cockpit');
   const grid = document.getElementById('cockpit-grid');
   if (!root || !grid) return;
 
-  root.classList.toggle('open', cp.open);
-  document.body.classList.toggle('cockpit-open', cp.open);
+  // Show the grid only when the Cockpit view is selected (not project/search).
+  const show = cp.open && !st.ui.selectedProject && !st.search.query.trim();
+  root.classList.toggle('open', show);
   grid.className = 'cockpit-grid ' + cp.layout + (cp.maximized ? ' has-max' : '');
 
   const title = document.getElementById('cockpit-title');
@@ -113,8 +115,11 @@ export function syncCockpit(): void {
     (b as HTMLElement).classList.toggle('on', (b as HTMLElement).dataset.layout === cp.layout);
   });
 
-  if (cp.open) setTimeout(() => { for (const t of tiles.values()) fitTile(t); }, 60);
+  // Fit after layout settles, and again after the sidebar/width transition.
+  if (show) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
 }
+
+function refitAll(): void { for (const t of tiles.values()) fitTile(t); }
 
 /** Restart the PTY behind a tile in place (server respawns, socket stays). */
 export function restartTile(id: string): void {

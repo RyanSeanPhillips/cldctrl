@@ -74,6 +74,7 @@ function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): T
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
   return html`<header class="topbar">
+    <button class="btn icon side-toggle" data-act="sidebar-toggle" title="Show/hide sidebar">&#9776;</button>
     <div class="brand">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
@@ -88,7 +89,6 @@ function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): T
     <div class="topbar-right">
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
-      ${cockpitCount > 0 ? html`<button class="btn" data-act="cockpit-open" title="Open the conversation cockpit">${iGrid()} Cockpit <span class="num">${cockpitCount}</span></button>` : ''}
       ${themeSwitch()}
       ${d.features.agentTerminal
         ? html`<button class="btn" data-act="dockToggle" title="Agent control plane">${iTerminal()} Agent</button>`
@@ -127,7 +127,8 @@ function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths:
       ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
     </div>
     <nav class="side-nav">
-      <button class=${'nav-item' + (!ui.selectedProject && !searching ? ' selected' : '')} data-act="home">Conversations</button>
+      <button class=${'nav-item' + (!ui.selectedProject && !searching && !ui.cockpit.open ? ' selected' : '')} data-act="home">Conversations</button>
+      <button class=${'nav-item' + (ui.cockpit.open ? ' selected' : '')} data-act="cockpit-nav">Cockpit${ui.cockpit.tiles.length ? html` <span class="nav-count num">${ui.cockpit.tiles.length}</span>` : ''}</button>
     </nav>
     <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
     <div class="proj-list">
@@ -497,7 +498,8 @@ export function appView(state: State): Tpl {
   const d = state.data;
   if (!d) return html`<div class="loading">Loading dashboard…</div>`;
   const showSearch = !!state.search.query.trim();
-  const showDetail = !showSearch && !!state.ui.selectedProject;
+  const showCockpit = !showSearch && !state.ui.selectedProject && state.ui.cockpit.open;
+  const showDetail = !showSearch && !showCockpit && !!state.ui.selectedProject;
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   return html`
     ${topbar(d, state.connError, state.ui.cockpit.tiles.length)}
@@ -506,6 +508,7 @@ export function appView(state: State): Tpl {
       <main class="main">
         ${showSearch ? searchView(state)
           : showDetail ? projectDetail(d, state)
+          : showCockpit ? ''
           : html`${activityCard(d)}${conversations(d, state)}`}
       </main>
     </div>
