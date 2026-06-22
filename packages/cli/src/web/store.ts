@@ -22,6 +22,7 @@ export interface CockpitTile {
   agent?: string;             // new sessions: which CLI agent (claude/codex/gemini)
   filePath?: string;          // doc tiles: absolute path to the markdown file
   prompt?: string;            // new sessions: seed prompt typed into the agent
+  scratch?: boolean;          // doc tiles: a scratchpad (opens in edit mode, focused)
 }
 
 export interface CockpitState {

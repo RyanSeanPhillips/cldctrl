@@ -132,7 +132,9 @@ function createDocTile(meta: CockpitTile): LiveTile {
   const previewEl = el.querySelector('.doc-preview') as HTMLElement;
   const statusEl = el.querySelector('.doc-status') as HTMLElement;
 
-  let content = '', mtime = 0, mode: 'preview' | 'edit' = 'preview', dirty = false;
+  // Scratchpads open in edit mode (focused) for immediate typing; other doc
+  // tiles (e.g. a project .md from the Files tab) open in preview.
+  let content = '', mtime = 0, mode: 'preview' | 'edit' = meta.scratch ? 'edit' : 'preview', dirty = false;
   const renderPreview = () => { try { previewEl.innerHTML = marked.parse(content) as string; } catch { previewEl.textContent = content; } };
 
   const load = async () => {
@@ -161,6 +163,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
   };
 
   load();
+  if (mode === 'edit') setMode('edit'); // show + focus the textarea on mount (scratchpads)
   const poll = setInterval(load, 2500); // pick up the agent's edits to the file
 
   return {

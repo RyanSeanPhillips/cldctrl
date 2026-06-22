@@ -98,13 +98,13 @@ function addResumeTile(sessionId: string, projectPath: string, title: string, op
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
 }
 
-function addDocTile(filePath: string, projectPath: string, openNow: boolean): void {
+function addDocTile(filePath: string, projectPath: string, openNow: boolean, scratch = false): void {
   const id = 'doc:' + filePath;
   const cp = getState().ui.cockpit;
   const title = filePath.split(/[\\/]/).pop() || 'doc';
   const tiles = cp.tiles.some((t) => t.id === id)
     ? cp.tiles
-    : [...cp.tiles, { id, kind: 'doc' as const, projectPath, title, filePath }];
+    : [...cp.tiles, { id, kind: 'doc' as const, projectPath, title, filePath, scratch }];
   setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null, addOpen: false });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
 }
@@ -117,7 +117,7 @@ async function openScratchpadFor(tileId: string): Promise<void> {
   try {
     const r = await postScratch();
     if (!r.path) { toast('✗ ' + (r.error || 'could not open scratchpad')); return; }
-    addDocTile(r.path, proj, true);
+    addDocTile(r.path, proj, true, true);
     if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
     toast('✓ Scratchpad ready — draft away, Ctrl+S to save');
   } catch { toast('✗ Scratchpad failed'); }
@@ -203,7 +203,7 @@ async function poll(): Promise<void> {
     if (sc && sc.ts > lastScratchTs) {
       lastScratchTs = sc.ts;
       if (Date.now() - sc.ts < 5 * 60_000) {
-        addDocTile(sc.path, '', true);
+        addDocTile(sc.path, '', true, true);
         if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
       }
     }
