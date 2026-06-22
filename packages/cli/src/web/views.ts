@@ -74,7 +74,6 @@ function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): T
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
   return html`<header class="topbar">
-    <button class="btn icon side-toggle" data-act="sidebar-toggle" title="Show/hide sidebar">&#9776;</button>
     <div class="brand">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
@@ -523,6 +522,9 @@ export function appView(state: State): Tpl {
     ${home ? convTabs(d, state) : ''}
     <div class="body">
       ${sidebar(d, state.ui, state.search.query, matchPaths)}
+      <div class="side-divider" data-act="sidebar-toggle" title=${state.ui.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
+        <span class="side-handle">${state.ui.sidebarCollapsed ? '›' : '‹'}</span>
+      </div>
       <main class="main">
         ${showSearch ? searchView(state)
           : showDetail ? projectDetail(d, state)

@@ -159,7 +159,7 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 /* ── body layout ──────────────────────────────────────────── */
 .body { display: block; }
 .sidebar { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--sidebar-w);
-  overflow-y: auto; overflow-x: hidden; padding: var(--s4); border-right: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden; padding: var(--s4);
   transition: transform .2s ease; z-index: 30; }
 body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
 .main { margin-left: var(--sidebar-w); margin-right: var(--rail-w); padding: var(--s5);
@@ -385,8 +385,20 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cockpit-grid { flex: 1; min-height: 0; display: grid; gap: var(--s2); padding: var(--s2); }
 .cockpit-grid:empty { display: flex; align-items: center; justify-content: center; }
 .cockpit-grid:empty::after { content: 'No live sessions yet — use “+ Add”, or “Open here” on a conversation.'; color: var(--text-muted); font-size: 13px; }
-.side-toggle { margin-right: var(--s2); }
 .nav-count { color: var(--text-faint); font-size: 11px; }
+
+/* Sidebar collapse handle — a subtle divider you click to toggle */
+.side-divider { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); bottom: 0; width: 11px; z-index: 31;
+  cursor: pointer; display: flex; align-items: center; transition: left .2s ease; }
+.side-divider::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+  background: var(--border); transition: background .15s ease, width .15s ease; }
+.side-divider:hover::before { background: var(--accent); width: 2px; }
+.side-handle { position: relative; margin-left: -7px; width: 16px; height: 34px; border-radius: 5px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1;
+  opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease; }
+.side-divider:hover .side-handle { opacity: 1; background: var(--surface-3); color: var(--text); }
+body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .cockpit-grid.cols1 { grid-template-columns: 1fr; }
 .cockpit-grid.cols2 { grid-template-columns: 1fr 1fr; }
 .cockpit-grid.grid { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); grid-auto-rows: 1fr; }
