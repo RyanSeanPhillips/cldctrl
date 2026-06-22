@@ -58,6 +58,9 @@ const ConfigSchema = z.object({
       show_tooltip: z.boolean().default(true),
     }).default({}),
   }).default({}),
+  // Explicit paths to CLI agents (claude/codex/gemini), set when auto-detection
+  // can't find one (e.g. an app-bundled binary off PATH). Highest priority.
+  agent_paths: z.record(z.string(), z.string()).default({}),
 });
 
 // ── Feature flag helper ────────────────────────────────────

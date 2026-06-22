@@ -41,7 +41,7 @@ import {
 import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/control.js';
 import { searchConversations } from './core/conversation-search.js';
 import { readDashboardContext, writeAgentSearch } from './core/dashboard-bridge.js';
-import { consultAgent, listAgents } from './core/agents.js';
+import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
 import { log, initLogger } from './core/logger.js';
@@ -559,6 +559,25 @@ async function main(): Promise<void> {
         },
       },
       {
+        name: 'list_agents',
+        description:
+          "List the CLI coding agents cldctrl can drive (claude/codex/gemini), whether each is currently connected, the resolved executable path, and how it was found (config override / env var / PATH / app-bundle). Use to check whether Codex/Gemini are wired up before consult_agent, or to diagnose why one isn't found.",
+        inputSchema: { type: 'object' as const, properties: {} },
+      },
+      {
+        name: 'set_agent_path',
+        description:
+          "Connect a CLI agent by saving the full path to its executable in cldctrl config (highest-priority override). Use when an agent isn't auto-detected: find its binary (e.g. search the filesystem for codex/codex.exe — the OpenAI Codex app keeps it under %LOCALAPPDATA%\\OpenAI\\Codex\\bin\\<hash>\\codex.exe), then call this with that path. After this, consult_agent and cockpit sessions can use it.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            agent: { type: 'string', description: "Agent id: 'codex', 'gemini', or 'claude'." },
+            path: { type: 'string', description: 'Absolute path to the agent executable.' },
+          },
+          required: ['agent', 'path'],
+        },
+      },
+      {
         name: 'consult_agent',
         description:
           "Get a second opinion from another installed CLI coding agent (e.g. OpenAI Codex or Gemini) on an idea, plan, or piece of writing. Runs your prompt through that agent's FULL CLI non-interactively (it brings its own config, memories, MCP tools, and — read-only — any repo files if a project is given), and returns its complete reply. The other agent does NOT see this conversation, so include the relevant context in `prompt`. Use when the operator says things like \"check in with Codex on this plan\" or \"what would Codex think of this draft\". This is advisory only — the consult runs read-only and cannot modify files.",
@@ -653,6 +672,15 @@ async function main(): Promise<void> {
         case 'search_conversations':
           result = handleSearchConversations(args as { query: string; limit?: number; project?: string });
           break;
+        case 'list_agents':
+          result = { agents: listAgents() };
+          break;
+        case 'set_agent_path': {
+          const a = args as { agent: string; path: string };
+          const r = setAgentPath(a.agent, a.path);
+          result = r.ok ? { ok: true, agents: listAgents() } : { ok: false, error: r.error, agents: listAgents() };
+          break;
+        }
         case 'consult_agent':
           result = await handleConsultAgent(args as { agent: string; prompt: string; project?: string });
           break;

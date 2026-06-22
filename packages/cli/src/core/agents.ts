@@ -1,59 +1,120 @@
 /**
  * CLI coding agents cldctrl can drive (vendor-neutral). Each resolves to an
- * executable (PATH or a known install location) and a headless invocation used
- * by `consult_agent` — running an idea/plan/draft through another agent and
- * capturing its reply. Codex consults run READ-ONLY: the agent may read repo
- * files for context but cannot modify them — it's a second opinion, not an actor.
+ * executable via, in priority order:
+ *   1. config.agent_paths[id]      (explicit, set by the user or set_agent_path)
+ *   2. env CLDCTRL_<ID>_PATH        (explicit override)
+ *   3. the command on PATH          (normal install)
+ *   4. platform app-bundle fallbacks (e.g. the OpenAI Codex app's codex.exe)
+ * and a headless invocation used by `consult_agent`. Consults run READ-ONLY.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { isCommandAvailable } from './platform.js';
 import { getCleanEnv } from './launcher.js';
+import { loadConfig, saveConfig } from '../config.js';
 import { log } from './logger.js';
-
-/** The OpenAI Codex app bundles codex.exe in a hashed bin dir, off PATH. */
-let codexCache: string | null | undefined;
-function resolveCodex(): string | null {
-  if (codexCache !== undefined) return codexCache;
-  if (isCommandAvailable('codex')) return (codexCache = 'codex');
-  try {
-    const binRoot = path.join(process.env.LOCALAPPDATA || '', 'OpenAI', 'Codex', 'bin');
-    let best: string | null = null, bestM = 0;
-    for (const d of fs.readdirSync(binRoot, { withFileTypes: true })) {
-      if (!d.isDirectory()) continue;
-      const exe = path.join(binRoot, d.name, 'codex.exe');
-      try { const st = fs.statSync(exe); if (st.mtimeMs > bestM) { bestM = st.mtimeMs; best = exe; } } catch { /* skip */ }
-    }
-    return (codexCache = best);
-  } catch { return (codexCache = null); }
-}
 
 export interface AgentDef {
   id: string;
   label: string;
-  /** Resolved executable (path or PATH name), or null if not installed. */
-  resolve: () => string | null;
-  /** Args for a one-shot, non-interactive run that prints the reply to stdout. */
+  cmdName: string;                                   // command to look for on PATH
   headless: (prompt: string, cwd?: string) => string[];
+  fallbacks: () => string[];                         // candidate full paths off PATH
+}
+
+/** The OpenAI Codex app bundles codex.exe in a hashed bin dir, off PATH. */
+function codexFallbacks(): string[] {
+  const out: string[] = [];
+  const la = process.env.LOCALAPPDATA;
+  if (la) {
+    const binRoot = path.join(la, 'OpenAI', 'Codex', 'bin');
+    try {
+      const exes = fs.readdirSync(binRoot, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => path.join(binRoot, d.name, 'codex.exe'))
+        .filter((e) => { try { return fs.statSync(e).isFile(); } catch { return false; } })
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs); // newest first
+      out.push(...exes);
+    } catch { /* not installed here */ }
+  }
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    out.push(path.join(home, 'Library', 'Application Support', 'OpenAI', 'Codex', 'bin', 'codex')); // macOS
+    out.push(path.join(home, '.local', 'share', 'OpenAI', 'Codex', 'bin', 'codex'));                 // Linux
+  }
+  out.push('/Applications/Codex.app/Contents/MacOS/codex'); // macOS app bundle
+  return out;
 }
 
 export const AGENTS: AgentDef[] = [
-  { id: 'claude', label: 'Claude', resolve: () => (isCommandAvailable('claude') ? 'claude' : null), headless: (p) => ['-p', p] },
+  { id: 'claude', label: 'Claude', cmdName: 'claude', headless: (p) => ['-p', p], fallbacks: () => [] },
   {
-    id: 'codex', label: 'Codex', resolve: resolveCodex,
+    id: 'codex', label: 'Codex', cmdName: 'codex',
     headless: (p, cwd) => ['exec', '--sandbox', 'read-only', ...(cwd ? ['-C', cwd] : []), p],
+    fallbacks: codexFallbacks,
   },
-  { id: 'gemini', label: 'Gemini', resolve: () => (isCommandAvailable('gemini') ? 'gemini' : null), headless: (p) => ['-p', p] },
+  { id: 'gemini', label: 'Gemini', cmdName: 'gemini', headless: (p) => ['-p', p], fallbacks: () => [] },
 ];
 
-export function listAgents(): Array<{ id: string; label: string; available: boolean }> {
-  return AGENTS.map((a) => ({ id: a.id, label: a.label, available: !!a.resolve() }));
+export type AgentSource = 'config' | 'env' | 'path' | 'app';
+export interface ResolvedAgent { path: string; source: AgentSource }
+
+const resolveCache = new Map<string, ResolvedAgent | null>();
+/** Clear the resolution cache (after a config change). */
+export function clearAgentCache(): void { resolveCache.clear(); }
+
+function envKey(id: string): string { return 'CLDCTRL_' + id.toUpperCase() + '_PATH'; }
+
+/** Resolve an agent to an executable + how it was found, or null. */
+export function resolveAgent(id: string): ResolvedAgent | null {
+  if (resolveCache.has(id)) return resolveCache.get(id)!;
+  const a = AGENTS.find((x) => x.id === id);
+  let result: ResolvedAgent | null = null;
+  if (a) {
+    // 1. config override
+    try {
+      const p = loadConfig().config.agent_paths?.[id];
+      if (p && fs.existsSync(p)) result = { path: p, source: 'config' };
+    } catch { /* ignore */ }
+    // 2. env override
+    if (!result) { const ev = process.env[envKey(id)]; if (ev && fs.existsSync(ev)) result = { path: ev, source: 'env' }; }
+    // 3. PATH
+    if (!result && isCommandAvailable(a.cmdName)) result = { path: a.cmdName, source: 'path' };
+    // 4. platform fallbacks
+    if (!result) {
+      for (const cand of a.fallbacks()) {
+        try { if (fs.statSync(cand).isFile()) { result = { path: cand, source: 'app' }; break; } } catch { /* skip */ }
+      }
+    }
+  }
+  resolveCache.set(id, result);
+  return result;
+}
+
+export function listAgents(): Array<{ id: string; label: string; available: boolean; path: string | null; source: AgentSource | null }> {
+  return AGENTS.map((a) => {
+    const r = resolveAgent(a.id);
+    return { id: a.id, label: a.label, available: !!r, path: r?.path ?? null, source: r?.source ?? null };
+  });
 }
 
 /** Interactive command for a cockpit terminal (defaults to claude). */
 export function agentCommand(agentId?: string): string {
-  return AGENTS.find((a) => a.id === agentId)?.resolve() ?? 'claude';
+  return resolveAgent(agentId ?? 'claude')?.path ?? 'claude';
+}
+
+/** Persist an explicit path for an agent (the connect path Claude Code can set). */
+export function setAgentPath(id: string, exePath: string): { ok: boolean; error?: string } {
+  if (!AGENTS.some((a) => a.id === id)) return { ok: false, error: 'Unknown agent: ' + id };
+  if (!exePath || !fs.existsSync(exePath)) return { ok: false, error: 'No file at: ' + exePath };
+  try {
+    const { config } = loadConfig();
+    config.agent_paths = { ...(config.agent_paths ?? {}), [id]: exePath };
+    saveConfig(config);
+    clearAgentCache();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e) }; }
 }
 
 export interface ConsultResult { ok: boolean; agent: string; output?: string; error?: string }
@@ -62,15 +123,15 @@ export interface ConsultResult { ok: boolean; agent: string; output?: string; er
 export function consultAgent(agentId: string, prompt: string, cwd?: string, timeoutMs = 240_000): Promise<ConsultResult> {
   const a = AGENTS.find((x) => x.id === agentId);
   if (!a) return Promise.resolve({ ok: false, agent: agentId, error: 'Unknown agent: ' + agentId });
-  const exe = a.resolve();
-  if (!exe) return Promise.resolve({ ok: false, agent: agentId, error: a.label + ' is not installed / could not be located.' });
+  const r = resolveAgent(agentId);
+  if (!r) return Promise.resolve({ ok: false, agent: agentId, error: a.label + ' is not installed / could not be located. Set its path with set_agent_path.' });
 
   return new Promise((resolve) => {
     let out = '', err = '', done = false;
-    const finish = (r: ConsultResult) => { if (!done) { done = true; resolve(r); } };
+    const finish = (res: ConsultResult) => { if (!done) { done = true; resolve(res); } };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(exe, a.headless(prompt, cwd), { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(r.path, a.headless(prompt, cwd), { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) { return finish({ ok: false, agent: agentId, error: String(e) }); }
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish({ ok: false, agent: agentId, error: 'Timed out after ' + Math.round(timeoutMs / 1000) + 's' }); }, timeoutMs);
     child.stdout?.on('data', (d: Buffer) => { out += d.toString(); if (out.length > 300_000) { try { child.kill(); } catch { /* ignore */ } } });

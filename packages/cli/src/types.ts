@@ -64,6 +64,8 @@ export interface Config {
   notifications: NotificationsConfig;
   daily_budget_tokens?: number;
   features?: Partial<FeaturesConfig>;
+  /** Explicit executable paths for CLI agents (claude/codex/gemini). */
+  agent_paths?: Record<string, string>;
 }
 
 // ── Runtime ─────────────────────────────────────────────────
