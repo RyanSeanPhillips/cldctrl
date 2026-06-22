@@ -37,8 +37,14 @@ function renderApp(): void {
   // Preserve text-input focus + caret across the re-render (typing re-renders
   // the app to show results, and uhtml may recreate the input node).
   const active = document.activeElement as HTMLInputElement | null;
-  const focusedId = (active?.id === 'search-input' || active?.id === 'cockpit-add-search') ? active.id : null;
+  const PRESERVE_FOCUS = ['search-input', 'cockpit-add-search', 'newsession-prompt'];
+  const focusedId = active?.id && PRESERVE_FOCUS.includes(active.id) ? active.id : null;
   const caret = focusedId ? active!.selectionStart : null;
+
+  // Transcript follows the tail ONLY if you're already at the bottom — so
+  // scrolling up to read earlier output isn't yanked back down every poll.
+  const trBefore = document.getElementById('transcript');
+  const trWasAtBottom = trBefore ? (trBefore.scrollHeight - trBefore.scrollTop - trBefore.clientHeight < 40) : true;
 
   // Preserve scroll across the 3s poll re-render: the sidebar (project list)
   // always; the window (main content) only when the view is unchanged, so real
@@ -69,7 +75,7 @@ function renderApp(): void {
   }
 
   const tr = document.getElementById('transcript');
-  if (tr) tr.scrollTop = tr.scrollHeight;
+  if (tr && trWasAtBottom) tr.scrollTop = tr.scrollHeight;
 
   const hf = document.querySelector('[data-act="handsfree-toggle"]') as HTMLElement | null;
   if (hf) { hf.classList.toggle('on', isHandsFree()); if (isSpeaking()) hf.classList.add('on'); }

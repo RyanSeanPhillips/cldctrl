@@ -159,6 +159,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
     const r = await fetchFile(file);
     if (!r) { statusEl.textContent = 'not found'; return; }
     if (dirty) { if (r.mtime !== mtime) statusEl.textContent = 'changed on disk'; return; } // don't clobber edits
+    if (r.content === content) { statusEl.textContent = ''; return; } // unchanged — don't reset the textarea (caret) every poll
     content = r.content; mtime = r.mtime; editEl.value = content;
     if (mode === 'preview') renderPreview();
     statusEl.textContent = '';
