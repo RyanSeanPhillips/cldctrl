@@ -131,6 +131,7 @@ export function restartDock(): void {
   }
 }
 
+let prevOpen = false;
 /** Reconcile the dock's imperative DOM/connection with `ui.dockOpen`. */
 export function syncDock(): void {
   const open = getState().ui.dockOpen;
@@ -141,7 +142,10 @@ export function syncDock(): void {
   if (open) {
     if (!mounted) initTerm();
     connect();
-    setTimeout(() => { fitAndResize(); if (term) term.focus(); }, 270);
+    // Only fit + focus when the dock JUST opened — NOT on every 3s poll, or it
+    // would keep stealing the cursor from a cockpit tile you're typing in.
+    if (!prevOpen) setTimeout(() => { fitAndResize(); if (term) term.focus(); }, 270);
   }
+  prevOpen = open;
   writeHash();
 }
