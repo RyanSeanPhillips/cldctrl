@@ -29,6 +29,7 @@ function toast(msg: string): void {
 
 // ── render ───────────────────────────────────────────────────
 let prevNewSessionOpen = false;
+let prevViewKey = '';
 function renderApp(): void {
   const state = getState();
 
@@ -38,7 +39,19 @@ function renderApp(): void {
   const focusedId = (active?.id === 'search-input' || active?.id === 'cockpit-add-search') ? active.id : null;
   const caret = focusedId ? active!.selectionStart : null;
 
+  // Preserve scroll across the 3s poll re-render: the sidebar (project list)
+  // always; the window (main content) only when the view is unchanged, so real
+  // navigation still resets to top.
+  const viewKey = (state.ui.selectedProject ?? '') + '|' + state.search.query.trim() + '|' + state.ui.cockpit.open;
+  const sidebarScroll = (document.querySelector('.sidebar') as HTMLElement | null)?.scrollTop ?? 0;
+  const winScroll = window.scrollY;
+
   render(appRoot, appView(state) as Node);
+
+  const sb = document.querySelector('.sidebar') as HTMLElement | null;
+  if (sb && sidebarScroll) sb.scrollTop = sidebarScroll;
+  if (viewKey === prevViewKey && winScroll) window.scrollTo(0, winScroll);
+  prevViewKey = viewKey;
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   document.body.classList.toggle('sidebar-collapsed', state.ui.sidebarCollapsed);
   const home = !state.search.query.trim() && !state.ui.selectedProject;

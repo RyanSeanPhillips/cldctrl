@@ -198,16 +198,19 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .sidebar { padding: var(--s4); }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
-.proj-group { margin-bottom: var(--s2); }
-.group-head { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2); cursor: pointer;
-  border-radius: var(--r-sm); user-select: none; color: var(--text-muted); }
-.group-head:hover { background: var(--surface-2); color: var(--text-secondary); }
-.group-caret { font-size: 9px; width: 10px; color: var(--text-faint); }
-.group-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-.group-count { font-size: 10px; color: var(--text-faint); }
+.proj-group { margin-bottom: var(--s3); }
+.group-head { display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s2); cursor: pointer;
+  border-radius: var(--r-sm); user-select: none; color: var(--text-secondary);
+  background: var(--surface-2); border-left: 3px solid var(--accent); margin-bottom: 3px; }
+.group-head:hover { background: var(--surface-3); color: var(--text); }
+.group-caret { font-size: 9px; width: 10px; color: var(--accent); }
+.group-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); }
+.group-count { font-size: 10px; color: var(--text-muted); background: var(--surface-1);
+  border-radius: var(--r-pill); padding: 0 6px; }
 .group-live { display: flex; align-items: center; gap: 3px; margin-left: auto; font-size: 10px; color: var(--success); }
 .group-live .dot { width: 6px; height: 6px; }
-.proj-group.collapsed .group-head { color: var(--text-faint); }
+.proj-group.collapsed .group-head { color: var(--text-muted); border-left-color: var(--border-strong); }
+.proj-group.collapsed .group-name { color: var(--text-secondary); }
 .proj-list { display: flex; flex-direction: column; gap: 2px; }
 .proj-row { display: flex; align-items: center; gap: var(--s2); padding: 7px var(--s2); border-radius: var(--r-sm); cursor: pointer; transition: background .12s ease; }
 .proj-row:hover { background: var(--surface-2); }
