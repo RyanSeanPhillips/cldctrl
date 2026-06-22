@@ -437,6 +437,8 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
   font-family: var(--mono); letter-spacing: -0.02em; }
 .tile-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-status { font-size: 10.5px; color: var(--text-muted); }
+/* active read-aloud (stop state) */
+.tile-head .btn.icon.on { color: var(--accent); }
 .tile-head .sp { margin-left: auto; }
 .tile-term { flex: 1; min-height: 0; padding: var(--s2) var(--s1) var(--s2) var(--s2); }
 .tile-term .xterm { height: 100%; }

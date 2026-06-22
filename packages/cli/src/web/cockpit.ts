@@ -139,6 +139,11 @@ function createDocTile(meta: CockpitTile): LiveTile {
   const editEl = el.querySelector('.doc-edit') as HTMLTextAreaElement;
   const previewEl = el.querySelector('.doc-preview') as HTMLElement;
   const statusEl = el.querySelector('.doc-status') as HTMLElement;
+  const speakBtn = el.querySelector('[data-act="doc-speak"]') as HTMLButtonElement | null;
+  // Clicking a header button normally blurs the editor / clears the page
+  // selection before our handler runs — preventDefault on mousedown keeps the
+  // highlight intact so "read selection" works.
+  speakBtn?.addEventListener('mousedown', (e) => e.preventDefault());
 
   // Scratchpads open in edit mode (focused) for immediate typing; other doc
   // tiles (e.g. a project .md from the Files tab) open in preview.
@@ -175,16 +180,27 @@ function createDocTile(meta: CockpitTile): LiveTile {
   // Read aloud via the browser's Web Speech API — no server, no key, offline.
   // Reads the current selection if there is one, else the whole doc; toggles off.
   const stripMd = (s: string) => s.replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const setSpeaking = (on: boolean) => {
+    if (!speakBtn) return;
+    speakBtn.innerHTML = on ? '&#9209;' : '&#128266;';       // ⏹ stop  /  🔊 speaker
+    speakBtn.title = on ? 'Stop reading' : 'Read aloud (selection, else whole doc)';
+    speakBtn.classList.toggle('on', on);
+  };
   const speak = () => {
     try {
       const synth = window.speechSynthesis;
       if (!synth) return;
-      if (synth.speaking || synth.pending) { synth.cancel(); return; } // toggle off
+      if (synth.speaking || synth.pending) { synth.cancel(); setSpeaking(false); return; } // toggle off
       const sel = mode === 'edit'
         ? editEl.value.substring(editEl.selectionStart ?? 0, editEl.selectionEnd ?? 0)
         : (window.getSelection()?.toString() ?? '');
       const text = (sel.trim() || stripMd(content || editEl.value)).slice(0, 32000).trim();
-      if (text) synth.speak(new SpeechSynthesisUtterance(text));
+      if (!text) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = () => setSpeaking(false);
+      u.onerror = () => setSpeaking(false);
+      synth.speak(u);
+      setSpeaking(true);
     } catch { /* speech unavailable */ }
   };
 
