@@ -24,8 +24,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { VERSION } from './constants.js';
-import { loadConfig } from './config.js';
-import { buildProjectListFast, buildProjectList } from './core/projects.js';
+import { loadConfig, saveConfig } from './config.js';
+import { buildProjectListFast, buildProjectList, projectGroup, autoCategorizeProject } from './core/projects.js';
 import { getRecentSessions } from './core/sessions.js';
 import { getGitStatus, getRecentCommits } from './core/git.js';
 import { getIssues, isGhAvailable } from './core/github.js';
@@ -108,7 +108,31 @@ async function handleListProjects(): Promise<unknown> {
     path: p.path,
     alias: aliasMap.get(normalizePathForCompare(p.path)) || undefined,
     pinned: p.pinned || undefined,
+    group: projectGroup(config, p.name, p.path),
   }));
+}
+
+async function handleSetProjectGroup(args: { project: string; group: string }): Promise<unknown> {
+  const { config } = loadConfig();
+  const projects = buildProjectListFast(config);
+  const resolved = resolveProject(config, projects, args.project);
+  if (!resolved) {
+    return { error: `Project not found: "${args.project}". Use list_projects to see available projects.` };
+  }
+  const key = normalizePathForCompare(resolved.path);
+  const groups = { ...(config.project_groups ?? {}) };
+  const group = (args.group ?? '').trim();
+  if (!group || group.toLowerCase() === 'auto') {
+    // Clear the override → fall back to auto-categorization.
+    delete groups[key];
+    config.project_groups = groups;
+    saveConfig(config);
+    return { ok: true, project: resolved.name, group: autoCategorizeProject(resolved.name, resolved.path), reverted: true };
+  }
+  groups[key] = group;
+  config.project_groups = groups;
+  saveConfig(config);
+  return { ok: true, project: resolved.name, group };
 }
 
 async function handleGetProjectContext(args: { project: string }): Promise<unknown> {
@@ -391,10 +415,23 @@ async function main(): Promise<void> {
       {
         name: 'list_projects',
         description:
-          'List all projects known to cldctrl with their names, filesystem paths, and aliases.',
+          'List all projects known to cldctrl with their names, filesystem paths, aliases, and group (Apps/Research/Professional/Exploring/Ungrouped, or a custom name).',
         inputSchema: {
           type: 'object' as const,
           properties: {},
+        },
+      },
+      {
+        name: 'set_project_group',
+        description:
+          "Set which sidebar group a project belongs to in the dashboard (e.g. Apps, Research, Professional, Exploring, or any custom group name). Use when the operator asks to organize/recategorize projects (e.g. \"put adsb-dashboard in Exploring\"). Pass group:'auto' (or empty) to clear the override and fall back to auto-categorization. Persists in config; takes effect on the dashboard's next refresh.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            project: { type: 'string', description: 'Project name, alias, or filesystem path' },
+            group: { type: 'string', description: "Group name to assign, or 'auto' to revert to auto-categorization" },
+          },
+          required: ['project', 'group'],
         },
       },
       {
@@ -686,6 +723,9 @@ async function main(): Promise<void> {
       switch (name) {
         case 'list_projects':
           result = await handleListProjects();
+          break;
+        case 'set_project_group':
+          result = await handleSetProjectGroup(args as { project: string; group: string });
           break;
         case 'get_project_context':
           result = await handleGetProjectContext(args as { project: string });

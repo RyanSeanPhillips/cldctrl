@@ -41,6 +41,7 @@ export interface UiState {
   newSessionDraft: string;         // typed prompt, preserved across polls
   dockOpen: boolean;
   sidebarCollapsed: boolean;
+  collapsedGroups: string[];       // sidebar project-groups the user has collapsed
   cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
   sortKey: SortKey;
   sortDir: 1 | -1;                 // 1 = desc, -1 = asc
@@ -89,6 +90,7 @@ const state: State = {
     newSessionDraft: '',
     dockOpen: false,
     sidebarCollapsed: false,
+    collapsedGroups: [],
     cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null, addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,

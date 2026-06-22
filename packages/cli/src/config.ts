@@ -63,6 +63,9 @@ const ConfigSchema = z.object({
   // Explicit paths to CLI agents (claude/codex/gemini), set when auto-detection
   // can't find one (e.g. an app-bundled binary off PATH). Highest priority.
   agent_paths: z.record(z.string(), z.string()).default({}),
+  // Manual project→group overrides (normalized path → group name). Absent paths
+  // fall back to auto-categorization. Edited conversationally via CTRL.
+  project_groups: z.record(z.string(), z.string()).default({}),
 });
 
 // ── Feature flag helper ────────────────────────────────────

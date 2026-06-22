@@ -46,6 +46,7 @@ export interface ProjectInfo {
   branch: string | null;
   dirty: number;
   ahead: number;
+  group: string;
 }
 
 export interface OverviewPayload {

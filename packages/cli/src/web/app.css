@@ -198,6 +198,16 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .sidebar { padding: var(--s4); }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.proj-group { margin-bottom: var(--s2); }
+.group-head { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2); cursor: pointer;
+  border-radius: var(--r-sm); user-select: none; color: var(--text-muted); }
+.group-head:hover { background: var(--surface-2); color: var(--text-secondary); }
+.group-caret { font-size: 9px; width: 10px; color: var(--text-faint); }
+.group-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.group-count { font-size: 10px; color: var(--text-faint); }
+.group-live { display: flex; align-items: center; gap: 3px; margin-left: auto; font-size: 10px; color: var(--success); }
+.group-live .dot { width: 6px; height: 6px; }
+.proj-group.collapsed .group-head { color: var(--text-faint); }
 .proj-list { display: flex; flex-direction: column; gap: 2px; }
 .proj-row { display: flex; align-items: center; gap: var(--s2); padding: 7px var(--s2); border-radius: var(--r-sm); cursor: pointer; transition: background .12s ease; }
 .proj-row:hover { background: var(--surface-2); }

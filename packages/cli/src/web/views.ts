@@ -92,7 +92,7 @@ function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): T
       <span class="updated">${connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
       ${themeSwitch()}
       ${d.features.agentTerminal
-        ? html`<button class="btn" data-act="dockToggle" title="Agent control plane">${iTerminal()} Agent</button>`
+        ? html`<button class="btn" data-act="dockToggle" title="CTRL — mission-control agent">${iTerminal()} CTRL</button>`
         : ''}
     </div>
   </header>`;
@@ -120,8 +120,34 @@ function projectRow(p: ProjectInfo, ui: State['ui'], matchPaths: Set<string> | n
   </div>`;
 }
 
+// Sidebar group order: known groups first (per PROJECT_GROUP_ORDER), then any
+// custom group names alphabetically, with Ungrouped always last.
+const GROUP_ORDER = ['Apps', 'Research', 'Professional', 'Exploring', 'Ungrouped'];
+function orderedGroups(names: Set<string>): string[] {
+  const known = GROUP_ORDER.filter((g) => names.has(g) && g !== 'Ungrouped');
+  const custom = [...names].filter((g) => !GROUP_ORDER.includes(g)).sort();
+  const tail = names.has('Ungrouped') ? ['Ungrouped'] : [];
+  return [...known, ...custom, ...tail];
+}
+
+function projectGroupSection(group: string, projects: ProjectInfo[], ui: State['ui'], matchPaths: Set<string> | null): Tpl {
+  const collapsed = ui.collapsedGroups.includes(group);
+  const liveCount = projects.filter((p) => p.active).length;
+  return html`<div class=${'proj-group' + (collapsed ? ' collapsed' : '')}>
+    <div class="group-head" data-act="toggle-group" data-group=${group}>
+      <span class="group-caret">${collapsed ? '▸' : '▾'}</span>
+      <span class="group-name">${group}</span>
+      <span class="group-count num">${projects.length}</span>
+      ${liveCount ? html`<span class="group-live"><span class="dot active"></span>${liveCount}</span>` : ''}
+    </div>
+    ${collapsed ? '' : html`<div class="proj-list">${projects.map((p) => projectRow(p, ui, matchPaths))}</div>`}
+  </div>`;
+}
+
 function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths: Set<string> | null): Tpl {
   const searching = !!query.trim();
+  const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
+  const groups = orderedGroups(names);
   return html`<aside class="sidebar">
     <div class="search-box">
       <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>
@@ -131,9 +157,9 @@ function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths:
       <button class=${'nav-item' + (!ui.selectedProject && !searching ? ' selected' : '')} data-act="home">Conversations</button>
     </nav>
     <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
-    <div class="proj-list">
-      ${d.projects.length ? d.projects.map((p) => projectRow(p, ui, matchPaths)) : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
-    </div>
+    ${d.projects.length
+      ? groups.map((g) => projectGroupSection(g, d.projects.filter((p) => (p.group || 'Ungrouped') === g), ui, matchPaths))
+      : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
   </aside>`;
 }
 

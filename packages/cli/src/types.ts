@@ -70,6 +70,9 @@ export interface Config {
   features?: Partial<FeaturesConfig>;
   /** Explicit executable paths for CLI agents (claude/codex/gemini). */
   agent_paths?: Record<string, string>;
+  /** Manual project→group overrides, keyed by normalized path. Absent paths
+   *  fall back to auto-categorization. Set conversationally via CTRL. */
+  project_groups?: Record<string, string>;
 }
 
 // ── Runtime ─────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
 import { loadConfig } from './config.js';
-import { buildProjectListFast } from './core/projects.js';
+import { buildProjectListFast, projectGroup } from './core/projects.js';
 import { getActiveClaudeProcesses } from './core/processes.js';
 import { getActiveSessionInfo } from './core/activity.js';
 import { getRollingUsageWindowed, getRecentSessions } from './core/sessions.js';
@@ -243,6 +243,7 @@ async function buildOverview(): Promise<unknown> {
         branch: git?.branch ?? null,
         dirty: git?.dirty ?? 0,
         ahead: git?.ahead ?? 0,
+        group: projectGroup(config, p.name, p.path),
       };
     }),
   };
@@ -556,14 +557,14 @@ const SHELL = `<!doctype html>
 <div id="app"><div class="loading">Loading dashboard…</div></div>
 <div id="cockpit"><div id="cockpit-grid" class="cockpit-grid cols2"></div></div>
 <aside id="dock" class="dock">
-  <button class="dock-rail" data-act="dockToggle" title="Agent control plane">
+  <button class="dock-rail" data-act="dockToggle" title="CTRL — mission-control agent">
     <span class="dot" id="dock-dot-rail"></span>
-    <span class="rail-label">Agent</span>
+    <span class="rail-label">CTRL</span>
   </button>
   <div class="dock-panel">
     <div class="dock-head">
       <span class="dot" id="dock-dot"></span>
-      <span class="dock-title">Agent · control plane</span>
+      <span class="dock-title">CTRL · control plane</span>
       <span class="sp"></span>
       <button class="btn icon" data-act="dock-shot" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="dockRestart" title="Restart session">↻</button>

@@ -25,6 +25,30 @@ export function getProjectSlug(projectPath: string): string {
   return projectPath.replace(/[:\\/_ ]/g, '-');
 }
 
+// ── Project grouping ────────────────────────────────────────
+/** Display order for sidebar groups; anything else sorts after, Ungrouped last. */
+export const PROJECT_GROUP_ORDER = ['Apps', 'Research', 'Professional', 'Exploring', 'Ungrouped'];
+
+/**
+ * Best-guess group from a project's name + path — the seed users/CTRL tweak.
+ * First match wins; order matters (e.g. Professional before Apps so a personal
+ * site isn't swept into Apps by the 'website' keyword).
+ */
+export function autoCategorizeProject(name: string, projectPath: string): string {
+  const s = (name + ' ' + projectPath).toLowerCase().replace(/\\/g, '/');
+  if (/phillips-website/.test(s) || /\b(jobs?|cv|resume|interview|career|application|rppr|grants?|portfolio|cover[\s-]?letter)\b/.test(s)) return 'Professional';
+  if (/(cldctrl|cagemetrics|physiometrics|app-analytics|analytics|dashboard|adsb|neuronforge|codeindex|labindex|metadata-?browser|mousetracker|bonsai|pleth|voila|opa-website|website|tracking|tracker)/.test(s)) return 'Apps';
+  if (/(spk[_-]?shape|netsims?|ia[_-]?dynamics|vgat|\brvm\b|cibrrig|modeling|multi[_-]?region|painbreathing|breath|npx[_-]?pipeline|manuscript|opioid|respiratory|synaptic)/.test(s)) return 'Research';
+  if (/(opa[\s-]?test|tzdata|downloads|sandbox|scratch|\btest\b|example|explore)/.test(s)) return 'Exploring';
+  return 'Ungrouped';
+}
+
+/** Resolve a project's group: explicit config override (by normalized path) → auto. */
+export function projectGroup(config: Config, name: string, projectPath: string): string {
+  const override = config.project_groups?.[normalizePathForCompare(projectPath)];
+  return (override && override.trim()) || autoCategorizeProject(name, projectPath);
+}
+
 /**
  * Attempt to reconstruct the original path from a slug directory name.
  * Slug format on Windows: C-Users-name-path-to-project

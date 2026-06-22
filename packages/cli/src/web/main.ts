@@ -255,6 +255,11 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
+  else if (act === 'toggle-group') {
+    const g = el.dataset.group!;
+    const cur = getState().ui.collapsedGroups;
+    setUi({ collapsedGroups: cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g] });
+  }
   else if (act === 'view-list') { setCockpit({ open: false }); }
   else if (act === 'view-cockpit') { setCockpit({ open: true }); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: false }); writeHash(); }
