@@ -129,7 +129,7 @@ export function App() {
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
   useEffect(() => {
     if (isDemoMode()) return;
-    import('../core/update-check.js').then(m => m.checkForUpdate()).then(v => {
+    import('../core/update-check.js').then(m => m.checkForUpdate(false, 'tui')).then(v => {
       if (v) setUpdateAvailable(v);
     }).catch(() => {});
   }, []);
@@ -141,7 +141,7 @@ export function App() {
     if (isDemoMode()) return;
     let timer: ReturnType<typeof setInterval> | undefined;
     import('../core/update-check.js').then(m => {
-      timer = setInterval(() => m.pingHeartbeat(), 300000); // 5 minutes
+      timer = setInterval(() => m.pingHeartbeat('tui'), 300000); // 5 minutes
       timer.unref?.(); // don't keep the process alive on quit
     }).catch(() => {});
     return () => { if (timer) clearInterval(timer); };
@@ -667,7 +667,7 @@ export function App() {
     onAddProject,
     onCheckUpdate: () => {
       onLaunchFeedback('Checking for updates...');
-      import('../core/update-check.js').then(m => m.checkForUpdate(true)).then(v => {
+      import('../core/update-check.js').then(m => m.checkForUpdate(true, 'tui')).then(v => {
         if (v) { setUpdateAvailable(v); onLaunchFeedback(`Update available: v${v}`); }
         else onLaunchFeedback('Up to date!');
       }).catch(() => onLaunchFeedback('Update check failed'));

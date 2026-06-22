@@ -925,6 +925,14 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
     console.log(`CLD CTRL dashboard: ${url}`);
     console.log(`Bound to localhost only.${agentOk ? ' Agent terminal enabled.' : ''} Ctrl+C to stop.`);
     if (opts.open) openUrl(url);
+    // Adoption ping for the browser surface: one launch hit, then a slow
+    // presence heartbeat while the dashboard server stays up (same beacon as
+    // the TUI, tagged client='browser' so the two surfaces can be told apart).
+    import('./core/update-check.js').then((m) => {
+      m.checkForUpdate(false, 'browser').catch(() => { /* ignore */ });
+      const hb = setInterval(() => m.pingHeartbeat('browser'), 300000);
+      hb.unref?.();
+    }).catch(() => { /* offline / blocked — ignore */ });
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {

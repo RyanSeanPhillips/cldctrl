@@ -46,9 +46,13 @@ function writeCache(latestVersion: string): void {
  * trick, which was limited to ~8 days of Cloudflare free-plan retention, had no
  * unique-user signal, and was polluted by scanners hitting the public path.
  */
-function beacon(extra: Record<string, unknown>): void {
+/** Which surface produced the ping, so adoption can be split TUI vs browser vs
+ *  bare CLI. Carried as `c` (and mirrored into the legacy `s`/`p` fields). */
+export type ClientKind = 'tui' | 'browser' | 'cli';
+
+function beacon(client: ClientKind, extra: Record<string, unknown>): void {
   try {
-    const body = JSON.stringify({ h: 'cli', p: '/launch', s: 'cli', prod: 'cldctrl', l: VERSION, ...extra });
+    const body = JSON.stringify({ h: 'cli', p: '/' + client, s: client, c: client, prod: 'cldctrl', l: VERSION, ...extra });
     const req = https.request('https://cld-ctrl.com/px/collect', {
       method: 'POST',
       headers: {
@@ -66,14 +70,14 @@ function beacon(extra: Record<string, unknown>): void {
 }
 
 /** Launch ping — one beacon per app start (recorded as a usage hit). */
-function pingAnalytics(): void {
-  beacon({ a: 1 });
+function pingAnalytics(client: ClientKind): void {
+  beacon(client, { a: 1 });
 }
 
-/** Heartbeat — keeps this instance shown as "live" while the TUI stays open
- *  (presence only; not counted as a new launch). Call on an interval. */
-export function pingHeartbeat(): void {
-  beacon({ e: 'ping', a: 1 });
+/** Heartbeat — keeps an instance shown as "live" while it stays open (presence
+ *  only; not a new launch). Call on an interval. Defaults to the TUI surface. */
+export function pingHeartbeat(client: ClientKind = 'tui'): void {
+  beacon(client, { e: 'ping', a: 1 });
 }
 
 /** Fetch actual latest version from npm registry (source of truth) */
@@ -111,9 +115,9 @@ function isNewer(latest: string, current: string): boolean {
  * Check for updates. Returns the latest version if newer, null otherwise.
  * Uses a 24h cache to avoid spamming npm on every launch.
  */
-export async function checkForUpdate(force = false): Promise<string | null> {
+export async function checkForUpdate(force = false, client: ClientKind = 'cli'): Promise<string | null> {
   // Always ping for analytics (fire-and-forget, once per app launch)
-  pingAnalytics();
+  pingAnalytics(client);
 
   // Check cache first (skip if forced)
   if (!force) {
