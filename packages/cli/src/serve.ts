@@ -29,7 +29,8 @@ import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
-import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, isCommandAvailable } from './core/platform.js';
+import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
+import { listAgents, agentCommand } from './core/agents.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
 import { launchAndTrack, getCleanEnv } from './core/launcher.js';
 import { getControlDir, hasControlHistory, ensureControlWorkspace } from './core/control.js';
@@ -151,21 +152,6 @@ function dominantModel(models: Record<string, number>): string | null {
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]{1,200}$/;
 const sessionFileMap = new Map<string, string>(); // sessionId -> JSONL path
 
-// ── Agents (vendor-neutral cockpit) ──────────────────────────
-// New cockpit sessions can run any installed CLI agent. Resume tiles + the dock
-// control agent stay Claude (they're Claude conversations).
-const KNOWN_AGENTS = [
-  { id: 'claude', label: 'Claude', cmd: 'claude' },
-  { id: 'codex', label: 'Codex', cmd: 'codex' },
-  { id: 'gemini', label: 'Gemini', cmd: 'gemini' },
-];
-function availableAgents(): Array<{ id: string; label: string; available: boolean }> {
-  return KNOWN_AGENTS.map((a) => ({ id: a.id, label: a.label, available: isCommandAvailable(a.cmd) }));
-}
-function agentCommand(agent?: string): string {
-  return KNOWN_AGENTS.find((a) => a.id === agent)?.cmd ?? 'claude';
-}
-
 // ── Overview payload ─────────────────────────────────────────
 
 async function buildOverview(): Promise<unknown> {
@@ -202,7 +188,7 @@ async function buildOverview(): Promise<unknown> {
     version: VERSION,
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
-    features: { agentTerminal: AGENT_TERMINAL_AVAILABLE, agents: availableAgents() },
+    features: { agentTerminal: AGENT_TERMINAL_AVAILABLE, agents: listAgents() },
     usage: {
       fiveHour: {
         tokens: windowed.fiveHour.tokens,

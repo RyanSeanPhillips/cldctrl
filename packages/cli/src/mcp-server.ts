@@ -41,6 +41,7 @@ import {
 import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/control.js';
 import { searchConversations } from './core/conversation-search.js';
 import { readDashboardContext, writeAgentSearch } from './core/dashboard-bridge.js';
+import { consultAgent, listAgents } from './core/agents.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
 import { log, initLogger } from './core/logger.js';
@@ -283,6 +284,23 @@ function handleSearchConversations(args: { query: string; limit?: number; projec
     results,
     hint: 'Resume any result with launch_session({ project, resume: sessionId }).',
   };
+}
+
+async function handleConsultAgent(args: { agent: string; prompt: string; project?: string }): Promise<unknown> {
+  const agent = (args.agent ?? '').trim();
+  const prompt = (args.prompt ?? '').trim();
+  if (!agent || !prompt) return { ok: false, error: 'Both `agent` and `prompt` are required.', agents: listAgents() };
+
+  let cwd: string | undefined;
+  if (args.project) {
+    const { config } = loadConfig();
+    const projects = buildProjectListFast(config);
+    cwd = resolveProject(config, projects, args.project)?.path;
+  }
+
+  const r = await consultAgent(agent, prompt, cwd);
+  if (r.ok) return { ok: true, agent: r.agent, reply: r.output };
+  return { ok: false, agent, error: r.error, agents: listAgents() };
 }
 
 function handleGetDashboardContext(): unknown {
@@ -541,6 +559,20 @@ async function main(): Promise<void> {
         },
       },
       {
+        name: 'consult_agent',
+        description:
+          "Get a second opinion from another installed CLI coding agent (e.g. OpenAI Codex or Gemini) on an idea, plan, or piece of writing. Runs your prompt through that agent's FULL CLI non-interactively (it brings its own config, memories, MCP tools, and — read-only — any repo files if a project is given), and returns its complete reply. The other agent does NOT see this conversation, so include the relevant context in `prompt`. Use when the operator says things like \"check in with Codex on this plan\" or \"what would Codex think of this draft\". This is advisory only — the consult runs read-only and cannot modify files.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            agent: { type: 'string', description: "Which agent to consult: 'codex', 'gemini', or 'claude'." },
+            prompt: { type: 'string', description: 'The full question/plan/draft to send, including any context the agent needs (it cannot see this conversation).' },
+            project: { type: 'string', description: 'Optional project name/alias/path to run the consult in, giving the agent read-only access to that repo for context.' },
+          },
+          required: ['agent', 'prompt'],
+        },
+      },
+      {
         name: 'get_dashboard_context',
         description:
           "See what the operator is currently looking at in the cldctrl browser dashboard: their active conversation search query, the matching sessions they're seeing, and any selected project. Use this when they say things like \"narrow down what I'm looking at\" or \"help me with this search\" so you act on their actual screen instead of guessing.",
@@ -620,6 +652,9 @@ async function main(): Promise<void> {
           break;
         case 'search_conversations':
           result = handleSearchConversations(args as { query: string; limit?: number; project?: string });
+          break;
+        case 'consult_agent':
+          result = await handleConsultAgent(args as { agent: string; prompt: string; project?: string });
           break;
         case 'get_dashboard_context':
           result = handleGetDashboardContext();
