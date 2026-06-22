@@ -13,6 +13,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
 import { loadConfig } from './config.js';
@@ -29,7 +30,7 @@ import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath,
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
-import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform } from './core/platform.js';
+import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, openInExplorer, isCommandAvailable } from './core/platform.js';
 import { listAgents, agentCommand } from './core/agents.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
 import { launchAndTrack, getCleanEnv } from './core/launcher.js';
@@ -188,7 +189,12 @@ async function buildOverview(): Promise<unknown> {
     version: VERSION,
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
-    features: { agentTerminal: AGENT_TERMINAL_AVAILABLE, agents: listAgents() },
+    features: {
+      agentTerminal: AGENT_TERMINAL_AVAILABLE,
+      agents: listAgents(),
+      openExplorer: config.launch?.explorer !== false,
+      openVscode: config.launch?.vscode !== false && isCommandAvailable('code'),
+    },
     usage: {
       fiveHour: {
         tokens: windowed.fiveHour.tokens,
@@ -920,6 +926,22 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         const p = newScratchFile(title);
         log('serve_scratch', { path: p });
         sendJson(res, 200, { ok: true, path: p });
+      } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const proj = resolveKnownProject(typeof body.path === 'string' ? body.path : '');
+        if (!proj) { sendJson(res, 403, { error: 'Path is not a known project' }); return; }
+        const target = body.target === 'code' ? 'code' : 'explorer';
+        try {
+          if (target === 'code') {
+            if (!isCommandAvailable('code')) { sendJson(res, 200, { ok: false, error: 'VS Code (code) not on PATH' }); return; }
+            spawn.spawn('code', [proj.path], { detached: true, stdio: 'ignore' }).unref();
+          } else {
+            openInExplorer(proj.path);
+          }
+          log('serve_reveal', { target, path: proj.path });
+          sendJson(res, 200, { ok: true, target });
+        } catch (e) { sendJson(res, 200, { ok: false, error: String(e) }); }
       } else if (req.method === 'POST' && url.pathname === '/api/bridge') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

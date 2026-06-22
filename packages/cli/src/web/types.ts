@@ -53,7 +53,7 @@ export interface OverviewPayload {
   version: string;
   generatedAt: string; // ISO
   tier: string | null;
-  features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }> };
+  features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; openExplorer?: boolean; openVscode?: boolean };
   usage: {
     fiveHour: UsageWindow;
     sevenDay: UsageWindow;

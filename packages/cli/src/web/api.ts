@@ -81,6 +81,16 @@ export async function postFile(p: string, content: string): Promise<{ ok?: boole
   return r.json();
 }
 
+/** Open a project's location on disk: the system file explorer or VS Code. */
+export async function postReveal(path: string, target: 'explorer' | 'code'): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch('/api/reveal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ path, target }),
+  });
+  return r.json();
+}
+
 /** Mint a fresh scratchpad file (for the conversation "draft" button) and return its path. */
 export async function postScratch(title?: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
   const r = await fetch('/api/scratch', {
