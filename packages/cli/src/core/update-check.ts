@@ -47,12 +47,15 @@ function writeCache(latestVersion: string): void {
  * unique-user signal, and was polluted by scanners hitting the public path.
  */
 /** Which surface produced the ping, so adoption can be split TUI vs browser vs
- *  bare CLI. Carried as `c` (and mirrored into the legacy `s`/`p` fields). */
+ *  bare CLI. Sent as `s` (the worker's surface/site field) + `c` (explicit). */
 export type ClientKind = 'tui' | 'browser' | 'cli';
 
 function beacon(client: ClientKind, extra: Record<string, unknown>): void {
   try {
-    const body = JSON.stringify({ h: 'cli', p: '/' + client, s: client, c: client, prod: 'cldctrl', l: VERSION, ...extra });
+    // Field names match the analytics Worker (app-analytics): `s` → site/surface,
+    // `v` → app version (the worker's `ver` column; it was previously sent as `l`,
+    // which the worker reads as an event label, so version never recorded — fixed).
+    const body = JSON.stringify({ h: 'cldctrl', p: '/' + client, s: client, c: client, prod: 'cldctrl', v: VERSION, ...extra });
     const req = https.request('https://cld-ctrl.com/px/collect', {
       method: 'POST',
       headers: {
@@ -90,7 +93,7 @@ export function pingHeartbeat(client: ClientKind = 'tui'): void {
  */
 function fetchVersionFromHome(client: ClientKind): Promise<string | null> {
   return new Promise(resolve => {
-    const qs = `prod=cldctrl&l=${encodeURIComponent(VERSION)}&c=${client}&a=1`;
+    const qs = `prod=cldctrl&v=${encodeURIComponent(VERSION)}&c=${client}&a=1`;
     const req = https.get(`https://cld-ctrl.com/px/version?${qs}`, {
       headers: { 'Accept': 'application/json', 'User-Agent': `cldctrl/${VERSION}` },
       timeout: 4000,
