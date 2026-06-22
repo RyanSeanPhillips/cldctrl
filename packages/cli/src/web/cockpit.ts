@@ -31,6 +31,19 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
 
+/** A deterministic colored monogram for a project, so each tile reads at a glance
+ *  which project it is (a lightweight stand-in for per-project logos). */
+function monogram(title: string): { initials: string; hue: number } {
+  const base = (title.split('·')[0] || title).trim() || title;
+  const words = base.replace(/[^a-zA-Z0-9]+/g, ' ').trim().split(/\s+/);
+  const initials = (words.length > 1
+    ? words[0][0] + words[1][0]
+    : base.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2)).toUpperCase() || '··';
+  let h = 0;
+  for (let i = 0; i < base.length; i++) h = (h * 31 + base.charCodeAt(i)) >>> 0;
+  return { initials, hue: h % 360 };
+}
+
 // ── terminal tiles ───────────────────────────────────────────
 function wsUrl(t: CockpitTile): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -49,8 +62,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const el = document.createElement('div');
   el.className = 'tile';
   el.dataset.id = meta.id;
+  const mg = monogram(meta.title);
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
+      <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
       <span class="dot on"></span>
       <span class="tile-title">${esc(meta.title)}</span>
       <span class="tile-status">connecting…</span>
