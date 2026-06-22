@@ -24,8 +24,10 @@ function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl 
 // ── small viz helpers ────────────────────────────────────────
 function heatLevel(v: number, max: number): number {
   if (v <= 0 || max <= 0) return 0;
-  const r = v / max;
-  return r > 0.66 ? 4 : r > 0.33 ? 3 : r > 0.1 ? 2 : 1;
+  // Perceptual (sqrt) scale: a single huge day otherwise flattens every other
+  // day to the faintest level and the grid reads as empty/broken.
+  const r = Math.sqrt(v / max);
+  return r > 0.75 ? 4 : r > 0.5 ? 3 : r > 0.25 ? 2 : 1;
 }
 
 function heatmap(daily: HeatCell[], kind: 'tok' | 'com'): Tpl {
@@ -111,7 +113,7 @@ function projectRow(p: ProjectInfo, ui: State['ui'], matchPaths: Set<string> | n
   const dotCls = p.active ? 'dot active' : 'dot';
   let mark = '';
   if (matchPaths) mark = matchPaths.has(normPath(p.path)) ? ' match' : ' dim';
-  return html`<div class=${'proj-row' + (selected ? ' selected' : '') + mark} data-act="selectproject" data-path=${p.path}>
+  return html`<div class=${'proj-row' + (selected ? ' selected' : '') + (p.active ? ' active-proj' : '') + mark} data-act="selectproject" data-path=${p.path}>
     <span class=${dotCls}></span>
     <span class="proj-name">${p.name}</span>
     ${gitBadge(p)}
@@ -259,18 +261,41 @@ function conversations(d: OverviewPayload, state: State): Tpl {
   </section>`;
 }
 
+function heatLegend(kind: 'tok' | 'com'): Tpl {
+  return html`<div class="heat-legend"><span>less</span>${
+    [0, 1, 2, 3, 4].map((l) => html`<span class="cell" style=${'background:var(--heat-' + kind + '-' + l + ')'}></span>`)
+  }<span>more</span></div>`;
+}
+
+function kpi(value: Tpl | string, label: string): Tpl {
+  return html`<div class="kpi"><span class="kpi-v">${value}</span><span class="kpi-l">${label}</span></div>`;
+}
+
 function activityCard(d: OverviewPayload): Tpl {
-  const hasCommits = d.usage.dailyCommits.some((c) => c.value > 0);
+  const tokens28 = d.usage.daily.reduce((a, c) => a + c.value, 0);
+  const commits28 = d.usage.dailyCommits.reduce((a, c) => a + c.value, 0);
+  const activeDays = d.usage.daily.filter((c) => c.value > 0).length;
+  const live = d.sessions.filter((s) => s.status === 'active').length;
+  const hasCommits = commits28 > 0;
   return html`<section class="card activity">
     <div class="card-head"><h2>Activity</h2><span class="card-meta">last 28 days</span></div>
+    <div class="kpis">
+      ${kpi(tok(tokens28), 'tokens · 28d')}
+      ${kpi(String(commits28), 'commits · 28d')}
+      ${kpi(html`${activeDays}<small>/28</small>`, 'active days')}
+      ${kpi(String(live), 'live now')}
+      ${kpi(String(d.projects.length), 'projects')}
+    </div>
     <div class="heat-row">
       <div class="heat-wrap">
         <div class="sub">Tokens</div>
         ${heatmap(d.usage.daily, 'tok')}
+        ${heatLegend('tok')}
       </div>
       ${hasCommits ? html`<div class="heat-wrap">
         <div class="sub">Commits</div>
         ${heatmap(d.usage.dailyCommits, 'com')}
+        ${heatLegend('com')}
       </div>` : ''}
     </div>
   </section>`;
