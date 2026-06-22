@@ -80,7 +80,37 @@ export function pingHeartbeat(client: ClientKind = 'tui'): void {
   beacon(client, { e: 'ping', a: 1 });
 }
 
-/** Fetch actual latest version from npm registry (source of truth) */
+/**
+ * Version check against our own endpoint, which doubles as the adoption signal:
+ * a single GET that returns the latest published version AND is logged
+ * server-side for the same cookieless, geo-only stats as the beacon (the `c`
+ * client tag + `l` current version ride along as query params). Returns null if
+ * the endpoint is unavailable/old — the caller then falls back to npm, so update
+ * checking never depends on this. The Worker should answer with `{version:"x.y.z"}`.
+ */
+function fetchVersionFromHome(client: ClientKind): Promise<string | null> {
+  return new Promise(resolve => {
+    const qs = `prod=cldctrl&l=${encodeURIComponent(VERSION)}&c=${client}&a=1`;
+    const req = https.get(`https://cld-ctrl.com/px/version?${qs}`, {
+      headers: { 'Accept': 'application/json', 'User-Agent': `cldctrl/${VERSION}` },
+      timeout: 4000,
+    }, res => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const v = json.version ?? json.latest ?? null;
+          resolve(typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v) ? v : null);
+        } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+/** Fetch actual latest version from npm registry (fallback source of truth). */
 function fetchLatestVersion(): Promise<string | null> {
   return new Promise(resolve => {
     const req = https.get('https://registry.npmjs.org/cldctrl/latest', {
@@ -113,22 +143,25 @@ function isNewer(latest: string, current: string): boolean {
 
 /**
  * Check for updates. Returns the latest version if newer, null otherwise.
- * Uses a 24h cache to avoid spamming npm on every launch.
+ * Prefers our own version endpoint (which also records the geo-only adoption
+ * hit) and fires it every launch; falls back to a bare analytics ping + the
+ * npm registry (cached 24h) if the endpoint is unavailable.
  */
 export async function checkForUpdate(force = false, client: ClientKind = 'cli'): Promise<string | null> {
-  // Always ping for analytics (fire-and-forget, once per app launch)
-  pingAnalytics(client);
+  // One request that both checks the version and records the launch.
+  let latest = await fetchVersionFromHome(client);
 
-  // Check cache first (skip if forced)
-  if (!force) {
-    const cached = readCache();
-    if (cached) {
-      return isNewer(cached.latestVersion, VERSION) ? cached.latestVersion : null;
+  if (!latest) {
+    // Endpoint down/missing — still count the launch, then resolve the version
+    // from cache (unless forced) or npm so update checking keeps working.
+    pingAnalytics(client);
+    if (!force) {
+      const cached = readCache();
+      if (cached) latest = cached.latestVersion;
     }
+    if (!latest) latest = await fetchLatestVersion();
   }
 
-  // Fetch actual version from npm (non-blocking, 5s timeout)
-  const latest = await fetchLatestVersion();
   if (latest) {
     writeCache(latest);
     return isNewer(latest, VERSION) ? latest : null;
