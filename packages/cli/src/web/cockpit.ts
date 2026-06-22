@@ -24,6 +24,7 @@ interface LiveTile {
   setTheme?: () => void;      // terminal tiles
   toggleMode?: () => void;    // doc tiles
   save?: () => void;          // doc tiles
+  speak?: () => void;         // doc tiles — read aloud (toggle)
 }
 const tiles = new Map<string, LiveTile>();
 
@@ -63,6 +64,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
   el.className = 'tile';
   el.dataset.id = meta.id;
   const mg = monogram(meta.title);
+  const feats = getState().data?.features;
+  const pp = esc(meta.projectPath);
+  const locBtns =
+    (feats?.openExplorer ? `<button class="btn icon" data-act="tile-reveal" data-path="${pp}" title="Open project folder">&#128193;</button>` : '') +
+    (feats?.openVscode ? `<button class="btn icon" data-act="tile-code" data-path="${pp}" title="Open in VS Code">&lt;/&gt;</button>` : '');
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
       <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
@@ -71,6 +77,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
       <button class="btn icon" data-act="tile-scratch" data-id="${esc(meta.id)}" title="Open a scratchpad to draft beside this chat">&#9998;</button>
+      ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
@@ -119,6 +126,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
       <span class="doc-status"></span>
       <span class="sp"></span>
       <button class="btn icon" data-act="doc-toggle" data-id="${esc(meta.id)}" title="Edit / preview">&#9998;</button>
+      <button class="btn icon" data-act="doc-speak" data-id="${esc(meta.id)}" title="Read aloud (selection, else whole doc)">&#128266;</button>
       <button class="btn icon" data-act="doc-save" data-id="${esc(meta.id)}" title="Save (Ctrl+S)">&#128190;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
@@ -157,9 +165,27 @@ function createDocTile(meta: CockpitTile): LiveTile {
   };
   const save = async () => {
     statusEl.textContent = 'saving…';
-    const r = await postFile(file, editEl.value);
-    if (r.ok) { content = editEl.value; mtime = r.mtime ?? mtime; dirty = false; statusEl.textContent = 'saved'; setTimeout(() => { if (!dirty) statusEl.textContent = ''; }, 1500); }
-    else statusEl.textContent = '✗ ' + (r.error || 'save failed');
+    try {
+      const r = await postFile(file, editEl.value);
+      if (r.ok) { content = editEl.value; mtime = r.mtime ?? mtime; dirty = false; statusEl.textContent = 'saved'; setTimeout(() => { if (!dirty) statusEl.textContent = ''; }, 1500); }
+      else statusEl.textContent = '✗ ' + (r.error || 'save failed');
+    } catch { statusEl.textContent = '✗ save failed (network)'; } // never hang on "saving…"
+  };
+
+  // Read aloud via the browser's Web Speech API — no server, no key, offline.
+  // Reads the current selection if there is one, else the whole doc; toggles off.
+  const stripMd = (s: string) => s.replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const speak = () => {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      if (synth.speaking || synth.pending) { synth.cancel(); return; } // toggle off
+      const sel = mode === 'edit'
+        ? editEl.value.substring(editEl.selectionStart ?? 0, editEl.selectionEnd ?? 0)
+        : (window.getSelection()?.toString() ?? '');
+      const text = (sel.trim() || stripMd(content || editEl.value)).slice(0, 32000).trim();
+      if (text) synth.speak(new SpeechSynthesisUtterance(text));
+    } catch { /* speech unavailable */ }
   };
 
   load();
@@ -168,9 +194,10 @@ function createDocTile(meta: CockpitTile): LiveTile {
 
   return {
     el, kind: 'doc',
-    dispose: () => clearInterval(poll),
+    dispose: () => { clearInterval(poll); try { window.speechSynthesis?.cancel(); } catch { /* ignore */ } },
     toggleMode: () => setMode(mode === 'preview' ? 'edit' : 'preview'),
     save,
+    speak,
   };
 }
 
@@ -214,6 +241,7 @@ function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
 export function docToggle(id: string): void { tiles.get(id)?.toggleMode?.(); }
 export function docSave(id: string): void { tiles.get(id)?.save?.(); }
+export function docSpeak(id: string): void { tiles.get(id)?.speak?.(); }
 
 window.addEventListener('resize', () => { if (getState().ui.cockpit.open) refitAll(); });
 window.addEventListener('themechange', () => { for (const t of tiles.values()) t.setTheme?.(); });

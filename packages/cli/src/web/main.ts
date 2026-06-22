@@ -6,11 +6,11 @@ import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postScratch,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postScratch, postReveal,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, docToggle, docSave } from './cockpit.js';
+import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
@@ -85,6 +85,15 @@ async function shoot(target: string): Promise<void> {
     const r = await postScreenshot(target, 'region');
     toast(r.path ? '✓ Screenshot path added to the session' : '✗ ' + (r.error || 'cancelled'));
   } catch { toast('✗ Screenshot failed'); }
+}
+
+// ── open a project's location (file explorer / VS Code) ──────
+async function reveal(projectPath: string, target: 'explorer' | 'code'): Promise<void> {
+  try {
+    const r = await postReveal(projectPath, target);
+    if (!r.ok) toast('✗ ' + (r.error || 'could not open'));
+    else toast(target === 'code' ? 'Opening in VS Code…' : 'Opening folder…');
+  } catch { toast('✗ open failed'); }
 }
 
 // ── cockpit tile helpers ─────────────────────────────────────
@@ -268,6 +277,8 @@ document.addEventListener('click', async (ev) => {
     docToggle(el.dataset.id!);
   } else if (act === 'doc-save') {
     docSave(el.dataset.id!);
+  } else if (act === 'doc-speak') {
+    docSpeak(el.dataset.id!);
   } else if (act === 'opendoc') {
     if (el.dataset.path) addDocTile(el.dataset.path, getState().ui.selectedProject ?? '', true);
   } else if (act === 'cockpit-add-doc') {
@@ -290,6 +301,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
+  else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
   else if (act === 'toggle-group') {
     const g = el.dataset.group!;
