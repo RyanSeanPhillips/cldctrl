@@ -524,12 +524,12 @@ function isLocalWsOrigin(req: http.IncomingMessage): boolean {
   }
 }
 
-function readJsonBody(req: http.IncomingMessage): Promise<any> {
+function readJsonBody(req: http.IncomingMessage, maxBytes = 10_000): Promise<any> {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 10_000) { reject(new Error('Body too large')); req.destroy(); }
+      if (data.length > maxBytes) { reject(new Error('Body too large')); req.destroy(); }
     });
     req.on('end', () => {
       try { resolve(data ? JSON.parse(data) : {}); } catch { reject(new Error('Invalid JSON')); }
@@ -909,7 +909,9 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         sendJson(res, 200, { path: out, injected: !!t });
       } else if (req.method === 'POST' && url.pathname === '/api/file') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
-        const result = handleWriteFile(await readJsonBody(req));
+        // Doc/scratchpad writes can be large (up to FILE_CAP) — don't apply the
+        // small-body cap that the other JSON endpoints use.
+        const result = handleWriteFile(await readJsonBody(req, FILE_CAP + 100_000));
         sendJson(res, result.status, result.body);
       } else if (req.method === 'POST' && url.pathname === '/api/scratch') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
