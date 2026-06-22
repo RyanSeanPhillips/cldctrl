@@ -413,6 +413,36 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .tile-head .sp { margin-left: auto; }
 .tile-term { flex: 1; min-height: 0; padding: var(--s2) var(--s1) var(--s2) var(--s2); }
 .tile-term .xterm { height: 100%; }
+.doc-mark { color: var(--accent); font-size: 13px; }
+.doc-status { font-size: 10.5px; color: var(--text-muted); }
+.doc-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.doc-edit { flex: 1; width: 100%; resize: none; border: none; outline: none; background: var(--bg); color: var(--text);
+  font-family: var(--mono); font-size: 13px; line-height: 1.55; padding: var(--s4); }
+.doc-preview { flex: 1; overflow-y: auto; padding: var(--s4) var(--s5); }
+/* markdown preview */
+.markdown { line-height: 1.6; color: var(--text); }
+.markdown > :first-child { margin-top: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 0.9em 0 0.4em; line-height: 1.25; font-weight: 700; }
+.markdown h1 { font-size: 1.6em; } .markdown h2 { font-size: 1.35em; border-bottom: 1px solid var(--border-faint); padding-bottom: 0.2em; }
+.markdown h3 { font-size: 1.15em; } .markdown h4 { font-size: 1em; color: var(--text-secondary); }
+.markdown p { margin: 0.6em 0; }
+.markdown ul, .markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
+.markdown li { margin: 0.2em 0; }
+.markdown code { font-family: var(--mono); font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.markdown pre { background: var(--surface-2); padding: var(--s3); border-radius: var(--r-sm); overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--border-strong); margin: 0.6em 0; padding: 0.1em 0 0.1em 1em; color: var(--text-secondary); }
+.markdown a { color: var(--info); }
+.markdown table { border-collapse: collapse; margin: 0.6em 0; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 10px; }
+.markdown img { max-width: 100%; }
+.markdown hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+/* file-tree: open-as-doc affordance */
+.ft2-row.doc { cursor: pointer; }
+.ft2-row.doc:hover { background: var(--surface-2); }
+.ft2-open { margin-left: auto; font-size: 10.5px; color: var(--accent); opacity: 0; padding-left: var(--s3); }
+.ft2-row.doc:hover .ft2-open { opacity: 1; }
+.cp-add-doc { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .res-actions { display: flex; gap: var(--s2); }
 /* cockpit "+ Add" picker */
 .cp-add-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, 0.45);

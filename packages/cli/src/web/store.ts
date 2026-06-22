@@ -12,14 +12,15 @@ import type {
 export type SortKey = 'tokens' | 'share' | 'msgs' | 'tr' | 'ctx' | 'dur' | 'ago';
 
 export interface CockpitTile {
-  id: string;                 // 'resume:<sessionId>' or 'new:<...>'
-  kind: 'resume' | 'new';
+  id: string;                 // 'resume:<sessionId>' | 'new:<...>' | 'doc:<path>'
+  kind: 'resume' | 'new' | 'doc';
   sessionId?: string;         // resume only
   projectPath: string;
   title: string;
   worktree?: boolean;         // new sessions: run in an isolated git worktree
   branch?: string;            // the worktree branch
   agent?: string;             // new sessions: which CLI agent (claude/codex/gemini)
+  filePath?: string;          // doc tiles: absolute path to the markdown file
 }
 
 export interface CockpitState {

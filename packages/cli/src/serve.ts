@@ -458,6 +458,41 @@ async function handleProjectDetail(tab: string, rawPath: string, rawDir: string)
   }
 }
 
+// ── File read/write (for cockpit doc tiles) ──────────────────
+// Restricted to files inside a known project; text only, size-capped.
+const FILE_CAP = 5 * 1024 * 1024;
+function normSlash(s: string): string { return s.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, ''); }
+
+function fileInKnownProject(filePath: string): boolean {
+  const { config } = loadConfig();
+  const projects = buildProjectListFast(config);
+  const f = normSlash(filePath);
+  return projects.some((p) => { const pp = normSlash(p.path); return f === pp || f.startsWith(pp + '/'); });
+}
+
+function handleReadFile(filePath: string): { status: number; body: unknown } {
+  if (!filePath || !fileInKnownProject(filePath)) return { status: 403, body: { error: 'Path is not inside a known project' } };
+  try {
+    const st = fs.statSync(filePath);
+    if (!st.isFile()) return { status: 404, body: { error: 'Not a file' } };
+    if (st.size > FILE_CAP) return { status: 413, body: { error: 'File too large' } };
+    return { status: 200, body: { path: filePath, content: fs.readFileSync(filePath, 'utf-8'), mtime: st.mtimeMs } };
+  } catch { return { status: 404, body: { error: 'Not found' } }; }
+}
+
+function handleWriteFile(body: { path?: string; content?: string }): { status: number; body: unknown } {
+  const filePath = typeof body.path === 'string' ? body.path : '';
+  const content = typeof body.content === 'string' ? body.content : null;
+  if (!filePath || content === null) return { status: 400, body: { error: 'path and content are required' } };
+  if (!fileInKnownProject(filePath)) return { status: 403, body: { error: 'Path is not inside a known project' } };
+  if (content.length > FILE_CAP) return { status: 413, body: { error: 'Content too large' } };
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { status: 200, body: { ok: true, mtime: fs.statSync(filePath).mtimeMs } };
+  } catch (e) { return { status: 500, body: { error: String(e) } }; }
+}
+
 // ── Request plumbing ─────────────────────────────────────────
 
 function isLocalHost(req: http.IncomingMessage): boolean {
@@ -790,6 +825,9 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
       } else if (req.method === 'GET' && url.pathname === '/api/transcript') {
         const result = await handleTranscript(url.searchParams.get('id') ?? '');
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'GET' && url.pathname === '/api/file') {
+        const result = handleReadFile(url.searchParams.get('path') ?? '');
+        sendJson(res, result.status, result.body);
       } else if (req.method === 'GET' && url.pathname === '/api/search') {
         const q = url.searchParams.get('q') ?? '';
         sendJson(res, 200, { results: searchConversations(q), query: q });
@@ -818,6 +856,10 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         if (t) { try { t.term.write(out + ' '); } catch { /* ignore */ } }
         log('serve_shot', { target, injected: !!t });
         sendJson(res, 200, { path: out, injected: !!t });
+      } else if (req.method === 'POST' && url.pathname === '/api/file') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const result = handleWriteFile(await readJsonBody(req));
+        sendJson(res, result.status, result.body);
       } else if (req.method === 'POST' && url.pathname === '/api/bridge') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

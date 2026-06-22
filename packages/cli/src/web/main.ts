@@ -10,7 +10,7 @@ import {
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile } from './cockpit.js';
+import { syncCockpit, restartTile, docToggle, docSave } from './cockpit.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
@@ -82,6 +82,17 @@ function addResumeTile(sessionId: string, projectPath: string, title: string, op
     ? cp.tiles
     : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title }];
   setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null });
+  if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+}
+
+function addDocTile(filePath: string, projectPath: string, openNow: boolean): void {
+  const id = 'doc:' + filePath;
+  const cp = getState().ui.cockpit;
+  const title = filePath.split(/[\\/]/).pop() || 'doc';
+  const tiles = cp.tiles.some((t) => t.id === id)
+    ? cp.tiles
+    : [...cp.tiles, { id, kind: 'doc' as const, projectPath, title, filePath }];
+  setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null, addOpen: false });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
 }
 
@@ -193,6 +204,19 @@ document.addEventListener('click', async (ev) => {
     setCockpit({ maximized: cp.maximized === el.dataset.id ? null : el.dataset.id! });
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
+  } else if (act === 'doc-toggle') {
+    docToggle(el.dataset.id!);
+  } else if (act === 'doc-save') {
+    docSave(el.dataset.id!);
+  } else if (act === 'opendoc') {
+    if (el.dataset.path) addDocTile(el.dataset.path, getState().ui.selectedProject ?? '', true);
+  } else if (act === 'cockpit-add-doc') {
+    const proj = (document.getElementById('cockpit-doc-project') as HTMLSelectElement | null)?.value;
+    const rel = (document.getElementById('cockpit-doc-path') as HTMLInputElement | null)?.value.trim();
+    if (proj && rel) {
+      const filePath = proj.replace(/\\/g, '/').replace(/\/+$/, '') + '/' + rel.replace(/^[\\/]+/, '').replace(/\\/g, '/');
+      addDocTile(filePath, proj, true);
+    }
   } else if (act === 'tile-focus') {
     // header click focuses the terminal (but not when a header button was hit)
     if (!(ev.target as HTMLElement).closest('.btn')) {

@@ -369,15 +369,19 @@ function fileTreeNodes(state: State, dir: string, depth: number): Tpl | string {
   const nodes = state.detail.files[dir];
   if (!nodes) return depth === 0 ? html`<div class="empty">Loading files…</div>` : '';
   if (!nodes.length) return depth === 0 ? html`<div class="empty">Empty directory.</div>` : '';
+  const projRoot = (state.ui.selectedProject ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
   return html`${nodes.map((n) => {
     const isDir = n.type === 'directory';
+    const isDoc = !isDir && /\.(md|markdown|txt)$/i.test(n.name);
     const expanded = state.detail.expandedDirs.includes(n.relativePath);
+    const docPath = isDoc ? projRoot + '/' + n.relativePath : null;
     return html`<div>
-      <div class=${'ft2-row' + (n.isClaude ? ' claude' : '') + (isDir ? ' dir' : '')}
+      <div class=${'ft2-row' + (n.isClaude ? ' claude' : '') + (isDir ? ' dir' : '') + (isDoc ? ' doc' : '')}
         style=${'padding-left:' + (depth * 16 + 8) + 'px'}
-        data-act=${isDir ? 'expanddir' : null} data-dir=${isDir ? n.relativePath : null}>
+        data-act=${isDir ? 'expanddir' : isDoc ? 'opendoc' : null} data-dir=${isDir ? n.relativePath : null} data-path=${docPath}>
         <span class="ft2-icon">${isDir ? (expanded ? '▾' : '▸') : n.fileIcon}</span>
         <span class="ft2-name">${n.name}</span>
+        ${isDoc ? html`<span class="ft2-open">open ↗</span>` : ''}
         ${isDir && n.childCount != null ? html`<span class="ft2-count num">${n.childCount}</span>` : ''}
       </div>
       ${isDir && expanded ? fileTreeNodes(state, n.relativePath, depth + 1) : ''}
@@ -484,6 +488,12 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
         ${d.features.agents.map((a) => html`<label class=${'cp-agent' + (a.available ? '' : ' off')} title=${a.available ? a.label : a.label + ' CLI not installed'}>
           <input type="radio" name="cp-agent" value=${a.id} ?disabled=${!a.available} ?checked=${a.id === 'claude'}> ${a.label}${a.available ? '' : ' (install)'}</label>`)}
       </div>` : ''}
+      <div class="cp-add-doc">
+        <span class="cp-add-or">or open a doc</span>
+        <select id="cockpit-doc-project" class="cp-select">${d.projects.map((p) => html`<option value=${p.path}>${p.name}</option>`)}</select>
+        <input id="cockpit-doc-path" class="search" placeholder="path, e.g. notes/draft.md">
+        <button class="btn" data-act="cockpit-add-doc">${iBranch()} Open doc</button>
+      </div>
       <label class="cp-wt"><input type="checkbox" id="cockpit-new-worktree"> ${iBranch()} Isolated worktree
         <span class="cp-wt-hint">— runs on its own branch so it won't collide with other sessions</span></label>
       <input id="cockpit-new-branch" class="search" placeholder="branch name (default: cockpit/session-N)" style="display:none">

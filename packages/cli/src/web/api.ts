@@ -64,6 +64,23 @@ export async function fetchSearch(q: string): Promise<SearchResult[]> {
   return (await r.json()).results ?? [];
 }
 
+/** Read a file (for cockpit doc tiles). */
+export async function fetchFile(p: string): Promise<{ content: string; mtime: number } | null> {
+  const r = await fetch('/api/file?path=' + encodeURIComponent(p));
+  if (!r.ok) return null;
+  return r.json();
+}
+
+/** Write a file (for cockpit doc tiles). */
+export async function postFile(p: string, content: string): Promise<{ ok?: boolean; mtime?: number; error?: string }> {
+  const r = await fetch('/api/file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ path: p, content }),
+  });
+  return r.json();
+}
+
 /** Capture a screenshot and have the server type its path into a terminal. */
 export async function postScreenshot(target: string, mode: 'region' | 'full' = 'region'): Promise<{ path?: string; error?: string }> {
   const r = await fetch('/api/screenshot', {
