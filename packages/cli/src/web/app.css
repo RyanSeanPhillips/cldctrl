@@ -459,6 +459,10 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 .doc-edit { flex: 1; width: 100%; resize: none; border: none; outline: none; background: var(--bg); color: var(--text);
   font-family: var(--mono); font-size: 13px; line-height: 1.55; padding: var(--s4); }
 .doc-preview { flex: 1; overflow-y: auto; padding: var(--s4) var(--s5); }
+/* read-aloud "karaoke" view: the word being spoken is highlighted */
+.doc-preview .reading { line-height: 1.9; font-size: 14px; color: var(--text-secondary); }
+.doc-preview .reading .rw { border-radius: 3px; transition: background .08s ease; }
+.doc-preview .reading .rw.on { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 2px var(--accent); }
 /* markdown preview */
 .markdown { line-height: 1.6; color: var(--text); }
 .markdown > :first-child { margin-top: 0; }

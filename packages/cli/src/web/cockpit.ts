@@ -153,9 +153,11 @@ function createDocTile(meta: CockpitTile): LiveTile {
   // Scratchpads open in edit mode (focused) for immediate typing; other doc
   // tiles (e.g. a project .md from the Files tab) open in preview.
   let content = '', mtime = 0, mode: 'preview' | 'edit' = meta.scratch ? 'edit' : 'preview', dirty = false;
+  let reading = false; // karaoke read-aloud view is up
   const renderPreview = () => { try { previewEl.innerHTML = marked.parse(content) as string; } catch { previewEl.textContent = content; } };
 
   const load = async () => {
+    if (reading) return; // don't re-render the doc while the karaoke view is up
     const r = await fetchFile(file);
     if (!r) { statusEl.textContent = 'not found'; return; }
     if (dirty) { if (r.mtime !== mtime) statusEl.textContent = 'changed on disk'; return; } // don't clobber edits
@@ -192,22 +194,59 @@ function createDocTile(meta: CockpitTile): LiveTile {
     speakBtn.title = on ? 'Stop reading' : 'Read aloud (selection, else whole doc)';
     speakBtn.classList.toggle('on', on);
   };
+  // Karaoke: render the spoken text as word spans in the preview and light up
+  // the word currently being read (driven by the utterance's boundary events),
+  // scrolling to follow. Restores the prior view when reading stops.
+  let rwSpans: HTMLElement[] = [], rwStarts: number[] = [], rwActive = -1, prevReadMode: 'preview' | 'edit' = 'preview';
+  const renderReading = (text: string) => {
+    const re = /\S+/g; let m: RegExpExecArray | null, cursor = 0, html = '';
+    rwStarts = [];
+    while ((m = re.exec(text))) {
+      html += esc(text.slice(cursor, m.index));
+      rwStarts.push(m.index);
+      html += `<span class="rw">${esc(m[0])}</span>`;
+      cursor = m.index + m[0].length;
+    }
+    html += esc(text.slice(cursor));
+    previewEl.innerHTML = `<div class="reading">${html.replace(/\n/g, '<br>')}</div>`;
+    rwSpans = Array.from(previewEl.querySelectorAll('.rw')) as HTMLElement[];
+    editEl.style.display = 'none'; previewEl.style.display = ''; // show the highlight even if we were editing
+  };
+  const highlightAt = (charIndex: number) => {
+    let i = -1;
+    for (let k = 0; k < rwStarts.length; k++) { if (rwStarts[k] <= charIndex) i = k; else break; }
+    if (i < 0 || i === rwActive) return;
+    rwSpans[rwActive]?.classList.remove('on');
+    rwActive = i;
+    rwSpans[i]?.classList.add('on');
+    rwSpans[i]?.scrollIntoView({ block: 'nearest' });
+  };
+  const endReading = () => {
+    if (!reading) return;
+    reading = false; rwActive = -1; rwSpans = []; rwStarts = [];
+    setSpeaking(false);
+    setMode(prevReadMode); // restore markdown preview / textarea
+  };
   const speak = () => {
     try {
       const synth = window.speechSynthesis;
       if (!synth) return;
-      if (synth.speaking || synth.pending) { synth.cancel(); setSpeaking(false); return; } // toggle off
+      if (synth.speaking || synth.pending || reading) { synth.cancel(); endReading(); return; } // toggle off
       const sel = mode === 'edit'
         ? editEl.value.substring(editEl.selectionStart ?? 0, editEl.selectionEnd ?? 0)
         : (window.getSelection()?.toString() ?? '');
       const text = (sel.trim() || stripMd(content || editEl.value)).slice(0, 32000).trim();
       if (!text) return;
-      const u = new SpeechSynthesisUtterance(text);
-      u.onend = () => setSpeaking(false);
-      u.onerror = () => setSpeaking(false);
-      synth.speak(u);
+      prevReadMode = mode;
+      reading = true;
+      renderReading(text);
       setSpeaking(true);
-    } catch { /* speech unavailable */ }
+      const u = new SpeechSynthesisUtterance(text);
+      u.onboundary = (e) => { if (reading) highlightAt(e.charIndex); };
+      u.onend = () => endReading();
+      u.onerror = () => endReading();
+      synth.speak(u);
+    } catch { reading = false; }
   };
 
   load();
