@@ -25,7 +25,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -212,6 +212,7 @@ async function buildOverview(): Promise<unknown> {
       dailyCommits: aggregateDaily(cache?.commitActivity, 28, 'commits'),
     },
     bridge: readAgentSearch(),
+    scratch: readScratchOpen(),
     sessions: sessions.map(s => ({
       id: s.sessionId || null,
       project: nameMap.get(normalizePathForCompare(s.projectPath)) ?? path.basename(s.projectPath),
@@ -464,6 +465,7 @@ const FILE_CAP = 5 * 1024 * 1024;
 function normSlash(s: string): string { return s.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, ''); }
 
 function fileInKnownProject(filePath: string): boolean {
+  if (isScratchPath(filePath)) return true; // cldctrl scratchpads are always allowed
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
   const f = normSlash(filePath);

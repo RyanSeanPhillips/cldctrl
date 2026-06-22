@@ -40,7 +40,9 @@ import {
 } from './core/create-project.js';
 import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/control.js';
 import { searchConversations } from './core/conversation-search.js';
-import { readDashboardContext, writeAgentSearch } from './core/dashboard-bridge.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath } from './core/dashboard-bridge.js';
 import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
@@ -301,6 +303,27 @@ async function handleConsultAgent(args: { agent: string; prompt: string; project
   const r = await consultAgent(agent, prompt, cwd);
   if (r.ok) return { ok: true, agent: r.agent, reply: r.output };
   return { ok: false, agent, error: r.error, agents: listAgents() };
+}
+
+function handleSaveScratchpad(args: { project: string; path: string; title?: string }): unknown {
+  const { config } = loadConfig();
+  const projects = buildProjectListFast(config);
+  const proj = resolveProject(config, projects, args.project);
+  if (!proj) return { ok: false, error: 'Unknown project: ' + args.project };
+  const rel = (args.path ?? '').replace(/^[\\/]+/, '');
+  if (!rel) return { ok: false, error: '`path` is required.' };
+  const root = path.resolve(proj.path);
+  const dest = path.resolve(root, rel);
+  if (dest !== root && !dest.startsWith(root + path.sep)) return { ok: false, error: 'Destination escapes the project.' };
+
+  let content: string;
+  try { content = fs.readFileSync(scratchPath(args.title), 'utf-8'); }
+  catch { return { ok: false, error: 'No scratchpad found — open_scratchpad first.' }; }
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, content, 'utf-8');
+  } catch (e) { return { ok: false, error: String(e) }; }
+  return { ok: true, savedTo: dest, project: proj.name, bytes: content.length };
 }
 
 function handleGetDashboardContext(): unknown {
@@ -592,6 +615,32 @@ async function main(): Promise<void> {
         },
       },
       {
+        name: 'open_scratchpad',
+        description:
+          "Pop open a shared markdown scratchpad next to the chat in the operator's cockpit, for collaboratively drafting text (an email, abstract, notes, etc.). Seed it with `content` (markdown). The operator sees it live, can edit it, and you can keep editing the SAME file with Write/Edit at the returned path — it live-reloads both ways. Use when the operator says \"let's draft X\" / \"open a scratchpad\". When the draft is worth keeping, use save_scratchpad to put it in a project.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            content: { type: 'string', description: 'Initial markdown content for the draft (optional).' },
+            title: { type: 'string', description: "Short title (becomes the file name, e.g. 'cold-email'). Defaults to 'Scratchpad'." },
+          },
+        },
+      },
+      {
+        name: 'save_scratchpad',
+        description:
+          "Save the CURRENT scratchpad (including the operator's own edits) into a project — use when the draft is a keeper. Reads the live scratchpad file and writes it to <project>/<path>.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            project: { type: 'string', description: 'Project name/alias/path to save into.' },
+            path: { type: 'string', description: "Relative destination path within the project, e.g. 'drafts/cold-email.md'." },
+            title: { type: 'string', description: "The scratchpad title used in open_scratchpad (defaults to 'Scratchpad')." },
+          },
+          required: ['project', 'path'],
+        },
+      },
+      {
         name: 'get_dashboard_context',
         description:
           "See what the operator is currently looking at in the cldctrl browser dashboard: their active conversation search query, the matching sessions they're seeing, and any selected project. Use this when they say things like \"narrow down what I'm looking at\" or \"help me with this search\" so you act on their actual screen instead of guessing.",
@@ -683,6 +732,15 @@ async function main(): Promise<void> {
         }
         case 'consult_agent':
           result = await handleConsultAgent(args as { agent: string; prompt: string; project?: string });
+          break;
+        case 'open_scratchpad': {
+          const a = args as { content?: string; title?: string };
+          const p = openScratchpad(a.content, a.title);
+          result = { ok: true, path: p, note: 'Opened in the dashboard cockpit. Edit this file (Write/Edit) to update the draft — it live-reloads. Call save_scratchpad to keep it in a project.' };
+          break;
+        }
+        case 'save_scratchpad':
+          result = handleSaveScratchpad(args as { project: string; path: string; title?: string });
           break;
         case 'get_dashboard_context':
           result = handleGetDashboardContext();

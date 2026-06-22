@@ -65,6 +65,8 @@ export interface OverviewPayload {
   projects: ProjectInfo[];
   /** A search the control-plane agent pushed to the dashboard (agent → dashboard). */
   bridge: { query: string; note?: string; results: SearchResult[]; ts: number } | null;
+  /** A scratchpad the agent asked to pop open (agent → dashboard). */
+  scratch: { path: string; title: string; ts: number } | null;
 }
 
 export interface TranscriptEntry {

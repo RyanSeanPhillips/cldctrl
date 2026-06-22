@@ -141,6 +141,7 @@ async function refreshTranscript(): Promise<void> {
 
 // ── poll loop (overview only — detail is event-driven) ───────
 let lastBridgeTs = 0;
+let lastScratchTs = 0;
 async function poll(): Promise<void> {
   try {
     const data = await fetchOverview();
@@ -153,6 +154,15 @@ async function poll(): Promise<void> {
       setSearch({ query: b.query, results: b.results, loading: false, agentNote: b.note ?? '' });
     } else if (b && b.ts > lastBridgeTs) {
       lastBridgeTs = b.ts; // mark seen without adopting
+    }
+    // Pop open a scratchpad the agent requested (recent only).
+    const sc = data.scratch;
+    if (sc && sc.ts > lastScratchTs) {
+      lastScratchTs = sc.ts;
+      if (Date.now() - sc.ts < 5 * 60_000) {
+        addDocTile(sc.path, '', true);
+        if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+      }
     }
   } catch { setConnError(true); }
   await refreshTranscript();
