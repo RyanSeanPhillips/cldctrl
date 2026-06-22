@@ -11,7 +11,7 @@ import {
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
 import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
-import { readSession, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
+import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
@@ -93,14 +93,15 @@ async function shoot(target: string): Promise<void> {
 
 // Which session a media-button / hands-free read targets: the most recently
 // active session that has an id.
-function latestActiveSessionId(): string | null {
+function latestActiveSession() {
   const withId = (getState().data?.sessions ?? []).filter((s) => s.id);
   if (!withId.length) return null;
   const active = withId.filter((s) => s.status === 'active');
   const pool = active.length ? active : withId;
   pool.sort((a, b) => +new Date(b.lastActivity) - +new Date(a.lastActivity));
-  return pool[0].id ?? null;
+  return pool[0];
 }
+function latestActiveSessionId(): string | null { return latestActiveSession()?.id ?? null; }
 
 // Reflect play/stop on every read-aloud button while speaking.
 onSpeechState((on) => {
@@ -246,6 +247,8 @@ async function poll(): Promise<void> {
       lastCockpitLaunchTs = cl.ts;
       if (Date.now() - cl.ts < 60_000) addLaunchTile(cl.projectPath, cl.project, cl.prompt);
     }
+    // Listen mode: speak each new assistant reply of the active session.
+    if (isHandsFree()) { const t = latestActiveSession(); if (t) autoRead({ id: t.id, assistantTurns: t.assistantTurns }); }
   } catch { setConnError(true); }
   await refreshTranscript();
 }
@@ -330,7 +333,7 @@ document.addEventListener('click', async (ev) => {
     if (isHandsFree()) { disableHandsFree(); toast('Hands-free off'); }
     else {
       const ok = enableHandsFree(latestActiveSessionId);
-      toast(ok ? '🎧 Hands-free on — media buttons read the latest reply' : '✗ Media controls unavailable in this browser');
+      toast(ok ? '🎧 Listen mode on — reads new replies aloud; media buttons play/stop' : '✗ Media controls unavailable in this browser');
     }
     renderApp();
   }
