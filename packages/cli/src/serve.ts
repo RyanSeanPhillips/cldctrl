@@ -25,7 +25,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunch } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -212,6 +212,7 @@ async function buildOverview(): Promise<unknown> {
       dailyCommits: aggregateDaily(cache?.commitActivity, 28, 'commits'),
     },
     bridge: readAgentSearch(),
+    cockpitLaunch: readCockpitLaunch(),
     scratch: readScratchOpen(),
     sessions: sessions.map(s => ({
       id: s.sessionId || null,
@@ -642,7 +643,12 @@ const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; }
+interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; prompt?: string; }
+
+// The port this dashboard is serving on, stamped into every PTY's env as
+// CLDCTRL_DASHBOARD_PORT so an MCP server running inside the dock/cockpit knows
+// it's in the web surface (and routes new launches to the cockpit, not a terminal).
+let dashboardPort = 0;
 interface TermSession {
   meta: TermMeta;
   term: any;                                   // node-pty instance
@@ -662,9 +668,22 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
     return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
   }
   if (meta.kind === 'new' && meta.projectPath) {
-    return { cwd: meta.projectPath, cmd: agentCommand(meta.agent) };
+    const bin = agentCommand(meta.agent);
+    // Seed an initial prompt the same way the terminal launcher does — claude
+    // takes it as a positional arg (only claude; other agents launch bare).
+    const seed = meta.prompt && (!meta.agent || meta.agent === 'claude') ? ' ' + shellQuoteArg(meta.prompt) : '';
+    return { cwd: meta.projectPath, cmd: bin + seed };
   }
   return null;
+}
+
+/** Quote a single argument for the shell `termCommand` strings run under
+ *  (`cmd /c` on Windows, `bash -lc` elsewhere). */
+function shellQuoteArg(arg: string): string {
+  const a = arg.replace(/[\r\n]+/g, ' ').slice(0, 4000);
+  return getPlatform() === 'windows'
+    ? '"' + a.replace(/(["%])/g, '') + '"'          // cmd: drop " and % (no reliable escape), keep it simple
+    : "'" + a.replace(/'/g, "'\\''") + "'";          // bash: single-quote
 }
 
 /** Spawn a PTY for the given terminal id. Returns null on failure. */
@@ -677,6 +696,7 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
   if (!spec) { log('error', { function: 'spawnTerm', message: 'bad terminal spec: ' + id }); return null; }
 
   const env = getCleanEnv();
+  if (dashboardPort) env.CLDCTRL_DASHBOARD_PORT = String(dashboardPort);
   const isWin = getPlatform() === 'windows';
   const file = isWin ? 'cmd.exe' : 'bash';
   const args = isWin ? ['/c', spec.cmd] : ['-lc', spec.cmd];
@@ -811,7 +831,8 @@ function setupAgentTerminal(server: http.Server): boolean {
             const wt = await createWorktree(proj.path, (url.searchParams.get('branch') || '').slice(0, 120));
             if (wt) cwd = wt.path; // fall back to the project if not a git repo / git fails
           }
-          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: cwd, agent }));
+          const prompt = url.searchParams.get('prompt') || undefined;
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, id, { kind: 'new', projectPath: cwd, agent, prompt }));
           return;
         }
       }
@@ -825,6 +846,7 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 export function startServeServer(port: number, opts: { open?: boolean } = {}): void {
   initLogger();
+  dashboardPort = port; // stamped into PTY env so nested MCP servers know they're in the web surface
 
   const server = http.createServer(async (req, res) => {
     try {

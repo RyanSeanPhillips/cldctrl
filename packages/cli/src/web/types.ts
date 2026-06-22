@@ -68,6 +68,8 @@ export interface OverviewPayload {
   bridge: { query: string; note?: string; results: SearchResult[]; ts: number } | null;
   /** A scratchpad the agent asked to pop open (agent → dashboard). */
   scratch: { path: string; title: string; ts: number } | null;
+  /** A new session CTRL asked to open as a cockpit tile (agent → dashboard). */
+  cockpitLaunch: { projectPath: string; project?: string; prompt?: string; ts: number } | null;
 }
 
 export interface TranscriptEntry {

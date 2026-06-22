@@ -19,6 +19,7 @@ import type { SearchResult } from './conversation-search.js';
 const CONTEXT_FILE = 'dashboard-context.json';
 const AGENT_SEARCH_FILE = 'agent-search.json';
 const SCRATCH_OPEN_FILE = 'scratch-open.json';
+const COCKPIT_LAUNCH_FILE = 'cockpit-launch.json';
 
 export interface DashboardContext {
   query: string;
@@ -103,3 +104,11 @@ export function openScratchpad(content: string | undefined, title: string | unde
 }
 
 export function readScratchOpen(): ScratchOpen | null { return readJson<ScratchOpen>(SCRATCH_OPEN_FILE); }
+
+// ── Cockpit launch (agent/CTRL → dashboard: open a new session as a tile) ─
+export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; ts: number; }
+
+/** Ask the dashboard to open a new conversation as a cockpit tile (instead of a
+ *  separate terminal window). Used when the launch originates inside the web UI. */
+export function writeCockpitLaunch(launch: CockpitLaunch): void { writeJson(COCKPIT_LAUNCH_FILE, launch); }
+export function readCockpitLaunch(): CockpitLaunch | null { return readJson<CockpitLaunch>(COCKPIT_LAUNCH_FILE); }

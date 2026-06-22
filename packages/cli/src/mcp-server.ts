@@ -42,7 +42,7 @@ import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/contro
 import { searchConversations } from './core/conversation-search.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath } from './core/dashboard-bridge.js';
+import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath, writeCockpitLaunch } from './core/dashboard-bridge.js';
 import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
 import { readDaemonCache } from './core/background.js';
 import { normalizePathForCompare } from './core/platform.js';
@@ -222,6 +222,22 @@ async function handleLaunchSession(args: {
   const project = resolveProject(config, projects, args.project);
   if (!project) {
     return { error: `Project not found: "${args.project}". Use list_projects to see available projects.` };
+  }
+
+  // Surface-aware default: when this MCP server is running inside the web
+  // dashboard (the dock/cockpit PTYs set CLDCTRL_DASHBOARD_PORT), open new
+  // sessions as a cockpit TILE in the same browser rather than spawning a
+  // separate terminal window. Resumes already have an "Open here" path; route
+  // new launches. The dashboard adopts the signal on its next poll.
+  if (process.env.CLDCTRL_DASHBOARD_PORT && !args.resume) {
+    writeCockpitLaunch({ projectPath: project.path, project: project.name, prompt: args.prompt, ts: Date.now() });
+    return {
+      success: true,
+      surface: 'cockpit',
+      message: `Opening a new session for "${project.name}" in the dashboard cockpit.`,
+      project: project.name,
+      path: project.path,
+    };
   }
 
   const result = launchAndTrack({

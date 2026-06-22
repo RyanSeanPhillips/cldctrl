@@ -21,6 +21,7 @@ export interface CockpitTile {
   branch?: string;            // the worktree branch
   agent?: string;             // new sessions: which CLI agent (claude/codex/gemini)
   filePath?: string;          // doc tiles: absolute path to the markdown file
+  prompt?: string;            // new sessions: seed prompt typed into the agent
 }
 
 export interface CockpitState {

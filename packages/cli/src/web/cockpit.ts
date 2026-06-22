@@ -39,6 +39,7 @@ function wsUrl(t: CockpitTile): string {
     let u = base + '&kind=new&id=' + encodeURIComponent(t.id);
     if (t.agent) u += '&agent=' + encodeURIComponent(t.agent);
     if (t.worktree) u += '&worktree=1&branch=' + encodeURIComponent(t.branch ?? '');
+    if (t.prompt) u += '&prompt=' + encodeURIComponent(t.prompt);
     return u;
   }
   return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '');

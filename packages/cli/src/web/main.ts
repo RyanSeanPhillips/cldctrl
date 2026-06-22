@@ -110,6 +110,21 @@ async function openScratchpadFor(tileId: string): Promise<void> {
   } catch { toast('✗ Scratchpad failed'); }
 }
 
+/** Open a new agent session as a cockpit tile (CTRL launched it from the web). */
+function addLaunchTile(projectPath: string, projectName: string | undefined, prompt?: string): void {
+  const cp = getState().ui.cockpit;
+  const id = 'new:' + projectPath + ':' + Date.now();
+  const short = projectName || projectPath.split(/[/\\]/).pop() || projectPath;
+  setCockpit({
+    tiles: [...cp.tiles, { id, kind: 'new' as const, projectPath, title: short + ' · new', agent: 'claude', prompt }],
+    open: true, maximized: null, addOpen: false,
+  });
+  setUi({ selectedProject: null });
+  setSearch({ query: '', results: [] });
+  writeHash();
+  if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+}
+
 // ── project detail loading (on tab open, never on the poll) ──
 async function loadDetailIfNeeded(): Promise<void> {
   const proj = getState().ui.selectedProject;
@@ -156,6 +171,7 @@ async function refreshTranscript(): Promise<void> {
 // ── poll loop (overview only — detail is event-driven) ───────
 let lastBridgeTs = 0;
 let lastScratchTs = 0;
+let lastCockpitLaunchTs = 0;
 async function poll(): Promise<void> {
   try {
     const data = await fetchOverview();
@@ -177,6 +193,13 @@ async function poll(): Promise<void> {
         addDocTile(sc.path, '', true);
         if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
       }
+    }
+    // Open a new session as a cockpit tile when CTRL launched one from the web
+    // surface (recent only, so a fresh load doesn't replay a stale launch).
+    const cl = data.cockpitLaunch;
+    if (cl && cl.ts > lastCockpitLaunchTs) {
+      lastCockpitLaunchTs = cl.ts;
+      if (Date.now() - cl.ts < 60_000) addLaunchTile(cl.projectPath, cl.project, cl.prompt);
     }
   } catch { setConnError(true); }
   await refreshTranscript();
