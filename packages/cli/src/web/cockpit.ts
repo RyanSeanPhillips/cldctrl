@@ -54,6 +54,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <span class="tile-title">${esc(meta.title)}</span>
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
+      <button class="btn icon" data-act="tile-scratch" data-id="${esc(meta.id)}" title="Open a scratchpad to draft beside this chat">&#9998;</button>
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>

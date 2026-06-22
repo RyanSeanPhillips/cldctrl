@@ -119,6 +119,58 @@ public class WinHelper {
 }
 "@
 
+# ── Config helpers ────────────────────────────────
+# Read the cldctrl config so Ctrl+Up can launch either the TUI or the web
+# dashboard, per global_hotkey.action. Mirrors getConfigDir() in config.ts:
+# CLDCTRL_CONFIG_DIR override → legacy %APPDATA%\claudedock → %APPDATA%\cldctrl.
+function Get-CldConfig {
+    try {
+        $dir = $env:CLDCTRL_CONFIG_DIR
+        if (-not $dir) { $dir = $env:CLAUDEDOCK_CONFIG_DIR }
+        if (-not $dir) {
+            $appdata = $env:APPDATA
+            if (-not $appdata) { return $null }
+            $legacy = Join-Path $appdata 'claudedock'
+            if (Test-Path (Join-Path $legacy 'config.json')) { $dir = $legacy }
+            else { $dir = Join-Path $appdata 'cldctrl' }
+        }
+        $cfgPath = Join-Path $dir 'config.json'
+        if (Test-Path $cfgPath) {
+            return Get-Content $cfgPath -Raw | ConvertFrom-Json
+        }
+    } catch { }
+    return $null
+}
+
+# Is something already listening on the loopback port? (cc serve already up)
+function Test-CldPort([int]$port) {
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect('127.0.0.1', $port, $null, $null)
+        $ok = $iar.AsyncWaitHandle.WaitOne(300)
+        if ($ok -and $client.Connected) { return $true }
+        return $false
+    } catch {
+        return $false
+    } finally {
+        if ($client) { $client.Close() }
+    }
+}
+
+# Launch (if needed) and surface the web dashboard in the default browser.
+function Show-CldWeb([int]$port) {
+    if (-not (Test-CldPort $port)) {
+        # Start `cc serve` in a hidden cmd window; it stays alive serving requests.
+        Start-Process cmd -ArgumentList "/c cc serve --port $port" -WindowStyle Hidden
+        for ($i = 0; $i -lt 24; $i++) {
+            Start-Sleep -Milliseconds 250
+            if (Test-CldPort $port) { break }
+        }
+    }
+    Start-Process "http://localhost:$port"
+}
+
 # ── Single-instance guard ─────────────────────────
 $mutexName = "Global\CldCtrl_HotkeyListener"
 $createdNew = $false
@@ -142,6 +194,22 @@ if (-not $registered) {
 $wnd.add_HotkeyPressed({
     $ErrorActionPreference = "Continue"
     try {
+        # Decide target from config (default: TUI). Re-read each press so a
+        # settings change takes effect without restarting the listener.
+        $cfg = Get-CldConfig
+        $action = 'tui'
+        $port = 2533
+        if ($cfg -and $cfg.global_hotkey) {
+            if ($cfg.global_hotkey.action) { $action = "$($cfg.global_hotkey.action)" }
+            if ($cfg.global_hotkey.web_port) { $port = [int]$cfg.global_hotkey.web_port }
+        }
+
+        if ($action -eq 'web') {
+            Show-CldWeb $port
+            return
+        }
+
+        # ── TUI (default) ──
         # Look for an existing CLD CTRL window on the CURRENT virtual desktop
         $hwnd = [WinHelper]::FindOnCurrentDesktop("CLD CTRL")
 

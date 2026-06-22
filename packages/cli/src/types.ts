@@ -21,6 +21,10 @@ export interface LaunchConfig {
 export interface GlobalHotkeyConfig {
   modifiers: string;
   key: string;
+  /** What the global hotkey launches: the terminal TUI (default) or the web dashboard. */
+  action?: 'tui' | 'web';
+  /** Port for the web dashboard when action === 'web'. */
+  web_port?: number;
 }
 
 export interface NotificationsConfig {

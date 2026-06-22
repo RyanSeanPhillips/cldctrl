@@ -25,7 +25,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -862,6 +862,13 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const result = handleWriteFile(await readJsonBody(req));
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'POST' && url.pathname === '/api/scratch') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const title = typeof body.title === 'string' ? body.title.slice(0, 80) : undefined;
+        const p = newScratchFile(title);
+        log('serve_scratch', { path: p });
+        sendJson(res, 200, { ok: true, path: p });
       } else if (req.method === 'POST' && url.pathname === '/api/bridge') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

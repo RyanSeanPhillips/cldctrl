@@ -81,6 +81,16 @@ export async function postFile(p: string, content: string): Promise<{ ok?: boole
   return r.json();
 }
 
+/** Mint a fresh scratchpad file (for the conversation "draft" button) and return its path. */
+export async function postScratch(title?: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
+  const r = await fetch('/api/scratch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ title }),
+  });
+  return r.json();
+}
+
 /** Capture a screenshot and have the server type its path into a terminal. */
 export async function postScreenshot(target: string, mode: 'region' | 'full' = 'region'): Promise<{ path?: string; error?: string }> {
   const r = await fetch('/api/screenshot', {

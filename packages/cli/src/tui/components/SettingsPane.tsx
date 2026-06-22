@@ -116,6 +116,15 @@ function flattenConfig(config: Config): SettingItem[] {
     path: ['global_hotkey', 'key'],
   });
 
+  items.push({
+    key: 'global_hotkey.action',
+    label: 'Hotkey launches',
+    value: (config.global_hotkey.action ?? 'tui') === 'web' ? 'Web dashboard' : 'Terminal TUI',
+    type: 'string',
+    path: ['global_hotkey', 'action'],
+    description: 'Enter to toggle: Terminal TUI ↔ Web dashboard (cc serve)',
+  });
+
   // ── Feature toggles ──────────────────────────
   const featureItems: { key: string; label: string; description: string }[] = [
     { key: 'rate_limit_bars', label: 'Rate limit bars (5h/7d)', description: 'Show usage progress bars in project pane' },
@@ -456,6 +465,12 @@ export function toggleSetting(config: Config, index: number): Config | null {
   if (item.key === 'hidden_projects') {
     // Unhide all
     newConfig.hidden_projects = [];
+    return newConfig;
+  }
+
+  if (item.key === 'global_hotkey.action') {
+    newConfig.global_hotkey.action =
+      (config.global_hotkey.action ?? 'tui') === 'web' ? 'tui' : 'web';
     return newConfig;
   }
 

@@ -6,7 +6,7 @@ import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postScratch,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
@@ -94,6 +94,20 @@ function addDocTile(filePath: string, projectPath: string, openNow: boolean): vo
     : [...cp.tiles, { id, kind: 'doc' as const, projectPath, title, filePath }];
   setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null, addOpen: false });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+}
+
+/** Mint a fresh scratchpad and open it as a doc tile beside the given chat tile. */
+async function openScratchpadFor(tileId: string): Promise<void> {
+  const tile = getState().ui.cockpit.tiles.find((t) => t.id === tileId);
+  const proj = tile?.projectPath ?? getState().ui.selectedProject ?? '';
+  toast('Opening scratchpad…');
+  try {
+    const r = await postScratch();
+    if (!r.path) { toast('✗ ' + (r.error || 'could not open scratchpad')); return; }
+    addDocTile(r.path, proj, true);
+    if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+    toast('✓ Scratchpad ready — draft away, Ctrl+S to save');
+  } catch { toast('✗ Scratchpad failed'); }
 }
 
 // ── project detail loading (on tab open, never on the poll) ──
@@ -239,6 +253,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dockRestart') { restartDock(); }
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
+  else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
   else if (act === 'view-list') { setCockpit({ open: false }); }
   else if (act === 'view-cockpit') { setCockpit({ open: true }); }

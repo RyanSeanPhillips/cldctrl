@@ -74,6 +74,25 @@ export function isScratchPath(p: string): boolean {
   return normSlash(p).startsWith(normSlash(scratchDir()) + '/');
 }
 
+/**
+ * Create a fresh, empty scratchpad file and return its path — for the dashboard's
+ * "draft" button (user-initiated, so NO scratch-open signal is written; the client
+ * opens the doc tile itself). Appends -2/-3/… if the slug already exists.
+ */
+export function newScratchFile(title?: string): string {
+  let p = scratchPath(title);
+  if (fs.existsSync(p)) {
+    const ext = path.extname(p);
+    const base = p.slice(0, p.length - ext.length);
+    for (let i = 2; i < 1000; i++) {
+      const cand = `${base}-${i}${ext}`;
+      if (!fs.existsSync(cand)) { p = cand; break; }
+    }
+  }
+  fs.writeFileSync(p, '', 'utf-8');
+  return p;
+}
+
 /** Seed/ensure a scratchpad and signal the dashboard to open it. Returns the path. */
 export function openScratchpad(content: string | undefined, title: string | undefined): string {
   const p = scratchPath(title);

@@ -33,6 +33,8 @@ const ConfigSchema = z.object({
   global_hotkey: z.object({
     modifiers: z.string().default('Ctrl'),
     key: z.string().default('Up'),
+    action: z.enum(['tui', 'web']).default('tui'),
+    web_port: z.number().int().default(2533),
   }).default({}),
   project_manager: z.object({
     enabled: z.boolean().default(true),
@@ -178,7 +180,7 @@ export function createDefaultConfig(): Config {
     hidden_projects: [],
     launch: { explorer: true, vscode: true, claude: true },
     icon_color: '#DA8F4E',
-    global_hotkey: { modifiers: 'Ctrl', key: 'Up' },
+    global_hotkey: { modifiers: 'Ctrl', key: 'Up', action: 'tui', web_port: 2533 },
     project_manager: { enabled: true },
     notifications: {
       github_issues: { enabled: true, poll_interval_minutes: 5 },
