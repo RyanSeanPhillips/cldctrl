@@ -16,9 +16,10 @@ const iTerminal = () => svgWrap(html`<polyline points="4 17 10 11 4 5"></polylin
 const iBranch = () => svgWrap(html`<circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="7" r="2.4"></circle><path d="M6 8.4v7.2M8.4 6.4H14a3 3 0 0 1 3 3v0"></path>`);
 const iGrid = () => svgWrap(html`<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>`);
 
-/** "Open here" button — opens a conversation as a live terminal tile in the cockpit. */
+/** Resume a conversation as a live tile in the web cockpit (the in-app surface). */
 function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl {
-  return html`<button class="btn" data-act="openincockpit" data-id=${sessionId} data-path=${projectPath} data-title=${title}>${iGrid()} Open here</button>`;
+  return html`<button class="btn primary" data-act="openincockpit" data-id=${sessionId} data-path=${projectPath} data-title=${title}
+    title="Resume this conversation here in the cockpit">${iGrid()} Resume in cockpit</button>`;
 }
 
 // ── small viz helpers ────────────────────────────────────────
@@ -229,8 +230,8 @@ function sessionDetail(s: SessionInfo, state: State): Tpl {
       </div>
     </div>
     ${s.id ? html`<div class="detail-actions">
-      <button class="btn primary" data-act="resume" data-id=${s.id} data-path=${s.path}>${iPlay()} Resume in terminal</button>
       ${cockpitBtn(s.id, s.path, s.project)}
+      <button class="btn" data-act="resume" data-id=${s.id} data-path=${s.path} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>
     </div>` : ''}
   </div>`;
 }
@@ -362,7 +363,7 @@ function sessionsTab(state: State, projectPath: string): Tpl {
         </div>
         <div class="res-actions">
           ${cockpitBtn(s.id, projectPath, projectPath.split(/[/\\]/).pop() || projectPath)}
-          <button class="btn" data-act="resume" data-id=${s.id} data-path=${projectPath}>${iPlay()} Resume</button>
+          <button class="btn" data-act="resume" data-id=${s.id} data-path=${projectPath} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>
         </div>
       </div>
       ${expanded ? html`<div class="detail">
@@ -505,7 +506,7 @@ function searchView(state: State): Tpl {
           </div>
           <div class="res-actions">
             ${cockpitBtn(r.sessionId, r.projectPath, r.project)}
-            <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath}>${iPlay()} Resume</button>
+            <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>
           </div>
         </div>`)}</div>`}
   </section>`;
