@@ -108,8 +108,16 @@ export function agentCommand(agentId?: string): string {
 
 /** Persist an explicit path for an agent (the connect path Claude Code can set). */
 export function setAgentPath(id: string, exePath: string): { ok: boolean; error?: string } {
-  if (!AGENTS.some((a) => a.id === id)) return { ok: false, error: 'Unknown agent: ' + id };
+  const def = AGENTS.find((a) => a.id === id);
+  if (!def) return { ok: false, error: 'Unknown agent: ' + id };
   if (!exePath || !fs.existsSync(exePath)) return { ok: false, error: 'No file at: ' + exePath };
+  // The connect-path must point at the agent's OWN binary — not an arbitrary
+  // executable. This blocks a prompt-injected MCP caller from registering, say,
+  // cmd.exe/powershell as the "agent" that consult_agent later spawns headless.
+  const base = path.basename(exePath).toLowerCase().replace(/\.(exe|cmd|bat|ps1|sh)$/, '');
+  if (base !== def.cmdName) {
+    return { ok: false, error: `Path must point at the "${def.cmdName}" binary (got "${base}")` };
+  }
   try {
     const { config } = loadConfig();
     config.agent_paths = { ...(config.agent_paths ?? {}), [id]: exePath };

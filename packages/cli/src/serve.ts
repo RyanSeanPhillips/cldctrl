@@ -497,9 +497,29 @@ function handleWriteFile(body: { path?: string; content?: string }): { status: n
 
 // ── Request plumbing ─────────────────────────────────────────
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/** DNS-rebinding guard: the Host must be EXACTLY a loopback name (not merely
+ *  prefixed by one — `localhost.attacker.com` must NOT pass). */
 function isLocalHost(req: http.IncomingMessage): boolean {
-  const host = (req.headers.host ?? '').toLowerCase();
-  return host.startsWith('127.0.0.1') || host.startsWith('localhost') || host.startsWith('[::1]');
+  const raw = (req.headers.host ?? '').toLowerCase().trim();
+  // Strip the port, but keep the colons inside a bracketed IPv6 literal.
+  const host = raw.startsWith('[') ? raw.replace(/\]:\d+$/, ']') : raw.replace(/:\d+$/, '');
+  return LOCAL_HOSTS.has(host);
+}
+
+/** WebSocket CSRF defense. Browsers ALWAYS send Origin on a WS handshake and
+ *  cannot set custom headers there, so the JSON APIs' `X-CLDCTRL` guard can't
+ *  protect `/ws/*`. A drive-by page sends its own (non-local) Origin → rejected.
+ *  A non-browser local client sends no Origin and still passes the Host guard. */
+function isLocalWsOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true; // not a browser-driven cross-site request
+  try {
+    return LOCAL_HOSTS.has(new URL(origin).hostname.toLowerCase());
+  } catch {
+    return false; // malformed Origin → reject
+  }
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<any> {
@@ -760,6 +780,12 @@ function setupAgentTerminal(server: http.Server): boolean {
   server.on('upgrade', async (req, socket, head) => {
     try {
       if (!isLocalHost(req)) { socket.destroy(); return; }
+      // WS-CSRF: reject cross-origin (drive-by) handshakes from a browser.
+      if (!isLocalWsOrigin(req)) {
+        log('serve_term', { event: 'reject_origin', origin: String(req.headers.origin ?? '') });
+        socket.destroy();
+        return;
+      }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname === '/ws/agent') {
         wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'control', { kind: 'control' }));

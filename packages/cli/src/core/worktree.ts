@@ -56,7 +56,13 @@ export interface WorktreeResult { path: string; branch: string; created: boolean
 export async function createWorktree(projectPath: string, branch: string): Promise<WorktreeResult | null> {
   if (!(await isGitRepo(projectPath))) return null;
   await ensureExcluded(projectPath);
-  const b = (branch || '').trim() || 'cockpit/session';
+  // Reject anything that isn't a plain branch name — a leading '-' or other
+  // dashed token would be parsed by git as an option (arg injection) in the
+  // fallback `worktree add <path> <ref>` below. Fall back to a safe default.
+  const raw = (branch || '').trim();
+  const b = /^[A-Za-z0-9._/-]+$/.test(raw) && !raw.startsWith('-') && !raw.startsWith('/')
+    ? raw
+    : 'cockpit/session';
   const wtRoot = path.join(projectPath, '.claude', 'worktrees');
   try { fs.mkdirSync(wtRoot, { recursive: true }); } catch { /* ignore */ }
   const wtPath = path.join(wtRoot, slug(b));
