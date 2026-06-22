@@ -1,7 +1,7 @@
 import './app.css';
 import { render } from 'uhtml';
 import { appView } from './views.js';
-import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit } from './store.js';
+import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession } from './store.js';
 import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
@@ -302,6 +302,11 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
   else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
+  else if (act === 'restore-accept') {
+    const o = getState().ui.restoreOffer;
+    if (o) { setCockpit({ tiles: o.tiles, layout: o.layout, open: true, maximized: null }); setUi({ restoreOffer: null, selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+  }
+  else if (act === 'restore-dismiss') { setUi({ restoreOffer: null }); clearPersistedSession(); }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
   else if (act === 'toggle-group') {
     const g = el.dataset.group!;
@@ -411,8 +416,25 @@ document.addEventListener('change', (ev) => {
 });
 
 // ── boot ─────────────────────────────────────────────────────
+// Bring back where you left off. Fresh reopen (PTYs still alive) → restore +
+// reconnect silently; stale (next day) → offer to restore, no surprise spawns.
+function restoreSession(): void {
+  const p = loadPersistedSession();
+  if (!p) return;
+  setUi({ sidebarCollapsed: !!p.sidebarCollapsed, collapsedGroups: p.collapsedGroups ?? [] });
+  const tiles = p.cockpit?.tiles ?? [];
+  if (!tiles.length) return;
+  const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
+  if (Date.now() - p.ts < FRESH_MS) {
+    setCockpit({ tiles, layout: p.cockpit.layout, open: p.cockpit.open, maximized: p.cockpit.maximized });
+  } else {
+    setUi({ restoreOffer: { tiles, layout: p.cockpit.layout } });
+  }
+}
+
 initTheme();
 initRouter(loadDetailIfNeeded);
+restoreSession();
 renderApp();
 loadDetailIfNeeded();
 poll();

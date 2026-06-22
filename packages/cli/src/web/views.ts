@@ -579,8 +579,15 @@ export function appView(state: State): Tpl {
   const showDetail = !showSearch && !home;
   const showCockpit = home && state.ui.cockpit.open;
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
+  const ro = state.ui.restoreOffer;
   return html`
     ${topbar(d, state.connError, state.ui.cockpit.tiles.length)}
+    ${ro ? html`<div class="restore-banner">
+      <span>↩ Pick up where you left off — restore ${ro.tiles.length} conversation${ro.tiles.length === 1 ? '' : 's'} from your last session?</span>
+      <span class="sp"></span>
+      <button class="btn primary" data-act="restore-accept">Restore</button>
+      <button class="btn" data-act="restore-dismiss">Dismiss</button>
+    </div>` : ''}
     ${home ? convTabs(d, state) : ''}
     <div class="body">
       ${sidebar(d, state.ui, state.search.query, matchPaths)}

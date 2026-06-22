@@ -47,6 +47,7 @@ export interface UiState {
   cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
   sortKey: SortKey;
   sortDir: 1 | -1;                 // 1 = desc, -1 = asc
+  restoreOffer: { tiles: CockpitTile[]; layout: CockpitState['layout'] } | null; // last-session tiles to optionally restore
 }
 
 export interface DetailState {
@@ -96,6 +97,7 @@ const state: State = {
     cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null, addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
+    restoreOffer: null,
   },
   detail: emptyDetail(null),
   search: { query: '', results: [], loading: false, agentNote: null },
@@ -117,12 +119,54 @@ export function subscribe(fn: Listener): () => void {
 let scheduled = false;
 function notify(): void {
   // Coalesce multiple set() calls in one tick into a single render.
+  schedulePersist();
   if (scheduled) return;
   scheduled = true;
   queueMicrotask(() => {
     scheduled = false;
     for (const fn of listeners) fn(state);
   });
+}
+
+// ── session persistence (localStorage) ───────────────────────
+// Remember the cockpit + sidebar layout so closing/reopening the dashboard
+// brings you back. `ts` is refreshed on every change while open, so on reopen
+// we can tell "I just refreshed" (fresh → auto-restore + reconnect) from "next
+// day" (stale → offer to restore, no surprise re-spawns).
+const PERSIST_KEY = 'cldctrl.session.v1';
+export interface PersistedSession {
+  ts: number;
+  cockpit: { tiles: CockpitTile[]; layout: CockpitState['layout']; open: boolean; maximized: string | null };
+  sidebarCollapsed: boolean;
+  collapsedGroups: string[];
+}
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersist(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const cp = state.ui.cockpit;
+      const data: PersistedSession = {
+        ts: Date.now(),
+        cockpit: { tiles: cp.tiles, layout: cp.layout, open: cp.open, maximized: cp.maximized },
+        sidebarCollapsed: state.ui.sidebarCollapsed,
+        collapsedGroups: state.ui.collapsedGroups,
+      };
+      localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
+    } catch { /* storage unavailable / quota — non-fatal */ }
+  }, 800);
+}
+
+export function loadPersistedSession(): PersistedSession | null {
+  try {
+    const raw = localStorage.getItem(PERSIST_KEY);
+    return raw ? (JSON.parse(raw) as PersistedSession) : null;
+  } catch { return null; }
+}
+
+export function clearPersistedSession(): void {
+  try { localStorage.removeItem(PERSIST_KEY); } catch { /* ignore */ }
 }
 
 /** Replace server data (poll path). Never mutates `ui`. */

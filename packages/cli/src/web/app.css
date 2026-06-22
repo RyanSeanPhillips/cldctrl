@@ -439,6 +439,12 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .tile-status { font-size: 10.5px; color: var(--text-muted); }
 /* active read-aloud (stop state) */
 .tile-head .btn.icon.on { color: var(--accent); }
+/* restore-last-session banner (under the topbar) */
+.restore-banner { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); z-index: 40;
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4);
+  background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
+body.dock-open .restore-banner { right: var(--dock-w); }
+body.sidebar-collapsed .restore-banner { left: 0; }
 .tile-head .sp { margin-left: auto; }
 .tile-term { flex: 1; min-height: 0; padding: var(--s2) var(--s1) var(--s2) var(--s2); }
 .tile-term .xterm { height: 100%; }
