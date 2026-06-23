@@ -182,6 +182,18 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .conv-tab:hover { color: var(--text-secondary); }
 .conv-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .conv-tab .num { color: var(--text-faint); font-weight: 400; font-size: 11.5px; }
+/* Per-project focus chips — kept on one row so the cockpit's top offset is stable. */
+.cp-chips { display: flex; align-items: center; gap: var(--s2); margin-left: var(--s3);
+  min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 0 var(--s1); }
+.cp-chips::-webkit-scrollbar { display: none; }
+.cp-chip { flex: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-faint); font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1;
+  padding: 4px 10px; cursor: pointer; white-space: nowrap; opacity: .55; transition: opacity .12s ease, color .12s ease, border-color .12s ease; }
+.cp-chip:hover { opacity: .85; }
+.cp-chip.on { opacity: 1; color: var(--text-secondary); border-color: var(--border-strong); }
+.cp-chip.on.all { color: var(--accent); border-color: var(--accent); }
+.cp-chip .num { color: var(--text-faint); font-weight: 400; margin-left: 3px; }
+.cp-chip.on .num { color: var(--accent); }
 
 /* ── cards ────────────────────────────────────────────────── */
 .card {
@@ -429,6 +441,7 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .cockpit-grid.cols2 { grid-template-columns: 1fr 1fr; }
 .cockpit-grid.grid { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); grid-auto-rows: 1fr; }
 .cockpit-grid.has-max .tile:not(.maxed) { display: none; }
+.cockpit-grid .tile.hidden-proj { display: none !important; } /* muted by a focus chip */
 .cockpit-grid.has-max .tile.maxed { grid-column: 1 / -1; grid-row: 1 / -1; }
 .tile { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface-1);
   border-radius: var(--r-md); overflow: hidden;

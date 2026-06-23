@@ -130,11 +130,16 @@ async function reveal(projectPath: string, target: 'explorer' | 'code'): Promise
 function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean): void {
   const id = 'resume:' + sessionId;
   const cp = getState().ui.cockpit;
-  const tiles = cp.tiles.some((t) => t.id === id)
+  const already = cp.tiles.some((t) => t.id === id);
+  const tiles = already
     ? cp.tiles
     : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title }];
-  setCockpit({ tiles, open: openNow ? true : cp.open, maximized: null });
+  // Opening always reveals the conversation: unmute its project (focus chips) so
+  // re-opening an already-open chat doesn't silently appear to do nothing.
+  const hiddenProjects = cp.hiddenProjects.filter((p) => p !== projectPath);
+  setCockpit({ tiles, hiddenProjects, open: openNow ? true : cp.open, maximized: null });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+  if (already) toast('Already open in the cockpit — focused it');
 }
 
 function addDocTile(filePath: string, projectPath: string, openNow: boolean, scratch = false): void {
@@ -356,11 +361,16 @@ document.addEventListener('click', async (ev) => {
   }
   else if (act === 'view-list') { setCockpit({ open: false }); }
   else if (act === 'view-cockpit') { setCockpit({ open: true }); }
-  else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); setCockpit({ open: false }); writeHash(); }
+  else if (act === 'cockpit-chip') {
+    const proj = el.dataset.proj!;
+    const cur = getState().ui.cockpit.hiddenProjects;
+    setCockpit({ hiddenProjects: cur.includes(proj) ? cur.filter((p) => p !== proj) : [...cur, proj] });
+  }
+  else if (act === 'cockpit-chip-all') { setCockpit({ hiddenProjects: [] }); }
+  else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
   else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {
     setSearch({ query: '', results: [] });
-    setCockpit({ open: false });
     setUi({ selectedProject: el.dataset.path!, expandedSessionId: null, newSessionOpen: false, newSessionDraft: '' });
     writeHash();
     loadDetailIfNeeded();
@@ -368,6 +378,11 @@ document.addEventListener('click', async (ev) => {
     setUi({ detailTab: el.dataset.tab as DetailTab });
     writeHash();
     loadDetailIfNeeded();
+  } else if (act === 'newcockpit') {
+    // Start a fresh parallel conversation from this project as a cockpit tile
+    // (distinct from "New in terminal" which opens a separate window).
+    addLaunchTile(el.dataset.path!, el.dataset.name || undefined);
+    toast('Opening a new conversation in the cockpit…');
   } else if (act === 'newsession') {
     setUi({ newSessionOpen: !ui.newSessionOpen, newSessionDraft: '' });
   } else if (act === 'newlaunch') {
@@ -467,7 +482,7 @@ function restoreSession(): void {
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
-    setCockpit({ tiles, layout: p.cockpit.layout, open: p.cockpit.open, maximized: p.cockpit.maximized });
+    setCockpit({ tiles, layout: p.cockpit.layout, open: p.cockpit.open, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
   } else {
     setUi({ restoreOffer: { tiles, layout: p.cockpit.layout } });
   }

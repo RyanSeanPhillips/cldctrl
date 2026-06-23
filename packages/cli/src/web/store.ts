@@ -30,6 +30,7 @@ export interface CockpitState {
   layout: 'cols1' | 'cols2' | 'grid';
   open: boolean;
   maximized: string | null;   // tile id shown full-bleed
+  hiddenProjects: string[];   // project paths whose tiles are muted (focus chips)
   addOpen: boolean;           // the "+ Add" picker overlay
   addQuery: string;
   addResults: SearchResult[];
@@ -94,7 +95,7 @@ const state: State = {
     dockOpen: false,
     sidebarCollapsed: false,
     collapsedGroups: [],
-    cockpit: { tiles: [], layout: 'cols2', open: false, maximized: null, addOpen: false, addQuery: '', addResults: [] },
+    cockpit: { tiles: [], layout: 'cols2', open: true, maximized: null, hiddenProjects: [], addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
     restoreOffer: null,
@@ -136,7 +137,7 @@ function notify(): void {
 const PERSIST_KEY = 'cldctrl.session.v1';
 export interface PersistedSession {
   ts: number;
-  cockpit: { tiles: CockpitTile[]; layout: CockpitState['layout']; open: boolean; maximized: string | null };
+  cockpit: { tiles: CockpitTile[]; layout: CockpitState['layout']; open: boolean; maximized: string | null; hiddenProjects?: string[] };
   sidebarCollapsed: boolean;
   collapsedGroups: string[];
 }
@@ -149,7 +150,7 @@ function schedulePersist(): void {
       const cp = state.ui.cockpit;
       const data: PersistedSession = {
         ts: Date.now(),
-        cockpit: { tiles: cp.tiles, layout: cp.layout, open: cp.open, maximized: cp.maximized },
+        cockpit: { tiles: cp.tiles, layout: cp.layout, open: cp.open, maximized: cp.maximized, hiddenProjects: cp.hiddenProjects },
         sidebarCollapsed: state.ui.sidebarCollapsed,
         collapsedGroups: state.ui.collapsedGroups,
       };

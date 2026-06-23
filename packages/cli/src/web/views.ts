@@ -466,7 +466,8 @@ function projectDetail(d: OverviewPayload, state: State): Tpl {
       <h2 class="detail-name">${name}</h2>
       ${p ? gitBadge(p) : ''}
       <span class="sp"></span>
-      <button class="btn primary" data-act="newsession" data-path=${projPath}>${iPlay()} New session</button>
+      <button class="btn primary" data-act="newcockpit" data-path=${projPath} data-name=${name} title="Start a new conversation as a cockpit tile (open several at once)">${iGrid()} New in cockpit</button>
+      <button class="btn" data-act="newsession" data-path=${projPath} title="Start a new conversation in a separate terminal window">${iTerminal()} New in terminal</button>
     </div>
     ${ui.newSessionOpen ? html`<div class="launch-form detail-launch">
       <input id="newsession-prompt" placeholder="optional prompt…" maxlength="2000" .value=${ui.newSessionDraft}>
@@ -555,12 +556,37 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
 }
 
 // ── conversations-pane tabs (List / Cockpit) ─────────────────
+/** Per-project focus chips: one per distinct project among open tiles. Toggling
+ *  a chip mutes/shows that project's tiles so you can focus on a subset. */
+function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
+  const cp = state.ui.cockpit;
+  const order: string[] = [];
+  const counts = new Map<string, number>();
+  for (const t of cp.tiles) {
+    if (!counts.has(t.projectPath)) order.push(t.projectPath);
+    counts.set(t.projectPath, (counts.get(t.projectPath) ?? 0) + 1);
+  }
+  if (order.length < 2) return ''; // chips only help once tiles span 2+ projects
+  const nameOf = (path: string) => d.projects.find((p) => p.path === path)?.name || path.split(/[/\\]/).pop() || path;
+  const hidden = new Set(cp.hiddenProjects);
+  const anyHidden = cp.hiddenProjects.length > 0;
+  return html`<div class="cp-chips">
+    <button class=${'cp-chip all' + (anyHidden ? '' : ' on')} data-act="cockpit-chip-all" title="Show all conversations">All</button>
+    ${order.map((path) => html`<button
+      class=${'cp-chip' + (hidden.has(path) ? '' : ' on')}
+      data-act="cockpit-chip" data-proj=${path}
+      title=${hidden.has(path) ? 'Show ' + nameOf(path) : 'Hide ' + nameOf(path)}>
+      ${nameOf(path)} <span class="num">${counts.get(path)}</span></button>`)}
+  </div>`;
+}
+
 function convTabs(d: OverviewPayload, state: State): Tpl {
   const cp = state.ui.cockpit;
   const live = d.sessions.filter((s) => s.status === 'active').length;
   return html`<div class="conv-tabs">
     <button class=${'conv-tab' + (!cp.open ? ' active' : '')} data-act="view-list">List${live ? html` <span class="num">${live} live</span>` : ''}</button>
     <button class=${'conv-tab' + (cp.open ? ' active' : '')} data-act="view-cockpit">Cockpit${cp.tiles.length ? html` <span class="num">${cp.tiles.length}</span>` : ''}</button>
+    ${cp.open ? cockpitChips(d, state) : ''}
     ${cp.open ? html`<span class="sp"></span>
       <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
       <div class="cp-layouts">

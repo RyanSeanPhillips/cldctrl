@@ -288,10 +288,13 @@ export function syncCockpit(): void {
 
   const wanted = new Set(cp.tiles.map((t) => t.id));
   for (const id of [...tiles.keys()]) if (!wanted.has(id)) destroyTile(id);
+  const hidden = new Set(cp.hiddenProjects);
   for (const meta of cp.tiles) {
     let t = tiles.get(meta.id);
     if (!t) { t = createTile(meta); tiles.set(meta.id, t); grid.appendChild(t.el); }
     t.el.classList.toggle('maxed', cp.maximized === meta.id);
+    // Focus chips: mute a project's tiles without tearing down their PTYs.
+    t.el.classList.toggle('hidden-proj', hidden.has(meta.projectPath));
   }
 
   if (show) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
