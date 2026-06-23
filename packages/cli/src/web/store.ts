@@ -29,6 +29,8 @@ export interface CockpitState {
   tiles: CockpitTile[];
   layout: 'cols1' | 'cols2' | 'grid';
   open: boolean;
+  tab: 'grid' | 'stats';      // cockpit sub-view: the tile grid, or the usage Stats panel
+  statsDays: number;          // Stats range (1/3/7/30)
   maximized: string | null;   // tile id shown full-bleed
   hiddenProjects: string[];   // project paths whose tiles are muted (focus chips)
   addOpen: boolean;           // the "+ Add" picker overlay
@@ -95,7 +97,7 @@ const state: State = {
     dockOpen: false,
     sidebarCollapsed: false,
     collapsedGroups: [],
-    cockpit: { tiles: [], layout: 'cols2', open: true, maximized: null, hiddenProjects: [], addOpen: false, addQuery: '', addResults: [] },
+    cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
     restoreOffer: null,

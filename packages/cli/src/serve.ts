@@ -563,6 +563,8 @@ const SHELL = `<!doctype html>
 <body>
 <div id="app"><div class="loading">Loading dashboard…</div></div>
 <div id="cockpit"><div id="cockpit-grid" class="cockpit-grid cols2"></div></div>
+<div id="stats"><div id="stats-body"></div></div>
+<div id="lb"><span class="lb-close">✕</span><div id="lb-imgs"></div></div>
 <aside id="dock" class="dock">
   <button class="dock-rail" data-act="dockToggle" title="CTRL — mission-control agent">
     <span class="dot" id="dock-dot-rail"></span>
@@ -888,6 +890,14 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
       } else if (req.method === 'GET' && url.pathname === '/api/search') {
         const q = url.searchParams.get('q') ?? '';
         sendJson(res, 200, { results: searchConversations(q), query: q });
+      } else if (req.method === 'GET' && url.pathname === '/api/stats') {
+        const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 3));
+        const { computeStats } = await import('./core/stats.js');
+        sendJson(res, 200, await computeStats(days));
+      } else if (req.method === 'GET' && url.pathname === '/api/conversation-image') {
+        const { readBucketImages } = await import('./core/stats.js');
+        const images = await readBucketImages(url.searchParams.get('slug') ?? '', url.searchParams.get('session') ?? '', Number(url.searchParams.get('t')) || 0);
+        sendJson(res, 200, { images });
       } else if (req.method === 'GET' && url.pathname.startsWith('/api/project/')) {
         const tab = url.pathname.slice('/api/project/'.length);
         const result = await handleProjectDetail(tab, url.searchParams.get('path') ?? '', url.searchParams.get('dir') ?? '');

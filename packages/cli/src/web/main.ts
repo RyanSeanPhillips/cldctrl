@@ -11,6 +11,7 @@ import {
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
 import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
+import { syncStats } from './stats.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
@@ -65,6 +66,7 @@ function renderApp(): void {
   document.body.classList.toggle('conv-home', home);
   syncDock();
   syncCockpit();
+  syncStats();
 
   if (focusedId) {
     const inp = document.getElementById(focusedId) as HTMLInputElement | null;
@@ -367,6 +369,8 @@ document.addEventListener('click', async (ev) => {
     setCockpit({ hiddenProjects: cur.includes(proj) ? cur.filter((p) => p !== proj) : [...cur, proj] });
   }
   else if (act === 'cockpit-chip-all') { setCockpit({ hiddenProjects: [] }); }
+  else if (act === 'cockpit-tab') { setCockpit({ tab: el.dataset.tab === 'stats' ? 'stats' : 'grid' }); }
+  else if (act === 'stats-days') { setCockpit({ statsDays: Number(el.dataset.days) || 3 }); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
   else if (act === 'searchclear') { setSearch({ query: '', results: [], loading: false, agentNote: null }); postBridge('', getState().ui.selectedProject); }
   else if (act === 'openresult' || act === 'selectproject') {

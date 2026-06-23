@@ -132,3 +132,26 @@ export interface SearchResult {
   snippet: string;
   count: number;
 }
+
+// ── Stats tab (/api/stats) — mirror of core/stats.ts StatsPayload ──
+export interface StatsTurn { t: number; s: number; k: number; b: number; c: number; f: 0 | 1 | 2; }
+export interface StatsSession { id: string; slug: string; project: string; label: string; total: number; }
+export interface StatsTool { name: string; calls: number; resultTokens: number; mcp: boolean; }
+export interface StatsImageGroup { s: number; bucket: number; n: number; }
+export interface StatsErr { t: number; s: number; }
+export interface StatsPayload {
+  days: number;
+  turns: StatsTurn[];
+  sessions: StatsSession[];
+  tools: StatsTool[];
+  images: StatsImageGroup[];
+  apiErrors: StatsErr[];
+  toolResultTokens: number;
+  mcpResultTokens: number;
+  subagentRuns: number;
+  consults: Record<string, number>;
+  totalTokens: number;
+  imageCount: number;
+  limits: { fiveH: number | null; sevenD: number | null };
+  generatedAt: number;
+}

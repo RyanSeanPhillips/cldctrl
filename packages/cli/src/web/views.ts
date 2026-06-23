@@ -586,13 +586,21 @@ function convTabs(d: OverviewPayload, state: State): Tpl {
   return html`<div class="conv-tabs">
     <button class=${'conv-tab' + (!cp.open ? ' active' : '')} data-act="view-list">List${live ? html` <span class="num">${live} live</span>` : ''}</button>
     <button class=${'conv-tab' + (cp.open ? ' active' : '')} data-act="view-cockpit">Cockpit${cp.tiles.length ? html` <span class="num">${cp.tiles.length}</span>` : ''}</button>
-    ${cp.open ? cockpitChips(d, state) : ''}
-    ${cp.open ? html`<span class="sp"></span>
+    ${cp.open ? html`<span class="cp-subtabs">
+      <button class=${'cp-subtab' + (cp.tab !== 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="grid">Grid</button>
+      <button class=${'cp-subtab' + (cp.tab === 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="stats">Stats</button>
+    </span>` : ''}
+    ${cp.open && cp.tab !== 'stats' ? cockpitChips(d, state) : ''}
+    ${cp.open && cp.tab !== 'stats' ? html`<span class="sp"></span>
       <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
       <div class="cp-layouts">
         <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
         <button class=${'btn icon' + (cp.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
         <button class=${'btn icon' + (cp.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
+      </div>` : ''}
+    ${cp.open && cp.tab === 'stats' ? html`<span class="sp"></span>
+      <div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
+        html`<button class=${'btn icon' + (cp.statsDays === dys ? ' on' : '')} data-act="stats-days" data-days=${String(dys)}>${lbl}</button>`)}
       </div>` : ''}
   </div>`;
 }

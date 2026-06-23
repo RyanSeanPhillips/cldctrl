@@ -1,7 +1,7 @@
 /** Fetch wrappers for the dashboard API. */
 import type {
   OverviewPayload, TranscriptEntry,
-  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult,
+  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult, StatsPayload,
 } from './types.js';
 
 export async function fetchOverview(): Promise<OverviewPayload> {
@@ -56,6 +56,19 @@ export async function fetchProjectFiles(p: string, dir: string): Promise<{ dir: 
 }
 export async function fetchProjectActivity(p: string): Promise<ProjectActivity> {
   return projectGet('activity', p);
+}
+
+export async function fetchStats(days: number): Promise<StatsPayload> {
+  const r = await fetch('/api/stats?days=' + days);
+  if (!r.ok) throw new Error('stats ' + r.status);
+  return r.json();
+}
+
+/** Lazy-load the images for one (session, hour-bucket) when a marker is clicked. */
+export async function fetchBucketImages(slug: string, session: string, t: number): Promise<string[]> {
+  const r = await fetch('/api/conversation-image?slug=' + encodeURIComponent(slug) + '&session=' + encodeURIComponent(session) + '&t=' + t);
+  if (!r.ok) return [];
+  return (await r.json()).images ?? [];
 }
 
 export async function fetchSearch(q: string): Promise<SearchResult[]> {

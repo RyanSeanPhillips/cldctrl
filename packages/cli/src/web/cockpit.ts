@@ -282,7 +282,7 @@ export function syncCockpit(): void {
   const grid = document.getElementById('cockpit-grid');
   if (!root || !grid) return;
 
-  const show = cp.open && !st.ui.selectedProject && !st.search.query.trim();
+  const show = cp.open && cp.tab !== 'stats' && !st.ui.selectedProject && !st.search.query.trim();
   root.classList.toggle('open', show);
   grid.className = 'cockpit-grid ' + cp.layout + (cp.maximized ? ' has-max' : '');
 
