@@ -8,6 +8,8 @@
  */
 import { setUi, getState } from './store.js';
 import { writeHash } from './router.js';
+import { registerFileLinks } from './termlinks.js';
+import { toast } from './toast.js';
 
 declare const Terminal: any;
 declare const FitAddon: any;
@@ -81,12 +83,16 @@ function initTerm(): void {
   term.open(el('dock-term'));
   term.onData((d: string) => { if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: d })); });
   // Ctrl/Cmd+C copies the selection (interrupt only when nothing selected), Ctrl/Cmd+V pastes.
+  let lastCtrlC = 0;
   term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
     if (e.type !== 'keydown') return true;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C') && term!.hasSelection()) {
-      navigator.clipboard?.writeText(term!.getSelection()).catch(() => { /* ignore */ });
-      return false;
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      if (term!.hasSelection()) { navigator.clipboard?.writeText(term!.getSelection()).catch(() => { /* ignore */ }); return false; }
+      const now = Date.now();
+      if (now - lastCtrlC < 1500) toast('⚠ Double Ctrl+C — Claude will exit this session');
+      lastCtrlC = now;
+      return true;
     }
     if (mod && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
       navigator.clipboard?.readText().then((t) => { if (t && sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: t })); }).catch(() => { /* ignore */ });
@@ -94,6 +100,7 @@ function initTerm(): void {
     }
     return true;
   });
+  registerFileLinks(term, ''); // clickable absolute file paths in CTRL output
   window.addEventListener('resize', () => { if (getState().ui.dockOpen) fitAndResize(); });
   window.addEventListener('themechange', () => { if (term) { try { term.options.theme = termTheme(); } catch { /* ignore */ } } });
   mounted = true;

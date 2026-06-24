@@ -380,6 +380,16 @@ function resolveKnownProject(p: string): { name: string; path: string } | null {
   return projects.find(pr => normalizePathForCompare(pr.path) === normalizePathForCompare(p)) ?? null;
 }
 
+/** Find the known project that CONTAINS this path (for opening files inside a
+ *  project, not just project roots). Normalizes separators + case. */
+function resolveProjectForFile(p: string): { name: string; path: string } | null {
+  if (!p) return null;
+  const norm = (x: string) => normalizePathForCompare(x).replace(/\\/g, '/').replace(/\/+$/, '');
+  const np = norm(p);
+  const { config } = loadConfig();
+  return buildProjectListFast(config).find(pr => { const root = norm(pr.path); return np === root || np.startsWith(root + '/'); }) ?? null;
+}
+
 const DETAIL_TTL_MS = 20_000;
 const detailMemo = new Map<string, { at: number; data: unknown }>();
 async function memo<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -939,17 +949,25 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
       } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);
-        const proj = resolveKnownProject(typeof body.path === 'string' ? body.path : '');
-        if (!proj) { sendJson(res, 403, { error: 'Path is not a known project' }); return; }
+        const raw = typeof body.path === 'string' ? body.path : '';
+        // accept either a known project root OR a file/dir inside one (clickable paths)
+        const exact = resolveKnownProject(raw);
+        const owner = exact ?? resolveProjectForFile(raw);
+        if (!owner) { sendJson(res, 403, { error: 'Path is not in a known project' }); return; }
+        let isFile = false;
+        try { isFile = !exact && fs.existsSync(raw) && fs.statSync(raw).isFile(); } catch { isFile = false; }
+        const openPath = exact ? exact.path : raw;
         const target = body.target === 'code' ? 'code' : 'explorer';
         try {
           if (target === 'code') {
             if (!isCommandAvailable('code')) { sendJson(res, 200, { ok: false, error: 'VS Code (code) not on PATH' }); return; }
-            spawn.spawn('code', [proj.path], { detached: true, stdio: 'ignore' }).unref();
+            spawn.spawn('code', isFile ? ['-g', openPath] : [openPath], { detached: true, stdio: 'ignore' }).unref();
+          } else if (isFile && getPlatform() === 'windows') {
+            spawn.spawn('explorer', ['/select,' + openPath], { detached: true, stdio: 'ignore' }).unref(); // highlight the file
           } else {
-            openInExplorer(proj.path);
+            openInExplorer(isFile ? path.dirname(openPath) : openPath);
           }
-          log('serve_reveal', { target, path: proj.path });
+          log('serve_reveal', { target, path: openPath, isFile });
           sendJson(res, 200, { ok: true, target });
         } catch (e) { sendJson(res, 200, { ok: false, error: String(e) }); }
       } else if (req.method === 'POST' && url.pathname === '/api/bridge') {

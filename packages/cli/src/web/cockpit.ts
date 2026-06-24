@@ -11,6 +11,8 @@ import { getState } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './dock.js';
 import { fetchFile, postFile } from './api.js';
+import { registerFileLinks } from './termlinks.js';
+import { toast } from './toast.js';
 
 declare const Terminal: any;
 declare const FitAddon: any;
@@ -134,12 +136,18 @@ function createTermTile(meta: CockpitTile): LiveTile {
   term.onData((d: string) => { if (!send({ type: 'input', data: d })) connect(); });
   // Terminals don't map Ctrl/Cmd+C/V to clipboard. Make Ctrl+C copy the SELECTION
   // (and only fall through to interrupt when nothing is selected), Ctrl+V paste.
+  let lastCtrlC = 0;
   term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
     if (e.type !== 'keydown') return true;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C') && term.hasSelection()) {
-      navigator.clipboard?.writeText(term.getSelection()).catch(() => { /* ignore */ });
-      return false; // copied — don't send SIGINT
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+      if (term.hasSelection()) { navigator.clipboard?.writeText(term.getSelection()).catch(() => { /* ignore */ }); return false; } // copy
+      // no selection → interrupt passes through; warn only on the SECOND press
+      // within 1.5s (the double-Ctrl+C that EXITS Claude), not ordinary interrupts.
+      const now = Date.now();
+      if (now - lastCtrlC < 1500) toast('⚠ Double Ctrl+C — Claude will exit this session');
+      lastCtrlC = now;
+      return true;
     }
     if (mod && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
       navigator.clipboard?.readText().then((t) => { if (t && !send({ type: 'input', data: t })) connect(); }).catch(() => { /* ignore */ });
@@ -147,6 +155,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     }
     return true;
   });
+  registerFileLinks(term, meta.projectPath); // clickable file paths in output
   // wake-from-sleep / network back: reconnect any tile whose socket died
   const onWake = () => { if (!closedByUs && (!sock || sock.readyState > 1)) connect(); };
   document.addEventListener('visibilitychange', onWake);

@@ -12,22 +12,13 @@ import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
 import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
 import { syncStats } from './stats.js';
+import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
 const appRoot = document.getElementById('app')!;
 
-// ── toast (lives in the shell, outside the reconciler) ───────
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
-function toast(msg: string): void {
-  const t = document.getElementById('toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.add('show');
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
-}
 
 // ── render ───────────────────────────────────────────────────
 let prevNewSessionOpen = false;
