@@ -53,6 +53,12 @@ Recommended build order: **#11 → #10 → #9 → #12**.
 - **AI-sharpened session titles** — on-demand concise title via the summarizer.
 - **Per-tile diff viewer** + **preview pane** (embedded browser for a running app/HTML/PDF).
 
+## 📋 Backlog — Pre-release packaging / zero-config hardening
+- **Make `node-pty` an `optionalDependency`** (currently a hard dep). It's native (needs a matching prebuild or a C++/Python toolchain); a failed build can abort the WHOLE `npm i -g cldctrl` even for TUI-only users. `serve.ts` already lazy-`require`s it in try/catch, so the app degrades cleanly — moving it to optional protects the single-command install. Surface a clear "live terminals unavailable (node-pty not installed)" message in the cockpit when missing.
+- **Verify `prepublishOnly` ships the web bundle** — confirm `npm run build` (tsup + build-web onSuccess) reliably emits `dist/web/app.js`+`app.css` before publish (it's in `files` via `dist`). Add a quick publish-time check.
+- **Zero-config first-run is a HARD principle** — `cc` auto-discovers `~/.claude/projects`; `cc serve` just works; welcome wizard detects claude/git/gh; hotkey + daemon stay opt-in (`cc setup`). Only prerequisite = Claude Code installed (state plainly in install docs). Keep it this way.
+- Reconsider the `postinstall` console tip (some CI/security setups block install scripts; harmless but optional).
+
 ## 📋 Backlog — Setup / Config
 - **Desktop / taskbar launcher → launch in APP MODE** — a `.lnk`/taskbar pin that opens the dashboard as a **chromeless standalone window** via `chrome --app=http://localhost:<port>` (or `msedge --app=`), plus a **web app manifest (PWA)** so it's "Install"-able as an app with the cldctrl favicon. Reuses the installed browser, zero bundling, gives the native-app feel. Extend `cc setup` / `setup-windows.ts` (macOS/Linux variants too).
   - App mode = the browser with ALL chrome stripped (no tabs/omnibox/bookmarks/extensions), just content + a thin OS title bar + its own taskbar icon (the favicon). Same engine, browser UI hidden. Command: `chrome --app=http://localhost:<port>` / `msedge --app=…`; `--user-data-dir` to isolate profile (trade-off: loses shared logins/extensions).
