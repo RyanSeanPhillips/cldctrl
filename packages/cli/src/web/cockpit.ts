@@ -13,6 +13,7 @@ import { termTheme } from './dock.js';
 import { fetchFile, postFile } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
+import { flagAttention } from './tabalert.js';
 
 declare const Terminal: any;
 declare const FitAddon: any;
@@ -114,6 +115,14 @@ function createTermTile(meta: CockpitTile): LiveTile {
   let sock: WebSocket | null = null;
   let closedByUs = false, retry = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // flag tab attention when the agent produces output then goes quiet while you're
+  // on another tab (i.e., it likely finished its turn / needs input)
+  let idleAlertTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleIdleAlert = () => {
+    if (!document.hidden) return;
+    if (idleAlertTimer) clearTimeout(idleAlertTimer);
+    idleAlertTimer = setTimeout(() => flagAttention(meta.title + ' · needs input'), 4000);
+  };
   const send = (msg: any): boolean => { if (sock && sock.readyState === 1) { sock.send(JSON.stringify(msg)); return true; } return false; };
   const doFit = () => { if (fit) { try { fit.fit(); } catch { /* ignore */ } } send({ type: 'resize', cols: term.cols, rows: term.rows }); };
   const connect = () => {
@@ -122,7 +131,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     sock = new WebSocket(wsUrl(meta));
     sock.binaryType = 'arraybuffer';
     sock.onopen = () => { retry = 0; if (status) status.textContent = 'live'; if (dot) dot.className = 'dot on'; setTimeout(doFit, 40); };
-    sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); };
+    sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); scheduleIdleAlert(); };
     sock.onclose = () => {
       if (dot) dot.className = 'dot';
       if (closedByUs) return;
@@ -156,6 +165,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     return true;
   });
   registerFileLinks(term, meta.projectPath); // clickable file paths in output
+  try { term.onBell(() => flagAttention(meta.title + ' · needs input')); } catch { /* onBell needs proposed API */ }
   // wake-from-sleep / network back: reconnect any tile whose socket died
   const onWake = () => { if (!closedByUs && (!sock || sock.readyState > 1)) connect(); };
   document.addEventListener('visibilitychange', onWake);
@@ -167,6 +177,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     dispose: () => {
       closedByUs = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (idleAlertTimer) clearTimeout(idleAlertTimer);
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('online', onWake);
       try { sock?.close(); } catch { /* ignore */ }

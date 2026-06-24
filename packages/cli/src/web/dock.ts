@@ -10,6 +10,7 @@ import { setUi, getState } from './store.js';
 import { writeHash } from './router.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
+import { flagAttention } from './tabalert.js';
 
 declare const Terminal: any;
 declare const FitAddon: any;
@@ -18,6 +19,7 @@ let term: any = null;
 let fit: any = null;
 let sock: WebSocket | null = null;
 let mounted = false;
+let dockIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -101,6 +103,7 @@ function initTerm(): void {
     return true;
   });
   registerFileLinks(term, ''); // clickable absolute file paths in CTRL output
+  try { term.onBell(() => flagAttention('CTRL · needs input')); } catch { /* onBell needs proposed API */ }
   window.addEventListener('resize', () => { if (getState().ui.dockOpen) fitAndResize(); });
   window.addEventListener('themechange', () => { if (term) { try { term.options.theme = termTheme(); } catch { /* ignore */ } } });
   mounted = true;
@@ -123,6 +126,7 @@ function connect(): void {
   sock.onmessage = (ev) => {
     const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data);
     if (term) term.write(d);
+    if (document.hidden) { if (dockIdleTimer) clearTimeout(dockIdleTimer); dockIdleTimer = setTimeout(() => flagAttention('CTRL · needs input'), 4000); }
   };
   sock.onclose = () => setStatus('disconnected', false);
   sock.onerror = () => setStatus('connection error', false);

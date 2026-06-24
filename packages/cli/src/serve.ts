@@ -567,7 +567,8 @@ const SHELL = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CLD CTRL</title>
+<title>⌃ CLD CTRL</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/vendor/xterm.css">
 <link rel="stylesheet" href="/web/app.css">
 </head>
@@ -899,8 +900,12 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         serveStaticFile(res, XTERM_CSS, 'text/css');
       } else if (req.method === 'GET' && url.pathname === '/vendor/addon-fit.js') {
         serveStaticFile(res, FIT_JS, 'text/javascript');
+      } else if (req.method === 'GET' && url.pathname === '/favicon.svg') {
+        // branded favicon so the tab stands out: accent-orange tile + the ⌃ Ctrl caret
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'max-age=86400' });
+        res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#e87632"/><path d="M6.5 21.5 L16 11 L25.5 21.5" fill="none" stroke="#0b0e15" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
       } else if (req.method === 'GET' && url.pathname === '/favicon.ico') {
-        res.writeHead(204).end(); // no favicon; avoid a noisy 404 in the console
+        res.writeHead(204).end(); // legacy path; modern browsers use the linked favicon.svg
       } else if (req.method === 'GET' && url.pathname.startsWith('/web/')) {
         serveWebAsset(res, url.pathname);
       } else if (req.method === 'GET' && url.pathname === '/api/overview') {
