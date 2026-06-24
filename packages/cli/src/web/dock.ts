@@ -80,6 +80,20 @@ function initTerm(): void {
   try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
   term.open(el('dock-term'));
   term.onData((d: string) => { if (sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: d })); });
+  // Ctrl/Cmd+C copies the selection (interrupt only when nothing selected), Ctrl/Cmd+V pastes.
+  term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+    if (e.type !== 'keydown') return true;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C') && term!.hasSelection()) {
+      navigator.clipboard?.writeText(term!.getSelection()).catch(() => { /* ignore */ });
+      return false;
+    }
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      navigator.clipboard?.readText().then((t) => { if (t && sock && sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: t })); }).catch(() => { /* ignore */ });
+      return false;
+    }
+    return true;
+  });
   window.addEventListener('resize', () => { if (getState().ui.dockOpen) fitAndResize(); });
   window.addEventListener('themechange', () => { if (term) { try { term.options.theme = termTheme(); } catch { /* ignore */ } } });
   mounted = true;

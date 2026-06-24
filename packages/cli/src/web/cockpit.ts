@@ -132,6 +132,21 @@ function createTermTile(meta: CockpitTile): LiveTile {
   };
   // typing into a dead socket → kick a reconnect instead of dropping the input
   term.onData((d: string) => { if (!send({ type: 'input', data: d })) connect(); });
+  // Terminals don't map Ctrl/Cmd+C/V to clipboard. Make Ctrl+C copy the SELECTION
+  // (and only fall through to interrupt when nothing is selected), Ctrl+V paste.
+  term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+    if (e.type !== 'keydown') return true;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C') && term.hasSelection()) {
+      navigator.clipboard?.writeText(term.getSelection()).catch(() => { /* ignore */ });
+      return false; // copied — don't send SIGINT
+    }
+    if (mod && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      navigator.clipboard?.readText().then((t) => { if (t && !send({ type: 'input', data: t })) connect(); }).catch(() => { /* ignore */ });
+      return false;
+    }
+    return true;
+  });
   // wake-from-sleep / network back: reconnect any tile whose socket died
   const onWake = () => { if (!closedByUs && (!sock || sock.readyState > 1)) connect(); };
   document.addEventListener('visibilitychange', onWake);
