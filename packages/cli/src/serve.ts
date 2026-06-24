@@ -694,17 +694,20 @@ interface TermSession {
  *  lazily on each overview poll — an idle `claude` doesn't write its session file
  *  until the first turn, so a one-shot poll-at-spawn would miss it. */
 function fillDiscoveredSessions(): void {
+  // ids already matched to a tile — never claim the same session for two tiles
+  const claimed = new Set<string>();
+  for (const s of terminals.values()) if (s.discoveredSessionId) claimed.add(s.discoveredSessionId);
   for (const s of terminals.values()) {
     if (s.meta.kind !== 'new' || s.discoveredSessionId || !s.cwd) continue;
     let dir: string; try { dir = getSessionDir(s.cwd); } catch { continue; }
     const after = (s.spawnedAt ?? 0) - 4000; // clock-skew buffer
     try {
-      const newest = fs.readdirSync(dir)
+      const cand = fs.readdirSync(dir)
         .filter((f) => f.endsWith('.jsonl'))
         .map((f) => ({ id: f.slice(0, -6), m: fs.statSync(path.join(dir, f)).mtimeMs }))
-        .filter((x) => x.m >= after)
+        .filter((x) => x.m >= after && !claimed.has(x.id))
         .sort((a, b) => b.m - a.m)[0];
-      if (newest) { s.discoveredSessionId = newest.id; log('serve_term', { event: 'session_discovered', id: newest.id }); }
+      if (cand) { s.discoveredSessionId = cand.id; claimed.add(cand.id); log('serve_term', { event: 'session_discovered', id: cand.id }); }
     } catch { /* dir not created until the agent writes its first line */ }
   }
 }

@@ -491,7 +491,11 @@ function restoreSession(): void {
   // captured its real sessionId, restore it as a resume tile. Otherwise strip the
   // seed prompt so a restart never re-runs the original task as a fresh convo.
   const tiles = (p.cockpit?.tiles ?? []).map((t): CockpitTile => {
-    if (t.kind === 'new' && t.discoveredSessionId) {
+    // Convert a discovered 'new' tile into a resume of its real session — but NOT
+    // worktree tiles: their session lives under the worktree's slug and the resume
+    // path only accepts known-project cwds, so faithful worktree resume needs deeper
+    // support (#9). They fall back to prompt-strip instead of a broken resume.
+    if (t.kind === 'new' && t.discoveredSessionId && !t.worktree) {
       return { id: 'resume:' + t.discoveredSessionId, kind: 'resume', sessionId: t.discoveredSessionId, projectPath: t.projectPath, title: t.title };
     }
     return (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t;
