@@ -53,7 +53,8 @@ Recommended build order: **#11 → #10 → #9 → #12**.
 - **Per-tile diff viewer** + **preview pane** (embedded browser for a running app/HTML/PDF).
 
 ## 📋 Backlog — Setup / Config
-- **Desktop / taskbar launcher** — `.lnk` on Desktop + optional taskbar pin (respect web/tui hotkey setting); extend `cc setup` / `setup-windows.ts` (macOS/Linux variants too).
+- **Desktop / taskbar launcher → launch in APP MODE** — a `.lnk`/taskbar pin that opens the dashboard as a **chromeless standalone window** via `chrome --app=http://localhost:<port>` (or `msedge --app=`), plus a **web app manifest (PWA)** so it's "Install"-able as an app with the cldctrl favicon. Reuses the installed browser, zero bundling, gives the native-app feel. Extend `cc setup` / `setup-windows.ts` (macOS/Linux variants too). *Later/optional:* a **Tauri** (native WebView2/WKWebView) shell for a true standalone app with no browser dependency — only if packaging for distribution (avoid Electron — too heavy).
+- **Make web the primary surface** — default the launch/hotkey to `web`; keep the **TUI as a frozen minimal fallback** (SSH/headless/quick-glance) but stop investing in it (two front-ends = double skin maintenance). Browser compat: works in any modern browser; **Chromium (Chrome/Edge) is best** — `clipboard.readText` (Ctrl+V paste), Web Speech (read-aloud), and Media Session (hands-free) are Chromium-strongest; Firefox/Safari work with minor gaps.
 - **Tool-permissions GUI** — edit Claude Code's allow/ask/deny lists in-app (global + per-project `settings.local.json`); templates ("read-only", "full-auto"); confirm-before-write.
 
 ## 📋 Backlog — Memory & the vendor-neutral brain
