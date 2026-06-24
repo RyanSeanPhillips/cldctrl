@@ -8,6 +8,9 @@ Cross-platform mission control for Claude Code. Node.js CLI/TUI with React/Ink.
 > registration, optionally launching it) and refresh discovery via `rescan_projects` —
 > so `launch_session` works on freshly-created folders without a manual TUI `S`-scan.
 > See [NEEDED-UPGRADES.md](./NEEDED-UPGRADES.md) for the original scope.
+>
+> **Roadmap & backlog:** see [ROADMAP.md](./ROADMAP.md) for the living list of
+> shipped work, tracked features (GitHub issues), and parked ideas.
 
 ## Quick Reference
 
