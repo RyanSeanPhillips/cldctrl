@@ -10,6 +10,16 @@ lost. Big items are also tracked as GitHub issues (linked). Last updated **2026-
 
 ---
 
+## ▶ Suggested next sequence
+0. **Restart `cc serve` + refresh, then smoke-test the shipped work first** — especially the terminal-touching changes (Ctrl+C/V, clickable paths, reconnect-after-sleep, double-Ctrl+C warning, tab attention) and the Stats tab. Fix any regressions before building on top.
+1. **1–2 friction-removing easy wins — be selective, don't grind skin.** The **compose-box** is the standout (kills real daily friction: editing + spellcheck + paste in the chat); drag-reorder/resize if quick. Most other cockpit polish is skin the first parties commoditize — do only what removes your own daily friction (you're the dogfood loop).
+2. **[#11] CodexSource → unified search — the keystone.** It's simultaneously *better memory* (cross-vendor long-term recall) **and** the *first real Codex integration*, so it covers two goals at once and is the substrate for everything below. Deterministic, independently valuable.
+3. **Vector/semantic search** over that unified corpus (memory tier S).
+4. **[#10]/[#9] conversation-interaction wiring** — driver-model coordination + read-back/inject.
+5. **[#12] working memory** — last; experimental; start with the dumb per-project recap v0.
+
+---
+
 ## ✅ Recently shipped (June 2026)
 - **Cockpit Stats tab** — token usage by 5h block + 7-day cumulative (2nd axis), per-turn billed, context-per-conversation with 1M reference lines, cache-miss (eviction vs reload) timeline, tool-result context, MCP/agent tables, live usage strip, clickable image lightbox; 24h/3d/7d/30d range.
 - **Per-project focus chips** + **default-to-cockpit** + "New in cockpit"; re-resume focuses the existing tile.
