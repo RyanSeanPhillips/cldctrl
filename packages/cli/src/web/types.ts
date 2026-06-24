@@ -69,7 +69,7 @@ export interface OverviewPayload {
   /** A scratchpad the agent asked to pop open (agent → dashboard). */
   scratch: { path: string; title: string; ts: number } | null;
   /** A new session CTRL asked to open as a cockpit tile (agent → dashboard). */
-  cockpitLaunch: { projectPath: string; project?: string; prompt?: string; ts: number } | null;
+  cockpitLaunches?: Array<{ projectPath: string; project?: string; prompt?: string; ts: number }>;
 }
 
 export interface TranscriptEntry {

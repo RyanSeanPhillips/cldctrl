@@ -109,6 +109,18 @@ export function readScratchOpen(): ScratchOpen | null { return readJson<ScratchO
 export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; ts: number; }
 
 /** Ask the dashboard to open a new conversation as a cockpit tile (instead of a
- *  separate terminal window). Used when the launch originates inside the web UI. */
-export function writeCockpitLaunch(launch: CockpitLaunch): void { writeJson(COCKPIT_LAUNCH_FILE, launch); }
-export function readCockpitLaunch(): CockpitLaunch | null { return readJson<CockpitLaunch>(COCKPIT_LAUNCH_FILE); }
+ *  separate terminal window). Used when the launch originates inside the web UI.
+ *  A QUEUE (not a single slot) so two launches inside one poll window don't
+ *  clobber each other — the dashboard drains all entries newer than it has seen. */
+export function writeCockpitLaunch(launch: CockpitLaunch): void {
+  const queue = readCockpitLaunches();
+  queue.push(launch);
+  // keep only recent + bounded so the file can't grow unboundedly
+  const cutoff = launch.ts - 5 * 60_000;
+  writeJson(COCKPIT_LAUNCH_FILE, queue.filter((l) => l.ts >= cutoff).slice(-20));
+}
+export function readCockpitLaunches(): CockpitLaunch[] {
+  const v = readJson<CockpitLaunch[] | CockpitLaunch>(COCKPIT_LAUNCH_FILE);
+  if (!v) return [];
+  return Array.isArray(v) ? v : [v]; // tolerate the old single-object format
+}

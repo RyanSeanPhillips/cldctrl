@@ -130,10 +130,18 @@ function buildBody(p: StatsPayload): string {
   const extra = p.turns.filter((t) => t.f === 1).reduce((s, t) => s + t.c * 0.9, 0);
   const kpis: Array<[string, string | number]> = [['API turns', p.turns.length], ['Total tok', fmt(p.totalTokens)], ['Convos', sess.length], ['Evictions', `${misses} (${(misses / p.turns.length * 100).toFixed(1)}%)`], ['Reloads', reloads], ['Extra/evict', fmt(extra)], ['Tool tok', fmt(p.toolResultTokens)], ['MCP tok', fmt(p.mcpResultTokens)], ['API errors', p.apiErrors.length], ['Images', p.imageCount]];
 
+  const ov = getState().data?.usage;
+  const pct = (p: number | null) => p == null ? '—' : Math.round(p) + '%';
+  const liveStrip = ov ? `<div class="stats-live">${ov.live ? '<span class="dot on"></span>Live' : '<span class="dot"></span>Est.'} usage —
+    5h <b>${pct(ov.fiveHour.percent)}</b>${ov.fiveHour.resetIn ? ` <span class="muted">resets ${esc(ov.fiveHour.resetIn)}</span>` : ''}
+    · 7d <b>${pct(ov.sevenDay.percent)}</b>${ov.sevenDay.resetIn ? ` <span class="muted">resets ${esc(ov.sevenDay.resetIn)}</span>` : ''}
+    ${ov.overage && ov.overage.percent > 0 ? `· <span style="color:${RED}">overage ${Math.round(ov.overage.percent)}%</span>` : ''}</div>` : '';
+
   return `<div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('')}</div>
+${liveStrip}
 <div class="tsstack">
   <div class="card"><h2>Token usage — 5h blocks (left axis, stacked by conversation) + 7-day cumulative (right axis)</h2>
-    <div class="row-sub"><b>Left:</b> stacked 5h-block usage (resets each rolling block — <span style="color:${TEAL}">teal verticals</span>); <span style="color:${RED}">red dashes</span> = 5h limit. <b>Right:</b> <span style="color:${TEAL}">teal curve</span> = cumulative toward the 7-day limit. Limits are placeholders until live values are wired.</div>${chart1}
+    <div class="row-sub"><b>Left:</b> stacked 5h-block usage (resets each rolling block — <span style="color:${TEAL}">teal verticals</span>); <span style="color:${RED}">red dashes</span> = 5h limit. <b>Right:</b> <span style="color:${TEAL}">teal curve</span> = cumulative toward the 7-day limit. Dashed limit lines are peak-based estimates — live utilization % is shown in the strip above.</div>${chart1}
     <div class="legend">${legend1}</div></div>
   <div class="card mid"><h2>Per-turn billed tokens (cache_read excluded)</h2><div class="row-sub"><span style="color:${TEAL}">teal</span> normal · <span style="color:${RED}">red</span> eviction · <span style="color:${AMBER}">amber</span> reload</div>${chart2}</div>
   <div class="card mid"><h2>Context size per conversation — grow, then compaction resets it</h2>

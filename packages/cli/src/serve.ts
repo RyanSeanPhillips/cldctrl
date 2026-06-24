@@ -26,7 +26,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunch } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunches } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -218,7 +218,7 @@ async function buildOverview(): Promise<unknown> {
       dailyCommits: aggregateDaily(cache?.commitActivity, 28, 'commits'),
     },
     bridge: readAgentSearch(),
-    cockpitLaunch: readCockpitLaunch(),
+    cockpitLaunches: readCockpitLaunches(),
     scratch: readScratchOpen(),
     sessions: sessions.map(s => ({
       id: s.sessionId || null,

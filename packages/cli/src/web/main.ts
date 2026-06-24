@@ -244,10 +244,12 @@ async function poll(): Promise<void> {
         if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
       }
     }
-    // Open a new session as a cockpit tile when CTRL launched one from the web
-    // surface (recent only, so a fresh load doesn't replay a stale launch).
-    const cl = data.cockpitLaunch;
-    if (cl && cl.ts > lastCockpitLaunchTs) {
+    // Open new sessions as cockpit tiles when CTRL launched them from the web
+    // surface. It's a QUEUE: adopt every entry newer than the last one we saw
+    // (recent only, so a fresh load doesn't replay stale launches) — two rapid
+    // launches no longer clobber each other.
+    for (const cl of data.cockpitLaunches ?? []) {
+      if (cl.ts <= lastCockpitLaunchTs) continue;
       lastCockpitLaunchTs = cl.ts;
       if (Date.now() - cl.ts < 60_000) addLaunchTile(cl.projectPath, cl.project, cl.prompt);
     }
