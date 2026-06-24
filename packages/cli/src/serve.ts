@@ -622,7 +622,12 @@ function resolvePkgFile(spec: string, rel: string): string | null {
 const XTERM_JS = resolvePkgFile('@xterm/xterm', 'lib/xterm.js');
 const XTERM_CSS = resolvePkgFile('@xterm/xterm', 'css/xterm.css');
 const FIT_JS = resolvePkgFile('@xterm/addon-fit', 'lib/addon-fit.js');
-const AGENT_TERMINAL_AVAILABLE = !!(XTERM_JS && XTERM_CSS && FIT_JS);
+// node-pty is an OPTIONAL native dep: if its prebuilt binary isn't available for
+// this platform/Node, the rest of the dashboard still works — only live terminals
+// are disabled. Probe once so the client (features.agentTerminal) hides terminal
+// UI cleanly instead of offering tiles that fail to spawn.
+const NODE_PTY_AVAILABLE = (() => { try { require('node-pty'); return true; } catch { return false; } })();
+const AGENT_TERMINAL_AVAILABLE = !!(XTERM_JS && XTERM_CSS && FIT_JS && NODE_PTY_AVAILABLE);
 
 function serveStaticFile(res: http.ServerResponse, filePath: string | null, type: string): void {
   if (!filePath || !fs.existsSync(filePath)) { sendJson(res, 404, { error: 'Not found' }); return; }
