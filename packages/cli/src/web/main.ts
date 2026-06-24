@@ -226,6 +226,18 @@ async function poll(): Promise<void> {
   try {
     const data = await fetchOverview();
     setData(data);
+    // Record the real sessionId each 'new' tile's agent created, so a restart can
+    // resume the SAME conversation (no manual /resume). Persisted with the tile.
+    const tsMap = data.terminalSessions;
+    if (tsMap) {
+      const cp = getState().ui.cockpit;
+      let changed = false;
+      const tiles = cp.tiles.map((t) => {
+        if (t.kind === 'new' && tsMap[t.id] && t.discoveredSessionId !== tsMap[t.id]) { changed = true; return { ...t, discoveredSessionId: tsMap[t.id] }; }
+        return t;
+      });
+      if (changed) setCockpit({ tiles });
+    }
     // Adopt a search the control-plane agent pushed — but only a recent one, so
     // a fresh page load doesn't resurrect a stale push.
     const b = data.bridge;
@@ -475,10 +487,15 @@ function restoreSession(): void {
   const p = loadPersistedSession();
   if (!p) return;
   setUi({ sidebarCollapsed: !!p.sidebarCollapsed, collapsedGroups: p.collapsedGroups ?? [] });
-  // Strip any seed prompt from restored 'new' tiles (defense-in-depth + cleans
-  // sessions persisted before the persist-side fix) so a restart never re-runs
-  // the original task as a fresh conversation.
-  const tiles = (p.cockpit?.tiles ?? []).map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
+  // Resume the SAME conversation a 'new' tile created (no manual /resume): if we
+  // captured its real sessionId, restore it as a resume tile. Otherwise strip the
+  // seed prompt so a restart never re-runs the original task as a fresh convo.
+  const tiles = (p.cockpit?.tiles ?? []).map((t): CockpitTile => {
+    if (t.kind === 'new' && t.discoveredSessionId) {
+      return { id: 'resume:' + t.discoveredSessionId, kind: 'resume', sessionId: t.discoveredSessionId, projectPath: t.projectPath, title: t.title };
+    }
+    return (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t;
+  });
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {

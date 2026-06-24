@@ -23,6 +23,7 @@ export interface CockpitTile {
   filePath?: string;          // doc tiles: absolute path to the markdown file
   prompt?: string;            // new sessions: seed prompt typed into the agent
   scratch?: boolean;          // doc tiles: a scratchpad (opens in edit mode, focused)
+  discoveredSessionId?: string; // 'new' tiles: the sessionId claude created → resume it (not re-spawn) on restore
 }
 
 export interface CockpitState {

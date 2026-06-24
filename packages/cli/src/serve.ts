@@ -18,7 +18,7 @@ import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
 import { loadConfig } from './config.js';
-import { buildProjectListFast, projectGroup } from './core/projects.js';
+import { buildProjectListFast, projectGroup, getSessionDir } from './core/projects.js';
 import { getActiveClaudeProcesses } from './core/processes.js';
 import { getActiveSessionInfo } from './core/activity.js';
 import { getRollingUsageWindowed, getRecentSessions } from './core/sessions.js';
@@ -157,6 +157,7 @@ const sessionFileMap = new Map<string, string>(); // sessionId -> JSONL path
 // ── Overview payload ─────────────────────────────────────────
 
 async function buildOverview(): Promise<unknown> {
+  fillDiscoveredSessions(); // match live 'new' tiles to the session ids their agents wrote
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
   const cache = readDaemonCache();
@@ -220,6 +221,9 @@ async function buildOverview(): Promise<unknown> {
     },
     bridge: readAgentSearch(),
     cockpitLaunches: readCockpitLaunches(),
+    // tileId -> the sessionId its 'new' agent created, so the client can persist it
+    // and resume the SAME conversation after a restart (no manual /resume).
+    terminalSessions: Object.fromEntries([...terminals.entries()].filter(([, s]) => s.discoveredSessionId).map(([id, s]) => [id, s.discoveredSessionId!])),
     scratch: readScratchOpen(),
     sessions: sessions.map(s => ({
       id: s.sessionId || null,
@@ -680,6 +684,29 @@ interface TermSession {
   clients: Set<any>;                           // attached WebSockets
   buffer: string;                              // recent output, capped, for replay
   idleTimer: ReturnType<typeof setTimeout> | null;
+  spawnedAt?: number;                          // for 'new' tiles: when we spawned (to match the session file)
+  cwd?: string;                                // for 'new' tiles: the agent's cwd (to find its session dir)
+  discoveredSessionId?: string;                // for 'new' tiles: the sessionId claude created (so restore can --resume it)
+}
+
+/** For each live 'new' terminal we haven't yet matched, look for the session JSONL
+ *  the agent wrote in its cwd's slug dir (newest file created at/after spawn). Run
+ *  lazily on each overview poll — an idle `claude` doesn't write its session file
+ *  until the first turn, so a one-shot poll-at-spawn would miss it. */
+function fillDiscoveredSessions(): void {
+  for (const s of terminals.values()) {
+    if (s.meta.kind !== 'new' || s.discoveredSessionId || !s.cwd) continue;
+    let dir: string; try { dir = getSessionDir(s.cwd); } catch { continue; }
+    const after = (s.spawnedAt ?? 0) - 4000; // clock-skew buffer
+    try {
+      const newest = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.jsonl'))
+        .map((f) => ({ id: f.slice(0, -6), m: fs.statSync(path.join(dir, f)).mtimeMs }))
+        .filter((x) => x.m >= after)
+        .sort((a, b) => b.m - a.m)[0];
+      if (newest) { s.discoveredSessionId = newest.id; log('serve_term', { event: 'session_discovered', id: newest.id }); }
+    } catch { /* dir not created until the agent writes its first line */ }
+  }
 }
 const terminals = new Map<string, TermSession>();
 let termBatSeq = 0; // unique suffix for per-terminal temp .bat files (Windows)
@@ -748,7 +775,7 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
   }
   log('serve_term', { event: 'spawn', id, cwd: spec.cwd });
 
-  const session: TermSession = { meta, term, clients: new Set(), buffer: '', idleTimer: null };
+  const session: TermSession = { meta, term, clients: new Set(), buffer: '', idleTimer: null, spawnedAt: Date.now(), cwd: spec.cwd };
   term.onData((d: string) => {
     session.buffer += d;
     if (session.buffer.length > REPLAY_CAP_BYTES) session.buffer = session.buffer.slice(session.buffer.length - REPLAY_CAP_BYTES);

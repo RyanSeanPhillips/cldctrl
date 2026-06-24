@@ -70,6 +70,8 @@ export interface OverviewPayload {
   scratch: { path: string; title: string; ts: number } | null;
   /** A new session CTRL asked to open as a cockpit tile (agent → dashboard). */
   cockpitLaunches?: Array<{ projectPath: string; project?: string; prompt?: string; ts: number }>;
+  /** tileId → the sessionId its 'new' agent created (so the client can resume it after a restart). */
+  terminalSessions?: Record<string, string>;
 }
 
 export interface TranscriptEntry {
