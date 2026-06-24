@@ -42,6 +42,7 @@ Recommended build order: **#11 → #10 → #9 → #12**.
 ---
 
 ## 📋 Backlog — Cockpit / Web UX (parked; not yet issues)
+- **Promote Stats to a top-level destination** — usage stats are account-GLOBAL but are currently a sub-tab of the Cockpit, so they only appear on the Conversations pane + Cockpit view (hidden in List view, project detail, and search — NOT gated on tiles, but feels conversation-dependent). Quick fix: a **"Stats" button in the top bar** reachable from anywhere. Cleaner: make Stats its own top-level view/route (sibling of Conversations/Detail). `#stats` overlay already exists; just needs a view flag independent of `cockpit.tab`.
 - **Compose-box overlay** — a real textarea above the terminal for full editing + **spellcheck** + paste, sends to the PTY on Enter. Fixes "can't click-to-edit" and "no spellcheck" together (terminal limitations).
 - **Drag-to-reorder** cockpit tiles + **tile resize/span** (extend a tile into an empty grid cell).
 - **Scratchpad ↔ conversation pairing** — auto-reopen a chat's scratchpad on resume.
