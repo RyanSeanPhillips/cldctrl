@@ -75,6 +75,7 @@ function initTerm(): void {
     scrollback: 5000,
     allowProposedApi: true,
     theme: termTheme(),
+    minimumContrastRatio: 4.5, // keep dim CLI text readable on the light theme's white bg
   });
   try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
   term.open(el('dock-term'));

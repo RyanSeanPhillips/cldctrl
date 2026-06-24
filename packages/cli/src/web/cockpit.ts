@@ -93,6 +93,9 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const term = new Terminal({
     fontFamily: 'ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace',
     fontSize: 12, cursorBlink: true, scrollback: 4000, allowProposedApi: true, theme: termTheme(),
+    // force ≥4.5:1 contrast so the CLI's dim/faint text stays readable on the
+    // light theme's white terminal background
+    minimumContrastRatio: 4.5,
   });
   let fit: any = null;
   try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
