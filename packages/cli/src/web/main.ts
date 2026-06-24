@@ -475,7 +475,10 @@ function restoreSession(): void {
   const p = loadPersistedSession();
   if (!p) return;
   setUi({ sidebarCollapsed: !!p.sidebarCollapsed, collapsedGroups: p.collapsedGroups ?? [] });
-  const tiles = p.cockpit?.tiles ?? [];
+  // Strip any seed prompt from restored 'new' tiles (defense-in-depth + cleans
+  // sessions persisted before the persist-side fix) so a restart never re-runs
+  // the original task as a fresh conversation.
+  const tiles = (p.cockpit?.tiles ?? []).map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
