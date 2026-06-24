@@ -80,6 +80,13 @@ Three-tier model (cldctrl as the orchestration layer, exposed to any agent via M
 
 ---
 
+## 🛠 Build strategy — parallel worktrees + dogfooding the orchestrator
+Idea: build the backlog using git-worktree isolation + parallel agents, AND use it to test an orchestrator layer driving separate conversations (cldctrl builds cldctrl).
+- **Parallelize only file-DISJOINT, well-specified, independently-verifiable tasks.** Most cockpit/web items edit the SAME hot files (`web/cockpit.ts`, `main.ts`, `views.ts`, `store.ts`, `app.css`, `serve.ts`) → naive fan-out = merge conflicts. Good parallel candidates: **#11 CodexSource** (core/), **desktop launcher** (setup-windows.ts), packaging/docs. Keep web-UI-heavy items (compose-box, multi-monitor, top-level Stats, drag-reorder) SEQUENTIAL.
+- **The worktree merge-after flow matters** (already backlogged) — it's what makes parallel sane; have it before fanning out widely.
+- **Chicken-and-egg for the orchestrator test:** the orchestrator = #9/#10 (message-into-session, read-back/verify, driver model) — NOT built yet. Today only a SEMI-manual version is possible (existing: createWorktree + cockpit "isolated worktree" new-session, launch_session, consult_agent, control-plane chat). Clean sequence: **build #9→#10 first, then use them to drive parallel worktree builds of the disjoint backlog** — ships features AND validates the orchestrator on real work.
+- **Costs:** token cost scales with N agents; for a solo dev the per-branch REVIEW burden can eat the speedup unless tasks are well-isolated. **Start small** — a 2–3 task parallel experiment on truly independent slices to learn the worktree + merge-after workflow before scaling.
+
 ## 🧭 Direction / strategic notes (not tasks, but steer priorities)
 - **Moat = the brain, not the skin.** Anthropic/OpenAI ship first-party apps (parallel sessions, worktrees, diff/preview); don't compete on UI polish. Invest in cross-project orchestration, cross-vendor memory/search, and data-stays-local — things they structurally won't build.
 - **Wedge audience:** power users juggling many projects across multiple AI CLIs, and people whose first-party GUI is blocked/unavailable.
