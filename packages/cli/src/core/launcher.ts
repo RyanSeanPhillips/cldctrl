@@ -137,8 +137,9 @@ function buildClaudeArgs(opts: {
  */
 function escapeBatArg(arg: string): string {
   const escaped = arg
-    .replace(/%/g, '%%')   // percent must be doubled (caret doesn't work)
-    .replace(/"/g, '""');  // double quotes doubled inside quoted string
+    .replace(/\r?\n/g, ' ') // flatten newlines — a literal newline would break the .bat line (issue #8)
+    .replace(/%/g, '%%')    // percent must be doubled (caret doesn't work)
+    .replace(/"/g, '""');   // double quotes doubled inside quoted string
   return `"${escaped}"`;
 }
 

@@ -13,6 +13,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
@@ -675,6 +676,7 @@ interface TermSession {
   idleTimer: ReturnType<typeof setTimeout> | null;
 }
 const terminals = new Map<string, TermSession>();
+let termBatSeq = 0; // unique suffix for per-terminal temp .bat files (Windows)
 
 /** cwd + claude command for a terminal kind. Returns null if it can't be built. */
 function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
@@ -716,12 +718,24 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
   const env = getCleanEnv();
   if (dashboardPort) env.CLDCTRL_DASHBOARD_PORT = String(dashboardPort);
   const isWin = getPlatform() === 'windows';
-  const file = isWin ? 'cmd.exe' : 'bash';
-  const args = isWin ? ['/c', spec.cmd] : ['-lc', spec.cmd];
+  // Windows: run the command from a temp .bat instead of `cmd /c "<string>"`.
+  // `cmd /c` strips the inner quotes of a quoted argument, so a seeded prompt
+  // like `claude "build a talk…"` collapsed to its first token (issue #8). A .bat
+  // is read literally, preserving the quoting.
+  let file: string, args: string[], batPath = '';
+  if (isWin) {
+    batPath = path.join(os.tmpdir(), `cldctrl-term-${id.replace(/[^a-z0-9]/gi, '_')}-${termBatSeq++}.bat`);
+    try { fs.writeFileSync(batPath, '@echo off\r\n' + spec.cmd + '\r\n'); } catch { /* fall back below */ batPath = ''; }
+    file = 'cmd.exe';
+    args = batPath ? ['/c', batPath] : ['/c', spec.cmd];
+  } else {
+    file = 'bash'; args = ['-lc', spec.cmd];
+  }
 
   let term: any;
   try {
     term = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: spec.cwd, env });
+    if (batPath) setTimeout(() => { try { fs.unlinkSync(batPath); } catch { /* ignore */ } }, 8000);
   } catch (err) {
     log('error', { function: 'spawnTerm', message: 'spawn failed: ' + String(err) });
     return null;
