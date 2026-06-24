@@ -150,9 +150,15 @@ function schedulePersist(): void {
     persistTimer = null;
     try {
       const cp = state.ui.cockpit;
+      // Drop the seed prompt from 'new' tiles before persisting: if the SERVER
+      // restarts (PTYs gone), a restored 'new' tile would otherwise re-spawn
+      // `claude "<prompt>"` and re-run the original task as a fresh, divergent
+      // conversation. The prompt is only needed for the very first spawn, which
+      // has already happened by the time we persist.
+      const persistTiles = cp.tiles.map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
       const data: PersistedSession = {
         ts: Date.now(),
-        cockpit: { tiles: cp.tiles, layout: cp.layout, open: cp.open, maximized: cp.maximized, hiddenProjects: cp.hiddenProjects },
+        cockpit: { tiles: persistTiles, layout: cp.layout, open: cp.open, maximized: cp.maximized, hiddenProjects: cp.hiddenProjects },
         sidebarCollapsed: state.ui.sidebarCollapsed,
         collapsedGroups: state.ui.collapsedGroups,
       };
