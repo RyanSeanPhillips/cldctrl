@@ -98,21 +98,57 @@ function createTermTile(meta: CockpitTile): LiveTile {
   try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
   term.open(el.querySelector('.tile-term'));
 
-  const sock = new WebSocket(wsUrl(meta));
-  sock.binaryType = 'arraybuffer';
   const status = el.querySelector('.tile-status') as HTMLElement;
   const dot = el.querySelector('.dot') as HTMLElement;
-  const doFit = () => { if (fit) { try { fit.fit(); } catch { /* ignore */ } } if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); };
-  sock.onopen = () => { if (status) status.textContent = 'live'; setTimeout(doFit, 40); };
-  sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); };
-  sock.onclose = () => { if (status) status.textContent = 'ended'; if (dot) dot.className = 'dot'; };
-  sock.onerror = () => { if (status) status.textContent = 'error'; };
-  term.onData((d: string) => { if (sock.readyState === 1) sock.send(JSON.stringify({ type: 'input', data: d })); });
+
+  // Auto-reconnecting socket: after the machine sleeps/reboots (or the server
+  // idle-kills the PTY), the old WS is dead and typing silently no-ops. Re-open
+  // it instead — the server re-spawns the PTY (resume: → `claude --resume`,
+  // new: → fresh) and replays its buffer, so tiles self-heal without a manual
+  // close+reopen.
+  let sock: WebSocket | null = null;
+  let closedByUs = false, retry = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const send = (msg: any): boolean => { if (sock && sock.readyState === 1) { sock.send(JSON.stringify(msg)); return true; } return false; };
+  const doFit = () => { if (fit) { try { fit.fit(); } catch { /* ignore */ } } send({ type: 'resize', cols: term.cols, rows: term.rows }); };
+  const connect = () => {
+    if (closedByUs) return;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    sock = new WebSocket(wsUrl(meta));
+    sock.binaryType = 'arraybuffer';
+    sock.onopen = () => { retry = 0; if (status) status.textContent = 'live'; if (dot) dot.className = 'dot on'; setTimeout(doFit, 40); };
+    sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); };
+    sock.onclose = () => {
+      if (dot) dot.className = 'dot';
+      if (closedByUs) return;
+      if (status) status.textContent = 'reconnecting…';
+      retry++;
+      reconnectTimer = setTimeout(connect, Math.min(600 * retry, 4000));
+    };
+    sock.onerror = () => { try { sock?.close(); } catch { /* triggers onclose → reconnect */ } };
+  };
+  // typing into a dead socket → kick a reconnect instead of dropping the input
+  term.onData((d: string) => { if (!send({ type: 'input', data: d })) connect(); });
+  // wake-from-sleep / network back: reconnect any tile whose socket died
+  const onWake = () => { if (!closedByUs && (!sock || sock.readyState > 1)) connect(); };
+  document.addEventListener('visibilitychange', onWake);
+  window.addEventListener('online', onWake);
+  connect();
 
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
-    dispose: () => { try { sock.close(); } catch { /* ignore */ } try { term.dispose(); } catch { /* ignore */ } },
-    restart: () => { if (sock.readyState === 1) { term.reset(); sock.send(JSON.stringify({ type: 'restart' })); setTimeout(doFit, 200); } },
+    dispose: () => {
+      closedByUs = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('online', onWake);
+      try { sock?.close(); } catch { /* ignore */ }
+      try { term.dispose(); } catch { /* ignore */ }
+    },
+    restart: () => {
+      if (sock && sock.readyState === 1) { term.reset(); send({ type: 'restart' }); setTimeout(doFit, 200); }
+      else connect(); // socket dead → just re-establish it
+    },
     setTheme: () => { try { term.options.theme = termTheme(); } catch { /* ignore */ } },
   };
 }
