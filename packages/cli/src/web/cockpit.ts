@@ -10,7 +10,7 @@ import { marked } from 'marked';
 import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './dock.js';
-import { fetchFile, postFile } from './api.js';
+import { fetchFile, postFile, postNotepad } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
 import { flagAttention } from './tabalert.js';
@@ -26,6 +26,7 @@ interface LiveTile {
   restart?: () => void;       // terminal tiles
   setTheme?: () => void;      // terminal tiles
   toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
+  toggleNote?: (force?: boolean) => void;       // terminal tiles — show/hide docked notepad
   setContext?: (size: number, model: string | null) => void; // terminal tiles — context-window meter
   inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
@@ -106,7 +107,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
         <span class="tile-ctx-bar"><i></i></span>
         <span class="tile-ctx-pct"></span>
       </span>
-      <button class="btn icon" data-act="tile-scratch" data-id="${esc(meta.id)}" title="Open a scratchpad to draft beside this chat">&#9998;</button>
+      <button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>
       ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
@@ -115,7 +116,23 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
     </div>
-    <div class="tile-term"></div>
+    <div class="tile-main">
+      <div class="tile-term"></div>
+      <div class="tile-note" style="display:none">
+        <div class="note-head">
+          <span class="note-mark">&#128211;</span>
+          <span class="note-name" title="">notepad</span>
+          <span class="note-status"></span>
+          <span class="sp"></span>
+          <button class="btn icon" data-note="chat" title="Send this draft's file path to the chat so the agent can edit it">&#128206;</button>
+          <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
+          <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
+        </div>
+        <textarea class="note-edit" spellcheck="true"
+          placeholder="Draft beside the chat — autosaves · Ctrl+S · the agent's edits to this file sync in"></textarea>
+        <div class="note-preview markdown" style="display:none"></div>
+      </div>
+    </div>
     <div class="tile-compose" style="display:none">
       <textarea class="compose-input" rows="1" spellcheck="true"
         placeholder="Compose a message — Enter sends · Shift+Enter newline · Esc back to terminal"></textarea>
@@ -242,6 +259,98 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (composeOpen) { composeAutosize(); composeTa.focus(); }
   };
 
+  // ── docked notepad ────────────────────────────────────────
+  // A markdown draft that belongs to THIS conversation: keyed by the tile id so
+  // resuming the chat reopens the same file (the server stores it under the
+  // scratch dir → the file API allows read/write). Autosaves; the agent's edits
+  // to the same file sync back in. Toggled by the 📓 header button; open-state
+  // persists on the tile so it returns on restore.
+  const noteBar = el.querySelector('.tile-note') as HTMLElement;
+  const noteEdit = el.querySelector('.note-edit') as HTMLTextAreaElement;
+  const notePreview = el.querySelector('.note-preview') as HTMLElement;
+  const noteName = el.querySelector('.note-name') as HTMLElement;
+  const noteStatus = el.querySelector('.note-status') as HTMLElement;
+  let noteOpen = false, notePath: string | null = null, noteReqd = false;
+  let noteContent = '', noteMtime = 0, noteDirty = false, noteMode: 'edit' | 'preview' = 'edit';
+  let notePoll: ReturnType<typeof setInterval> | null = null;
+  let noteSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const noteRenderPreview = () => { try { notePreview.innerHTML = marked.parse(noteContent) as string; } catch { notePreview.textContent = noteContent; } };
+  const noteSetMode = (m: 'edit' | 'preview') => {
+    noteMode = m;
+    noteEdit.style.display = m === 'edit' ? '' : 'none';
+    notePreview.style.display = m === 'edit' ? 'none' : '';
+    if (m === 'preview') noteRenderPreview(); else noteEdit.focus();
+  };
+  const noteLoad = async () => {
+    if (!notePath) return;
+    const r = await fetchFile(notePath);
+    if (!r) { noteStatus.textContent = 'not found'; return; }
+    if (noteDirty) { if (r.mtime !== noteMtime) noteStatus.textContent = 'agent edited — Ctrl+S keeps yours'; return; } // don't clobber edits
+    if (r.content === noteContent) return; // unchanged — don't reset the caret every poll
+    noteContent = r.content; noteMtime = r.mtime; noteEdit.value = noteContent;
+    if (noteMode === 'preview') noteRenderPreview();
+    noteStatus.textContent = '';
+  };
+  const noteSave = async () => {
+    if (!notePath) return;
+    if (noteSaveTimer) { clearTimeout(noteSaveTimer); noteSaveTimer = null; }
+    noteStatus.textContent = 'saving…';
+    try {
+      const r = await postFile(notePath, noteEdit.value);
+      if (r.ok) { noteContent = noteEdit.value; noteMtime = r.mtime ?? noteMtime; noteDirty = false; noteStatus.textContent = 'saved'; setTimeout(() => { if (!noteDirty) noteStatus.textContent = ''; }, 1200); }
+      else noteStatus.textContent = '✗ ' + (r.error || 'save failed');
+    } catch { noteStatus.textContent = '✗ save failed'; }
+  };
+  noteEdit.addEventListener('input', () => {
+    noteContent !== noteEdit.value && (noteDirty = true);
+    if (noteDirty) noteStatus.textContent = 'unsaved';
+    if (noteSaveTimer) clearTimeout(noteSaveTimer);
+    noteSaveTimer = setTimeout(noteSave, 900); // debounced autosave
+  });
+  noteEdit.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); noteSave(); } });
+  (el.querySelector('[data-note="save"]') as HTMLButtonElement).addEventListener('click', noteSave);
+  (el.querySelector('[data-note="mode"]') as HTMLButtonElement).addEventListener('click', () => noteSetMode(noteMode === 'edit' ? 'preview' : 'edit'));
+  // "→ chat": drop the draft's file path into the compose box so you can ask the
+  // agent to edit it (the agent reads/writes the same file; its edits sync here).
+  (el.querySelector('[data-note="chat"]') as HTMLButtonElement).addEventListener('click', () => {
+    if (!notePath) return;
+    toggleCompose(true);
+    composeTa.value = (composeTa.value ? composeTa.value.replace(/\s*$/, ' ') : '') + notePath + ' ';
+    composeAutosize(); composeTa.focus();
+  });
+
+  const ensureNotePath = async (): Promise<void> => {
+    if (notePath || noteReqd) return;
+    noteReqd = true;
+    try {
+      const r = await postNotepad(meta.id);
+      if (r.path) {
+        notePath = r.path;
+        noteName.textContent = notePath.split(/[/\\]/).pop() || 'notepad';
+        noteName.title = notePath;
+        await noteLoad();
+      } else { noteStatus.textContent = '✗ ' + (r.error || 'no notepad'); noteReqd = false; }
+    } catch { noteStatus.textContent = '✗ notepad failed'; noteReqd = false; }
+  };
+  const persistNoteOpen = (open: boolean) => {
+    const cp = getState().ui.cockpit;
+    if (cp.tiles.find((t) => t.id === meta.id)?.noteOpen === !!open) return; // no-op (don't churn the store)
+    setCockpit({ tiles: cp.tiles.map((t) => (t.id === meta.id ? { ...t, noteOpen: open } : t)) });
+  };
+  const toggleNote = (force?: boolean): void => {
+    noteOpen = force ?? !noteOpen;
+    noteBar.style.display = noteOpen ? '' : 'none';
+    el.querySelector('[data-act="tile-note"]')?.classList.toggle('on', noteOpen);
+    persistNoteOpen(noteOpen);
+    setTimeout(doFit, 60); // term shrank/grew — refit xterm
+    if (noteOpen) {
+      ensureNotePath();
+      if (noteMode === 'edit') noteEdit.focus();
+      if (!notePoll) notePoll = setInterval(noteLoad, 2500); // pick up the agent's edits
+    } else if (notePoll) { clearInterval(notePoll); notePoll = null; }
+  };
+
   // ── context-window meter ──────────────────────────────────
   // Updated every poll from getState().data.sessions (see syncCockpit). Hidden
   // until the session reports a context size (no assistant turn yet → nothing to show).
@@ -260,9 +369,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
       + (pct >= 85 ? ' — getting full, consider /compact' : '');
   };
 
+  if (meta.noteOpen) toggleNote(true); // restore the docked notepad on resume
+
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
-    toggleCompose, setContext,
+    toggleCompose, toggleNote, setContext,
     // Programmatic message-in (#9): drop text into this running session, optionally
     // opening the compose-box first so the user can confirm/edit before it submits.
     inject: (text: string, autoSend: boolean) => {
@@ -274,6 +385,8 @@ function createTermTile(meta: CockpitTile): LiveTile {
       closedByUs = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (idleAlertTimer) clearTimeout(idleAlertTimer);
+      if (notePoll) clearInterval(notePoll);
+      if (noteSaveTimer) clearTimeout(noteSaveTimer);
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('online', onWake);
       try { sock?.close(); } catch { /* ignore */ }
@@ -576,6 +689,7 @@ function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
 
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
 export function toggleTileCompose(id: string): void { tiles.get(id)?.toggleCompose?.(); }
+export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.(); }
 /** Inject a message into a running terminal tile (message-in, #9). */
 export function injectIntoTile(id: string, text: string, autoSend = false): boolean {
   const t = tiles.get(id);

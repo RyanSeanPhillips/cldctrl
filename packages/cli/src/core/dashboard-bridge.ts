@@ -77,6 +77,19 @@ export function isScratchPath(p: string): boolean {
 }
 
 /**
+ * Stable per-conversation notepad file (the docked notepad). Keyed by the
+ * conversation (sessionId), so leaving and resuming the chat reopens the SAME
+ * draft. Lives under the scratch dir so the file read/write API allows it.
+ * Created empty on first open; never auto-suffixed (the key IS the identity).
+ */
+export function notepadFile(key: string): string {
+  const safe = (key || 'untitled').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'untitled';
+  const p = path.join(scratchDir(), 'note-' + safe + '.md');
+  if (!fs.existsSync(p)) { try { fs.writeFileSync(p, '', 'utf-8'); } catch { /* ignore */ } }
+  return p;
+}
+
+/**
  * Create a fresh, empty scratchpad file and return its path — for the dashboard's
  * "draft" button (user-initiated, so NO scratch-open signal is written; the client
  * opens the doc tile itself). Appends -2/-3/… if the slug already exists.

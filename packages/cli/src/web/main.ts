@@ -10,7 +10,7 @@ import {
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, toggleTileCompose, injectIntoTile, docToggle, docSave, docSpeak } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -364,6 +364,7 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
+  else if (act === 'tile-note') { toggleTileNote(el.dataset.id!); }
   else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
   else if (act === 'tile-readout') { readSession(el.dataset.session); }
   else if (act === 'handsfree-toggle') {

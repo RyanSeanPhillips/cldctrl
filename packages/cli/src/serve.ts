@@ -27,7 +27,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, notepadFile, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -997,9 +997,12 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
       } else if (req.method === 'POST' && url.pathname === '/api/scratch') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);
+        // `key` → a STABLE per-conversation notepad (docked notepad, reopens the
+        // same draft on resume); otherwise mint a fresh one-off scratchpad.
+        const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : undefined;
         const title = typeof body.title === 'string' ? body.title.slice(0, 80) : undefined;
-        const p = newScratchFile(title);
-        log('serve_scratch', { path: p });
+        const p = key ? notepadFile(key) : newScratchFile(title);
+        log('serve_scratch', { path: p, keyed: !!key });
         sendJson(res, 200, { ok: true, path: p });
       } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }

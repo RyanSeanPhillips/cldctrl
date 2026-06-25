@@ -114,6 +114,17 @@ export async function postScratch(title?: string): Promise<{ ok?: boolean; path?
   return r.json();
 }
 
+/** Resolve (creating if needed) a STABLE per-conversation notepad path keyed by
+ *  the conversation, so the docked notepad reopens the same draft on resume. */
+export async function postNotepad(key: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
+  const r = await fetch('/api/scratch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ key }),
+  });
+  return r.json();
+}
+
 /** Capture a screenshot and have the server type its path into a terminal. */
 export async function postScreenshot(target: string, mode: 'region' | 'full' = 'region'): Promise<{ path?: string; error?: string }> {
   const r = await fetch('/api/screenshot', {
