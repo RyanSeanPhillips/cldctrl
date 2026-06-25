@@ -57,7 +57,10 @@ export function termTheme(): Record<string, string> {
   if (light) {
     return {
       ...base,
-      black: v('--text', '#1a2230'), brightBlack: v('--text-muted', '#5b6678'),
+      // brightBlack is the "dim" color CLIs use for secondary/selected-option text;
+    // --text-muted (~#5b6678) is too light on white (≈5.8:1) and reads washed-out,
+    // so use a darker slate so dim terminal text stays legible on light themes.
+    black: v('--text', '#1a2230'), brightBlack: '#475164',
       white: v('--text-secondary', '#46536b'), brightWhite: v('--text', '#1a2230'),
       cyan: '#0e7490', brightCyan: '#0e7490', magenta: '#a21caf', brightMagenta: '#a21caf',
     };
@@ -79,7 +82,7 @@ function initTerm(): void {
     scrollback: 5000,
     allowProposedApi: true,
     theme: termTheme(),
-    minimumContrastRatio: 4.5, // keep dim CLI text readable on the light theme's white bg
+    minimumContrastRatio: 7, // keep dim CLI text legible on the light theme's white bg
   });
   try { fit = new FitAddon.FitAddon(); term.loadAddon(fit); } catch { fit = null; }
   term.open(el('dock-term'));
