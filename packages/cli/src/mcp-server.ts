@@ -44,6 +44,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath, writeCockpitLaunch, writeCockpitInject } from './core/dashboard-bridge.js';
 import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
+import { getThread, saveThread } from './core/consult-threads.js';
+import { randomUUID } from 'node:crypto';
 import { readDaemonCache } from './core/background.js';
 import { extractTranscript } from './core/summaries.js';
 import { normalizePathForCompare, getClaudeProjectsDir } from './core/platform.js';
@@ -330,7 +332,7 @@ function handleSearchConversations(args: { query: string; limit?: number; projec
   };
 }
 
-async function handleConsultAgent(args: { agent: string; prompt: string; project?: string }): Promise<unknown> {
+async function handleConsultAgent(args: { agent: string; prompt: string; project?: string; thread_id?: string }): Promise<unknown> {
   const agent = (args.agent ?? '').trim();
   const prompt = (args.prompt ?? '').trim();
   if (!agent || !prompt) return { ok: false, error: 'Both `agent` and `prompt` are required.', agents: listAgents() };
@@ -342,9 +344,39 @@ async function handleConsultAgent(args: { agent: string; prompt: string; project
     cwd = resolveProject(config, projects, args.project)?.path;
   }
 
-  const r = await consultAgent(agent, prompt, cwd);
-  if (r.ok) return { ok: true, agent: r.agent, reply: r.output };
-  return { ok: false, agent, error: r.error, agents: listAgents() };
+  // Continue an existing consult conversation if the caller passed a known handle
+  // for THIS agent — resume the agent's own session so it remembers prior turns.
+  const handle = args.thread_id?.trim();
+  const prior = handle ? getThread(handle) : null;
+  const resumeId = prior && prior.agent === agent ? prior.vendorSessionId : undefined;
+
+  const r = await consultAgent(agent, prompt, { cwd: prior?.cwd ?? cwd, resumeId });
+  if (!r.ok) return { ok: false, agent, error: r.error, agents: listAgents() };
+
+  // Record/extend the thread when the agent threaded (returned a session id).
+  let threadId: string | undefined;
+  let note: string | undefined;
+  if (r.threaded && r.sessionId) {
+    const now = Date.now();
+    if (prior && resumeId) {
+      threadId = prior.id;
+      saveThread({ ...prior, vendorSessionId: r.sessionId, cwd: prior.cwd ?? cwd, turns: prior.turns + 1, lastTs: now });
+    } else {
+      threadId = randomUUID();
+      saveThread({ id: threadId, agent, vendorSessionId: r.sessionId, cwd, turns: 1, createdTs: now, lastTs: now });
+      if (handle) note = 'The thread_id you passed was not found (or was for a different agent); started a new thread.';
+    }
+  } else if (handle) {
+    note = `${r.agent} does not support threaded consult — this reply has no memory of earlier turns.`;
+  }
+
+  return {
+    ok: true,
+    agent: r.agent,
+    reply: r.output,
+    ...(threadId ? { thread_id: threadId, hint: `To continue this conversation with ${r.agent} (it keeps the prior turns), call consult_agent again with thread_id="${threadId}".` } : {}),
+    ...(note ? { note } : {}),
+  };
 }
 
 function handleSaveScratchpad(args: { project: string; path: string; title?: string }): unknown {
@@ -702,13 +734,14 @@ async function main(): Promise<void> {
       {
         name: 'consult_agent',
         description:
-          "Get a second opinion from another installed CLI coding agent (e.g. OpenAI Codex or Gemini) on an idea, plan, or piece of writing. Runs your prompt through that agent's FULL CLI non-interactively (it brings its own config, memories, MCP tools, and — read-only — any repo files if a project is given), and returns its complete reply. The other agent does NOT see this conversation, so include the relevant context in `prompt`. Use when the operator says things like \"check in with Codex on this plan\" or \"what would Codex think of this draft\". This is advisory only — the consult runs read-only and cannot modify files.",
+          "Get a second opinion from another installed CLI coding agent (e.g. OpenAI Codex or Gemini) on an idea, plan, or piece of writing. Runs your prompt through that agent's FULL CLI non-interactively (it brings its own config, memories, MCP tools, and — read-only — any repo files if a project is given), and returns its complete reply. The other agent does NOT see this conversation, so include the relevant context in `prompt`. Use when the operator says things like \"check in with Codex on this plan\" or \"what would Codex think of this draft\". This is advisory only — the consult runs read-only and cannot modify files.\n\nTHREADED CONSULT (Codex & Claude): the result includes a `thread_id`. To keep an ONGOING back-and-forth — e.g. across successive rounds of edits on a draft — pass that `thread_id` back on the next consult. The agent then RESUMES its own session and remembers the earlier turns, so you only send what's NEW (the latest revision / question) instead of re-pasting the whole history each time. Omit `thread_id` (or leave it out) to start a fresh, stateless consult. (Gemini is one-shot only.)",
         inputSchema: {
           type: 'object' as const,
           properties: {
             agent: { type: 'string', description: "Which agent to consult: 'codex', 'gemini', or 'claude'." },
-            prompt: { type: 'string', description: 'The full question/plan/draft to send, including any context the agent needs (it cannot see this conversation).' },
-            project: { type: 'string', description: 'Optional project name/alias/path to run the consult in, giving the agent read-only access to that repo for context.' },
+            prompt: { type: 'string', description: 'The full question/plan/draft to send. For a NEW consult include all needed context (the agent cannot see this conversation); when continuing a thread_id, send only what is new since the last turn.' },
+            project: { type: 'string', description: 'Optional project name/alias/path to run the consult in, giving the agent read-only access to that repo for context. (On a resumed thread the original project is reused.)' },
+            thread_id: { type: 'string', description: 'Optional. The `thread_id` returned by a previous consult_agent call — pass it to CONTINUE that conversation (the agent resumes its session and remembers prior turns). Omit to start fresh.' },
           },
           required: ['agent', 'prompt'],
         },
@@ -861,7 +894,7 @@ async function main(): Promise<void> {
           break;
         }
         case 'consult_agent':
-          result = await handleConsultAgent(args as { agent: string; prompt: string; project?: string });
+          result = await handleConsultAgent(args as { agent: string; prompt: string; project?: string; thread_id?: string });
           break;
         case 'open_scratchpad': {
           const a = args as { content?: string; title?: string };

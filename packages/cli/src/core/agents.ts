@@ -21,6 +21,39 @@ export interface AgentDef {
   cmdName: string;                                   // command to look for on PATH
   headless: (prompt: string, cwd?: string) => string[];
   fallbacks: () => string[];                         // candidate full paths off PATH
+  // ── threaded consult (optional) ──
+  // When an agent supports resuming a headless session, these let consult_agent
+  // hold a multi-turn conversation: startJson begins one (and its output carries
+  // a vendor session id), resumeJson continues that SAME session, and parseConsult
+  // extracts both the reply text and the session id from the (JSON/JSONL) output.
+  // Agents without these run one-shot/stateless (each consult starts cold).
+  startJson?: (prompt: string, cwd?: string) => string[];
+  resumeJson?: (sessionId: string, prompt: string, cwd?: string) => string[];
+  parseConsult?: (stdout: string) => { text: string; sessionId?: string };
+}
+
+/** Parse Codex `exec --json` JSONL: the session id rides on `thread.started`,
+ *  the reply on `item.completed` items of type `agent_message`. */
+function parseCodexJsonl(stdout: string): { text: string; sessionId?: string } {
+  let sessionId: string | undefined;
+  const parts: string[] = [];
+  for (const line of stdout.split('\n')) {
+    const t = line.trim();
+    if (!t || t[0] !== '{') continue;
+    let ev: any;
+    try { ev = JSON.parse(t); } catch { continue; }
+    if (ev.type === 'thread.started' && ev.thread_id) sessionId = ev.thread_id;
+    else if (ev.type === 'item.completed' && ev.item?.type === 'agent_message' && typeof ev.item.text === 'string') parts.push(ev.item.text);
+  }
+  return { text: parts.join('\n').trim(), sessionId };
+}
+
+/** Parse Claude `-p --output-format json`: a single object with `result` + `session_id`. */
+function parseClaudeJson(stdout: string): { text: string; sessionId?: string } {
+  try {
+    const j = JSON.parse(stdout.trim());
+    return { text: typeof j.result === 'string' ? j.result : stdout.trim(), sessionId: typeof j.session_id === 'string' ? j.session_id : undefined };
+  } catch { return { text: stdout.trim() }; }
 }
 
 /** The OpenAI Codex app bundles codex.exe in a hashed bin dir, off PATH. */
@@ -48,12 +81,24 @@ function codexFallbacks(): string[] {
 }
 
 export const AGENTS: AgentDef[] = [
-  { id: 'claude', label: 'Claude', cmdName: 'claude', headless: (p) => ['-p', p], fallbacks: () => [] },
+  {
+    id: 'claude', label: 'Claude', cmdName: 'claude',
+    headless: (p) => ['-p', p],
+    startJson: (p) => ['-p', '--output-format', 'json', p],          // cwd via spawn cwd
+    resumeJson: (sid, p) => ['-p', '--resume', sid, '--output-format', 'json', p],
+    parseConsult: parseClaudeJson,
+    fallbacks: () => [],
+  },
   {
     id: 'codex', label: 'Codex', cmdName: 'codex',
     // --skip-git-repo-check lets exec run outside a git repo (control plane /
     // non-repo dirs); safe since the sandbox is already read-only.
     headless: (p, cwd) => ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', ...(cwd ? ['-C', cwd] : []), p],
+    startJson: (p, cwd) => ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', ...(cwd ? ['-C', cwd] : []), p],
+    // `exec resume` keeps the original session's cwd/sandbox; it takes neither -C
+    // nor --sandbox, so we pass only the id + --json (read-only is its default).
+    resumeJson: (sid, p) => ['exec', 'resume', sid, '--json', '--skip-git-repo-check', p],
+    parseConsult: parseCodexJsonl,
     fallbacks: codexFallbacks,
   },
   { id: 'gemini', label: 'Gemini', cmdName: 'gemini', headless: (p) => ['-p', p], fallbacks: () => [] },
@@ -139,28 +184,51 @@ function friendlyError(raw: string): string {
   return raw.slice(0, 400);
 }
 
-export interface ConsultResult { ok: boolean; agent: string; output?: string; error?: string }
+export interface ConsultResult { ok: boolean; agent: string; output?: string; error?: string; sessionId?: string; threaded?: boolean }
+export interface ConsultOpts {
+  cwd?: string;
+  /** Vendor session id to RESUME (continue a prior consult) — from a previous result's sessionId. */
+  resumeId?: string;
+  timeoutMs?: number;
+}
 
-/** Run `prompt` through another agent non-interactively and return its reply. */
-export function consultAgent(agentId: string, prompt: string, cwd?: string, timeoutMs = 240_000): Promise<ConsultResult> {
+/**
+ * Run `prompt` through another agent non-interactively and return its reply.
+ * When the agent supports threaded consult (parseConsult defined), uses its
+ * JSON output to capture a vendor `sessionId`, and — if `resumeId` is given —
+ * RESUMES that session so the agent keeps the prior turns' context.
+ */
+export function consultAgent(agentId: string, prompt: string, opts: ConsultOpts = {}): Promise<ConsultResult> {
+  const { cwd, resumeId, timeoutMs = 240_000 } = opts;
   const a = AGENTS.find((x) => x.id === agentId);
   if (!a) return Promise.resolve({ ok: false, agent: agentId, error: 'Unknown agent: ' + agentId });
   const r = resolveAgent(agentId);
   if (!r) return Promise.resolve({ ok: false, agent: agentId, error: a.label + ' is not installed / could not be located. Set its path with set_agent_path.' });
+
+  const threaded = !!a.parseConsult && !!a.startJson;
+  const args = !threaded
+    ? a.headless(prompt, cwd)
+    : (resumeId && a.resumeJson ? a.resumeJson(resumeId, prompt, cwd) : a.startJson!(prompt, cwd));
 
   return new Promise((resolve) => {
     let out = '', err = '', done = false;
     const finish = (res: ConsultResult) => { if (!done) { done = true; resolve(res); } };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(r.path, a.headless(prompt, cwd), { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(r.path, args, { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) { return finish({ ok: false, agent: agentId, error: String(e) }); }
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish({ ok: false, agent: agentId, error: 'Timed out after ' + Math.round(timeoutMs / 1000) + 's' }); }, timeoutMs);
-    child.stdout?.on('data', (d: Buffer) => { out += d.toString(); if (out.length > 300_000) { try { child.kill(); } catch { /* ignore */ } } });
+    child.stdout?.on('data', (d: Buffer) => { out += d.toString(); if (out.length > 2_000_000) { try { child.kill(); } catch { /* ignore */ } } });
     child.stderr?.on('data', (d: Buffer) => { err += d.toString(); });
     child.on('error', (e) => { clearTimeout(timer); log('error', { function: 'consultAgent', message: String(e) }); finish({ ok: false, agent: agentId, error: String(e) }); });
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (threaded && a.parseConsult) {
+        const parsed = a.parseConsult(out);
+        if (parsed.text) finish({ ok: true, agent: agentId, output: parsed.text.slice(0, 16_000), sessionId: parsed.sessionId, threaded: true });
+        else finish({ ok: false, agent: agentId, error: friendlyError(err.trim() || 'no reply (exited ' + code + ')'), threaded: true });
+        return;
+      }
       const text = out.trim();
       if (text) finish({ ok: true, agent: agentId, output: text.slice(0, 16_000) });
       else finish({ ok: false, agent: agentId, error: friendlyError(err.trim() || 'exited ' + code) });
