@@ -116,7 +116,7 @@ const INDEX_TTL_MS = 30_000;
 
 interface IndexEntry { sessionId: string; projectPath: string; lastTs: number; mtime: number; size: number; doc: string; vendor: Vendor; }
 interface DiskIndex { version: number; files: Record<string, IndexEntry>; }
-const INDEX_VERSION = 2; // v2 added per-entry `vendor` (Codex source) — v1 caches are ignored
+const INDEX_VERSION = 3; // v2 added `vendor`; v3 corrected lastTs (max with file mtime) — older caches ignored
 
 function indexPath(): string { return path.join(getConfigDir(), 'search-index.json'); }
 
@@ -309,7 +309,10 @@ function buildIndex(): Map<string, IndexEntry & { docLower: string }> {
     disk.files[filePath] = {
       sessionId: ext.sessionId || sessionId,
       projectPath: ext.projectPath || histProj.get(ext.sessionId || sessionId) || '',
-      lastTs: ext.lastTs || st.mtimeMs,
+      // Recency = max(parsed content ts, file mtime). The parsed ts only covers
+      // lines read before the doc cap, so for long/resumed sessions it's stale;
+      // the file mtime is the true last-write (last-turn) time. (Codex review.)
+      lastTs: Math.max(ext.lastTs || 0, st.mtimeMs),
       mtime: st.mtimeMs,
       size: st.size,
       doc: ext.doc,
