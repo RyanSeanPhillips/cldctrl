@@ -26,6 +26,7 @@ interface LiveTile {
   restart?: () => void;       // terminal tiles
   setTheme?: () => void;      // terminal tiles
   toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
+  setContext?: (size: number, model: string | null) => void; // terminal tiles — context-window meter
   inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
   save?: () => void;          // doc tiles
@@ -35,6 +36,21 @@ const tiles = new Map<string, LiveTile>();
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+}
+
+// ── context-window meter ─────────────────────────────────────
+// Per-tile "how full is this conversation's context" gauge (the thing Claude Code
+// itself shows). The size is the last assistant turn's prompt tokens
+// (cacheRead + input + cacheCreation = lastContextSize), divided by the model's
+// window. Most Claude models are 200k; the 1M-context variants report "[1m]".
+function contextWindowFor(model: string | null): number {
+  if (model && /\b1m\b|1m]|-1m/i.test(model)) return 1_000_000;
+  return 200_000;
+}
+function fmtTok(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
+  if (n >= 1000) return Math.round(n / 1000) + 'k';
+  return String(n);
 }
 
 /** A deterministic colored monogram for a project, so each tile reads at a glance
@@ -86,6 +102,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <span class="tile-title">${esc(meta.title)}</span>
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
+      <span class="tile-ctx" style="display:none" title="">
+        <span class="tile-ctx-bar"><i></i></span>
+        <span class="tile-ctx-pct"></span>
+      </span>
       <button class="btn icon" data-act="tile-scratch" data-id="${esc(meta.id)}" title="Open a scratchpad to draft beside this chat">&#9998;</button>
       ${readBtn}
       ${locBtns}
@@ -222,9 +242,27 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (composeOpen) { composeAutosize(); composeTa.focus(); }
   };
 
+  // ── context-window meter ──────────────────────────────────
+  // Updated every poll from getState().data.sessions (see syncCockpit). Hidden
+  // until the session reports a context size (no assistant turn yet → nothing to show).
+  const ctxEl = el.querySelector('.tile-ctx') as HTMLElement;
+  const ctxFill = el.querySelector('.tile-ctx-bar > i') as HTMLElement;
+  const ctxPct = el.querySelector('.tile-ctx-pct') as HTMLElement;
+  const setContext = (size: number, model: string | null): void => {
+    if (!size || size <= 0) { ctxEl.style.display = 'none'; return; }
+    const win = contextWindowFor(model);
+    const pct = Math.min(100, Math.round((size / win) * 100));
+    ctxEl.style.display = '';
+    ctxFill.style.width = pct + '%';
+    ctxPct.textContent = pct + '%';
+    ctxEl.dataset.level = pct >= 85 ? 'crit' : pct >= 65 ? 'warn' : 'ok';
+    ctxEl.title = `Context window: ${fmtTok(size)} / ${fmtTok(win)} used (${pct}%)`
+      + (pct >= 85 ? ' — getting full, consider /compact' : '');
+  };
+
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
-    toggleCompose,
+    toggleCompose, setContext,
     // Programmatic message-in (#9): drop text into this running session, optionally
     // opening the compose-box first so the user can confirm/edit before it submits.
     inject: (text: string, autoSend: boolean) => {
@@ -513,6 +551,22 @@ export function syncCockpit(): void {
   if (keepFocus && keepFocus.el.isConnected && document.activeElement !== keepFocus.el) {
     keepFocus.el.focus();
     try { keepFocus.el.setSelectionRange(keepFocus.start ?? 0, keepFocus.end ?? 0); } catch { /* ignore */ }
+  }
+
+  // Per-tile context-window meters: resolve each tile's sessionId (resume tiles
+  // know it; 'new' tiles get a discoveredSessionId once claude creates one) and
+  // push the latest context size from the polled session list.
+  const sessions = st.data?.sessions;
+  if (sessions && sessions.length) {
+    const byId = new Map(sessions.filter((s) => s.id).map((s) => [s.id!, s]));
+    const discovered = st.data?.terminalSessions ?? {};
+    for (const meta of cp.tiles) {
+      const t = tiles.get(meta.id);
+      if (!t?.setContext) continue;
+      const sid = meta.kind === 'new' ? discovered[meta.id] : meta.sessionId;
+      const s = sid ? byId.get(sid) : undefined;
+      t.setContext(s?.contextSize ?? 0, s?.model ?? null);
+    }
   }
 
   if (show || domChanged) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }

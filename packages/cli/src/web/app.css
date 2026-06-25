@@ -517,6 +517,16 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
   font-family: var(--mono); letter-spacing: -0.02em; }
 .tile-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-status { font-size: 10.5px; color: var(--text-muted); }
+/* per-conversation context-window meter (how full the context is → /compact cue) */
+.tile-ctx { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; cursor: help; }
+.tile-ctx-bar { width: 34px; height: 4px; background: var(--surface-1); border-radius: var(--r-pill);
+  overflow: hidden; border: 1px solid var(--border); }
+.tile-ctx-bar > i { display: block; height: 100%; width: 0; background: var(--info);
+  transition: width .5s cubic-bezier(.2, .8, .2, 1); }
+.tile-ctx-pct { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 26px; text-align: right; }
+.tile-ctx[data-level="warn"] > .tile-ctx-bar > i { background: var(--warn); }
+.tile-ctx[data-level="crit"] > .tile-ctx-bar > i { background: var(--crit); }
+.tile-ctx[data-level="crit"] > .tile-ctx-pct { color: var(--crit); }
 /* active read-aloud (stop state) */
 .tile-head .btn.icon.on { color: var(--accent); }
 .topbar .btn.icon.on { color: var(--accent); }
