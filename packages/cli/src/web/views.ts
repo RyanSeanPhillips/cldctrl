@@ -22,6 +22,13 @@ function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl 
     title="Resume this conversation here in the cockpit">${iGrid()} Resume in cockpit</button>`;
 }
 
+/** A small per-vendor badge so cross-vendor search results read at a glance which
+ *  CLI a session came from. Only shown for non-Claude (Claude is the default). */
+function vendorChip(vendor?: 'claude' | 'codex'): Tpl | string {
+  if (!vendor || vendor === 'claude') return '';
+  return html`<span class=${'vendor-chip ' + vendor} title=${'From the ' + vendor + ' CLI'}>${vendor}</span>`;
+}
+
 // ── small viz helpers ────────────────────────────────────────
 function heatLevel(v: number, max: number): number {
   if (v <= 0 || max <= 0) return 0;
@@ -502,13 +509,16 @@ function searchView(state: State): Tpl {
           <div class="drow-main">
             <div class="drow-title">${r.snippet}</div>
             <div class="drow-meta">
+              ${vendorChip(r.vendor)}
               <span class="proj-name">${r.project}</span><span class="sep">·</span><span>${ago(r.date)}</span>
               <span class="sep">·</span><span class="num">${r.count} match${r.count === 1 ? '' : 'es'}</span>
             </div>
           </div>
           <div class="res-actions">
-            ${cockpitBtn(r.sessionId, r.projectPath, r.project)}
-            <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>
+            ${r.vendor === 'codex'
+              ? html`<span class="res-note" title="Codex session — resume from your Codex CLI; cockpit resume is Claude-only for now">found in Codex</span>`
+              : html`${cockpitBtn(r.sessionId, r.projectPath, r.project)}
+                <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>`}
           </div>
         </div>`)}</div>`}
   </section>`;
@@ -519,7 +529,9 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
   if (!cp.addOpen) return '';
   const q = cp.addQuery.trim();
   const rows = q
-    ? cp.addResults.map((r) => ({ id: r.sessionId, path: r.projectPath, title: r.project, sub: r.snippet }))
+    // Codex results are excluded here: adding a resume tile spawns `claude --resume`,
+    // which can't resume a Codex session (cockpit Codex-resume isn't wired yet, #11 phase 2).
+    ? cp.addResults.filter((r) => r.vendor !== 'codex').map((r) => ({ id: r.sessionId, path: r.projectPath, title: r.project, sub: r.snippet }))
     : d.sessions.filter((s) => s.id).map((s) => ({ id: s.id!, path: s.path, title: s.project, sub: s.currentAction || s.status }));
   return html`<div class="cp-add-backdrop">
     <div class="cp-add">

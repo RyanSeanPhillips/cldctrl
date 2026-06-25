@@ -135,6 +135,7 @@ export interface SearchResult {
   date: string;
   snippet: string;
   count: number;
+  vendor?: 'claude' | 'codex'; // which CLI the session belongs to (Codex resume isn't cockpit-wired yet)
 }
 
 // ── Stats tab (/api/stats) — mirror of core/stats.ts StatsPayload ──

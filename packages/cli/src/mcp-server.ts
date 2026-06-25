@@ -317,6 +317,7 @@ function handleSearchConversations(args: { query: string; limit?: number; projec
   const results = searchConversations(query, limit, args.project).map((r) => ({
     project: r.project,
     sessionId: r.sessionId,
+    vendor: r.vendor,
     date: r.date,
     matches: r.count,
     snippet: r.snippet,
@@ -325,7 +326,7 @@ function handleSearchConversations(args: { query: string; limit?: number; projec
     query,
     count: results.length,
     results,
-    hint: 'Resume any result with launch_session({ project, resume: sessionId }).',
+    hint: 'Claude results resume with launch_session({ project, resume: sessionId }). Codex results (vendor:"codex") resume from the Codex CLI, e.g. `codex resume <sessionId>`.',
   };
 }
 
@@ -659,7 +660,7 @@ async function main(): Promise<void> {
       {
         name: 'search_conversations',
         description:
-          'Search across ALL of your past Claude Code conversations (every project) to answer "where did we talk about / work on / build X?". Searches the full conversation CONTENT — your prompts, the assistant\'s replies, tool names, and touched file paths — so it matches what was *done*, not just what was *asked*. Ranked by relevance (sessions matching more of your terms rank first), then recency. Terms are OR\'d, so adding words refines instead of zeroing out. Returns matching sessions with project, date, match count, a snippet, and a sessionId you can pass to launch_session({ resume }) to pick the conversation back up.',
+          'Search across ALL of your past coding-agent conversations (every project) to answer "where did we talk about / work on / build X?". VENDOR-NEUTRAL: spans Claude Code AND OpenAI Codex CLI sessions in one index (each result tagged with `vendor`), so it finds work done in either agent. Searches the full conversation CONTENT — your prompts, the assistant\'s replies, tool names, and touched file paths — so it matches what was *done*, not just what was *asked*. Ranked by relevance (sessions matching more of your terms rank first), then recency. Terms are OR\'d, so adding words refines instead of zeroing out. Returns matching sessions with project, vendor, date, match count, a snippet, and a sessionId. Resume Claude results via launch_session({ resume }); Codex results via the Codex CLI.',
         inputSchema: {
           type: 'object' as const,
           properties: {

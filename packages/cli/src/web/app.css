@@ -497,6 +497,11 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .tile-head { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s3);
   background: var(--surface-2); border-bottom: 1px solid var(--border-strong); cursor: pointer; }
 /* drag-to-reorder grip + drop indicators */
+/* per-vendor badge on cross-vendor search results */
+.vendor-chip { display: inline-flex; align-items: center; padding: 0 5px; height: 15px; border-radius: 4px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 4px; }
+.vendor-chip.codex { background: rgba(16,163,127,0.16); color: #10a37f; box-shadow: inset 0 0 0 1px rgba(16,163,127,0.35); }
+.res-note { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 0 var(--s2); }
 .tile-grip { flex-shrink: 0; color: var(--text-muted); cursor: grab; font-size: 12px; line-height: 1;
   padding: 0 1px; opacity: 0.55; user-select: none; }
 .tile-grip:hover { opacity: 1; color: var(--text); }

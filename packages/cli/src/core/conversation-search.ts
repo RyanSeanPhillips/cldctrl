@@ -11,9 +11,12 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { loadConfig, getConfigDir } from '../config.js';
 import { buildProjectListFast } from './projects.js';
 import { getClaudeProjectsDir, normalizePathForCompare } from './platform.js';
+
+export type Vendor = 'claude' | 'codex';
 
 export interface HistoryEntry { display: string; sessionId: string; project: string; timestamp: number; }
 
@@ -97,6 +100,7 @@ export interface SearchResult {
   date: string;
   snippet: string;
   count: number;
+  vendor: Vendor;
 }
 
 // ── Content index ────────────────────────────────────────────
@@ -110,8 +114,9 @@ const DOC_CAP = 40_000;            // max chars of extracted text per session
 const READ_CAP = 4 * 1024 * 1024;  // cap huge JSONL reads (50MB files exist)
 const INDEX_TTL_MS = 30_000;
 
-interface IndexEntry { sessionId: string; projectPath: string; lastTs: number; mtime: number; size: number; doc: string; }
+interface IndexEntry { sessionId: string; projectPath: string; lastTs: number; mtime: number; size: number; doc: string; vendor: Vendor; }
 interface DiskIndex { version: number; files: Record<string, IndexEntry>; }
+const INDEX_VERSION = 2; // v2 added per-entry `vendor` (Codex source) — v1 caches are ignored
 
 function indexPath(): string { return path.join(getConfigDir(), 'search-index.json'); }
 
@@ -181,36 +186,134 @@ function extractDoc(filePath: string, size: number): { doc: string; projectPath:
   return { doc: parts.join(' \n ').slice(0, DOC_CAP), projectPath, lastTs };
 }
 
+// ── Codex source (vendor-neutral) ────────────────────────────
+// Read OpenAI Codex CLI rollouts (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl)
+// into the SAME index so search spans Claude + Codex. Schema verified against a
+// real machine (and with Codex itself): clean transcript text lives in `event_msg`
+// user_message/agent_message; project assoc is `session_meta.payload.cwd`. Tolerant
+// by design — Codex owns this format and may change it (skip unknown event types).
+const CODEX_READ_CAP = 12 * 1024 * 1024; // a resumed rollout can hit ~6MB; read more than Claude's cap
+const UUID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+function codexSessionsRoot(): string { return path.join(os.homedir(), '.codex', 'sessions'); }
+
+function walkCodexSessionFiles(): Array<{ sessionId: string; filePath: string }> {
+  const root = codexSessionsRoot();
+  const out: Array<{ sessionId: string; filePath: string }> = [];
+  const kids = (d: string): fs.Dirent[] => { try { return fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } };
+  for (const y of kids(root)) {                              // YYYY
+    if (!y.isDirectory()) continue;
+    for (const m of kids(path.join(root, y.name))) {         // MM
+      if (!m.isDirectory()) continue;
+      for (const d of kids(path.join(root, y.name, m.name))) { // DD
+        if (!d.isDirectory()) continue;
+        const dayDir = path.join(root, y.name, m.name, d.name);
+        for (const f of kids(dayDir)) {
+          if (!f.isFile() || !f.name.startsWith('rollout-') || !f.name.endsWith('.jsonl')) continue;
+          const uuid = f.name.match(UUID_RE);
+          out.push({ sessionId: uuid ? uuid[1] : f.name.replace(/\.jsonl$/, ''), filePath: path.join(dayDir, f.name) });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function extractCodexDoc(filePath: string, size: number): { doc: string; projectPath: string; lastTs: number; sessionId: string } {
+  let buf: string;
+  try {
+    if (size > CODEX_READ_CAP) {
+      const fd = fs.openSync(filePath, 'r');
+      const b = Buffer.alloc(CODEX_READ_CAP);
+      const n = fs.readSync(fd, b, 0, b.length, 0);
+      fs.closeSync(fd);
+      buf = b.toString('utf-8', 0, n);
+    } else {
+      buf = fs.readFileSync(filePath, 'utf-8');
+    }
+  } catch { return { doc: '', projectPath: '', lastTs: 0, sessionId: '' }; }
+
+  let projectPath = '', rootsFallback = '', lastTs = 0, sessionId = '';
+  const parts: string[] = [];
+  let len = 0;
+  const push = (s?: string) => { if (s && len < DOC_CAP) { const v = s.length > 4000 ? s.slice(0, 4000) : s; parts.push(v); len += v.length; } };
+
+  for (const line of buf.split('\n')) {
+    if (!line.trim()) continue;
+    if (len >= DOC_CAP) break;
+    let obj: any;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const ts = typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : 0;
+    if (ts > lastTs) lastTs = ts;
+    const p = obj.payload;
+    switch (obj.type) {
+      case 'session_meta':
+        // Multiple session_meta lines can appear after resume — first one is canonical.
+        if (p) {
+          if (!sessionId && typeof p.id === 'string') sessionId = p.id;
+          if (!projectPath && typeof p.cwd === 'string') projectPath = p.cwd;
+        }
+        break;
+      case 'turn_context':
+        if (p) {
+          if (!projectPath && typeof p.cwd === 'string') projectPath = p.cwd;        // fallback cwd
+          if (!rootsFallback && Array.isArray(p.workspace_roots) && p.workspace_roots[0]) rootsFallback = String(p.workspace_roots[0]);
+        }
+        break;
+      case 'event_msg':
+        if (p?.type === 'user_message' || p?.type === 'agent_message') push(typeof p.message === 'string' ? p.message : '');
+        else if (p?.type === 'mcp_tool_call_end' && p.invocation?.tool) push('tool ' + String(p.invocation.tool)); // "what was done"
+        break;
+      case 'response_item':
+        // index small tool-call metadata (name + a file path if present); skip the
+        // huge function_call_output and the duplicate `message` records (dev/env noise).
+        if (p?.type === 'function_call' && p.name) {
+          const args = typeof p.arguments === 'string' ? p.arguments : '';
+          const file = args.match(/"(?:file_path|path|cwd)"\s*:\s*"([^"]+)"/)?.[1];
+          push(String(p.name) + (file ? ' ' + file : ''));
+        }
+        break;
+    }
+  }
+  return { doc: parts.join(' \n ').slice(0, DOC_CAP), projectPath: projectPath || rootsFallback, lastTs, sessionId };
+}
+
 let memIndex: { at: number; entries: Map<string, IndexEntry & { docLower: string }> } | null = null;
 
 function buildIndex(): Map<string, IndexEntry & { docLower: string }> {
   if (memIndex && Date.now() - memIndex.at < INDEX_TTL_MS) return memIndex.entries;
 
-  let disk: DiskIndex = { version: 1, files: {} };
+  let disk: DiskIndex = { version: INDEX_VERSION, files: {} };
   try {
     const parsed = JSON.parse(fs.readFileSync(indexPath(), 'utf-8'));
-    if (parsed && parsed.version === 1 && parsed.files) disk = parsed;
+    if (parsed && parsed.version === INDEX_VERSION && parsed.files) disk = parsed;
   } catch { /* no/invalid index */ }
 
   const histProj = new Map<string, string>();
   for (const e of loadHistory().all) if (e.project) histProj.set(e.sessionId, e.project);
 
+  const sources: Array<{ sessionId: string; filePath: string; vendor: Vendor }> = [
+    ...walkSessionFiles().map((f) => ({ ...f, vendor: 'claude' as const })),
+    ...walkCodexSessionFiles().map((f) => ({ ...f, vendor: 'codex' as const })),
+  ];
+
   const seen = new Set<string>();
   let changed = false;
-  for (const { sessionId, filePath } of walkSessionFiles()) {
+  for (const { sessionId, filePath, vendor } of sources) {
     seen.add(filePath);
     let st: fs.Stats;
     try { st = fs.statSync(filePath); } catch { continue; }
     const cached = disk.files[filePath];
     if (cached && cached.mtime === st.mtimeMs && cached.size === st.size) continue;
-    const { doc, projectPath, lastTs } = extractDoc(filePath, st.size);
+    const ext = vendor === 'codex' ? extractCodexDoc(filePath, st.size) : { ...extractDoc(filePath, st.size), sessionId: '' };
     disk.files[filePath] = {
-      sessionId,
-      projectPath: projectPath || histProj.get(sessionId) || '',
-      lastTs: lastTs || st.mtimeMs,
+      sessionId: ext.sessionId || sessionId,
+      projectPath: ext.projectPath || histProj.get(ext.sessionId || sessionId) || '',
+      lastTs: ext.lastTs || st.mtimeMs,
       mtime: st.mtimeMs,
       size: st.size,
-      doc,
+      doc: ext.doc,
+      vendor,
     };
     changed = true;
   }
@@ -284,5 +387,6 @@ export function searchConversations(query: string, limit = 50, project?: string)
     date: new Date(e.lastTs).toISOString(),
     snippet: snippetFor(e.doc, terms, firstPos),
     count: matches,
+    vendor: e.vendor,
   }));
 }
