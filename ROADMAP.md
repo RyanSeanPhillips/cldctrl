@@ -12,15 +12,19 @@ lost. Big items are also tracked as GitHub issues (linked). Last updated **2026-
 
 ## ▶ Suggested next sequence
 0. **Restart `cc serve` + refresh, then smoke-test the shipped work first** — especially the terminal-touching changes (Ctrl+C/V, clickable paths, reconnect-after-sleep, double-Ctrl+C warning, tab attention) and the Stats tab. Fix any regressions before building on top.
-1. **1–2 friction-removing easy wins — be selective, don't grind skin.** The **compose-box** is the standout (kills real daily friction: editing + spellcheck + paste in the chat); drag-reorder/resize if quick. Most other cockpit polish is skin the first parties commoditize — do only what removes your own daily friction (you're the dogfood loop).
-2. **[#11] CodexSource → unified search — the keystone.** It's simultaneously *better memory* (cross-vendor long-term recall) **and** the *first real Codex integration*, so it covers two goals at once and is the substrate for everything below. Deterministic, independently valuable.
-3. **Vector/semantic search** over that unified corpus (memory tier S).
-4. **[#10]/[#9] conversation-interaction wiring** — driver-model coordination + read-back/inject.
+1. ✅ **DONE — compose-box + drag-to-reorder** (the friction-removing easy wins). e2e-verified.
+2. ✅ **DONE (phase 1) — [#11] CodexSource → unified search.** Codex sessions are indexed cross-vendor. Next #11 slices: Codex in per-project/recent lists, Codex resume-in-cockpit, Codex usage in Stats, Gemini source.
+3. **Vector/semantic search** over that unified (now cross-vendor) corpus (memory tier S).
+4. **[#10]/[#9] conversation-interaction wiring** — *#9 message-in shipped (`send_to_session`/`read_session`)*; remaining = the driver model (#10) + faithful worktree resume + a launch→read-back verify flow.
 5. **[#12] working memory** — last; experimental; start with the dumb per-project recap v0.
 
 ---
 
 ## ✅ Recently shipped (June 2026)
+- **Vendor-neutral search — Codex CLI indexed (#11 phase 1)** — `search_conversations` + the dashboard search now span Claude **and** OpenAI Codex (`~/.codex/sessions` rollouts → the same index, each result tagged `vendor`). Schema verified against real files and reviewed by Codex itself. Dashboard shows a CODEX chip and guards the Claude-only resume paths. The reverse is ~free: a Codex session gets unified recall over your whole Claude history via the same MCP tool. *Remaining #11: per-project/recent lists include Codex, Codex resume-in-cockpit, Codex usage in Stats, Gemini.*
+- **Compose-box** — a real `<textarea>` under each terminal tile (✎ header toggle): native click-to-edit, spellcheck, paste; sends into the PTY on Enter (Shift+Enter newline; multiline wrapped in bracketed-paste). Auto-grows.
+- **Message-in / coordination primitive (#9 partial)** — inject text into a RUNNING cockpit session. MCP `send_to_session` (prefill+confirm by default, autoSend to submit) + `read_session` (read back recent turns to verify a launched kickoff). Reuses the dashboard-bridge queue; the compose-box is the confirm surface. *Remaining #9: faithful worktree resume; a launch→read-back verify flow.*
+- **Drag-to-reorder cockpit tiles** — grip on each tile header; reorders `cp.tiles`, DOM re-ordered via insertBefore so PTYs/xterm state survive (verified the terminal stays live with content preserved).
 - **Cockpit Stats tab** — token usage by 5h block + 7-day cumulative (2nd axis), per-turn billed, context-per-conversation with 1M reference lines, cache-miss (eviction vs reload) timeline, tool-result context, MCP/agent tables, live usage strip, clickable image lightbox; 24h/3d/7d/30d range.
 - **Per-project focus chips** + **default-to-cockpit** + "New in cockpit"; re-resume focuses the existing tile.
 - **Auto-reconnect** cockpit tiles after sleep/idle-kill.
@@ -71,9 +75,9 @@ Recommended build order: **#11 → #10 → #9 → #12**.
 ## 📋 Backlog — Memory & the vendor-neutral brain
 Three-tier model (cldctrl as the orchestration layer, exposed to any agent via MCP):
 - **(L) Long-term recall — BUILT** (keyword `search_conversations`; cross-vendor via #11).
-- **(S) Semantic / vector search — TODO.** Embeddings over the conversation corpus for fuzzy recall. Evaluate **mem0 / Zep / txtai / LanceDB / Chroma** (and claude-vault for FTS5).
+- **(S) Semantic / vector search — TODO.** Embeddings over the conversation corpus for fuzzy recall. Evaluate **mem0 / Zep / txtai / LanceDB / Chroma** (and claude-vault for FTS5). **Leading candidate: graft claude-mem's generic core (SQLite+FTS5 + ChromaDB + MCP/HTTP retrieval) — see "Integration plan" below.**
 - **(W) Working memory that doesn't pollute context — TODO** (= #12). Relevance-gated retrieval (top-k for the task) vs auto-injecting everything; prior art: MemGPT/Letta, Generative Agents memory stream.
-- **"Hermes" memory agent** — identify the specific tool the user saw, then evaluate fit.
+- **"Hermes" memory agent — identified.** The tool is **claude-mem** ([thedotmack/claude-mem](https://github.com/thedotmack/claude-mem), AGPL-3.0); the "frozen-snapshot derived from Hermes" framing comes from the AgentOS writeups ([Geeky Gadgets](https://www.geeky-gadgets.com/claude-code-agentos-memory-upgrade/)). See the integration plan below.
 - **`originSessionId` back-links** from memory files (search issue #2 item 4).
 - **Multi-agent council (layer 3)** — Claude drafts → Codex critiques → Claude revises, orchestrated by the control plane (layers 1–2 done: vendor-neutral terminals + `consult_agent`).
 - **Agent-spawn-with-context** — wire "narrow a search → spawn a session seeded with that topic + a goal" (bridge tools exist).
