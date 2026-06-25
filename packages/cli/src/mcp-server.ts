@@ -42,10 +42,11 @@ import { ensureControlWorkspace, readTaskStore, upsertTask } from './core/contro
 import { searchConversations } from './core/conversation-search.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath, writeCockpitLaunch } from './core/dashboard-bridge.js';
+import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath, writeCockpitLaunch, writeCockpitInject } from './core/dashboard-bridge.js';
 import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
 import { readDaemonCache } from './core/background.js';
-import { normalizePathForCompare } from './core/platform.js';
+import { extractTranscript } from './core/summaries.js';
+import { normalizePathForCompare, getClaudeProjectsDir } from './core/platform.js';
 import { log, initLogger } from './core/logger.js';
 import type { Config, Project } from './types.js';
 
@@ -395,6 +396,50 @@ function handleShowSearchInDashboard(args: { query: string; sessionIds?: string[
   };
 }
 
+const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]{6,}$/;
+
+/** Resolve a sessionId to its JSONL transcript path (the filename IS the id). */
+function findSessionFile(sessionId: string): string | null {
+  if (!SAFE_SESSION_ID.test(sessionId)) return null;
+  const root = getClaudeProjectsDir();
+  let slugs: string[];
+  try { slugs = fs.readdirSync(root); } catch { return null; }
+  for (const slug of slugs) {
+    const direct = path.join(root, slug, `${sessionId}.jsonl`);
+    if (fs.existsSync(direct)) return direct;
+  }
+  return null;
+}
+
+function handleSendToSession(args: { session: string; message: string; autoSend?: boolean; note?: string }): unknown {
+  const session = (args.session ?? '').trim();
+  const message = (args.message ?? '').toString();
+  if (!SAFE_SESSION_ID.test(session)) return { ok: false, error: 'Provide a valid sessionId (from get_active_sessions or search_conversations).' };
+  if (!message.trim()) return { ok: false, error: 'Provide a non-empty message.' };
+  writeCockpitInject({ sessionId: session, text: message, autoSend: !!args.autoSend, note: args.note, ts: Date.now() });
+  return {
+    ok: true,
+    autoSend: !!args.autoSend,
+    note: args.autoSend
+      ? 'Queued for the dashboard; if that session is open as a cockpit tile, the message will be sent into it within a few seconds.'
+      : 'Queued for the dashboard; if that session is open as a cockpit tile, its compose-box will be prefilled for the operator to review and send.',
+  };
+}
+
+function handleReadSession(args: { session: string; turns?: number }): unknown {
+  const session = (args.session ?? '').trim();
+  if (!SAFE_SESSION_ID.test(session)) return { error: 'Provide a valid sessionId.' };
+  const file = findSessionFile(session);
+  if (!file) return { error: `Session not found: ${session}. Use get_active_sessions or search_conversations to find a valid sessionId.` };
+  const turns = Math.max(1, Math.min(40, args.turns ?? 12));
+  try {
+    const transcript = extractTranscript(file, turns);
+    return { sessionId: session, transcript: transcript || '(no readable turns yet — the session may not have produced output)' };
+  } catch (err) {
+    return { error: 'Failed to read session: ' + String(err) };
+  }
+}
+
 async function handleUpsertTask(args: {
   id?: string;
   title?: string;
@@ -726,6 +771,34 @@ async function main(): Promise<void> {
           required: ['query'],
         },
       },
+      {
+        name: 'send_to_session',
+        description:
+          "Inject a message into a RUNNING conversation open in the operator's cockpit (the coordination primitive). Unlike consult_agent/launch_session — which spawn a fresh, ephemeral, headless agent — this talks to a persistent session the operator is watching: it drops your text into that tile's compose-box. By default it PREFILLS for the operator to review and send (confirm-before-act); pass autoSend:true to submit immediately. Target by sessionId (from get_active_sessions or search_conversations). The session must currently be open as a cockpit tile in the browser dashboard; if it isn't, the operator is told. Use to hand a follow-up, a finding, or a coordinated instruction to another live conversation.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            session: { type: 'string', description: 'The sessionId of the running cockpit conversation to message.' },
+            message: { type: 'string', description: 'The text to inject into that session.' },
+            autoSend: { type: 'boolean', description: 'Submit immediately instead of prefilling for operator confirmation. Default false (prefill + confirm).' },
+            note: { type: 'string', description: 'Optional short note for context (shown to the operator).' },
+          },
+          required: ['session', 'message'],
+        },
+      },
+      {
+        name: 'read_session',
+        description:
+          "Read back the recent turns of a specific session by sessionId — to VERIFY a session you launched actually received its kickoff prompt and is working, or to catch up on what a running conversation has done. Returns the latest user/assistant exchanges (most recent last). For finding WHICH past conversation discussed something, use search_conversations instead; this is for reading one known session.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            session: { type: 'string', description: 'The sessionId to read.' },
+            turns: { type: 'number', description: 'How many recent messages to return (default 12, max 40).' },
+          },
+          required: ['session'],
+        },
+      },
     ],
   }));
 
@@ -803,6 +876,12 @@ async function main(): Promise<void> {
           break;
         case 'show_search_in_dashboard':
           result = handleShowSearchInDashboard(args as { query: string; sessionIds?: string[]; note?: string });
+          break;
+        case 'send_to_session':
+          result = handleSendToSession(args as { session: string; message: string; autoSend?: boolean; note?: string });
+          break;
+        case 'read_session':
+          result = handleReadSession(args as { session: string; turns?: number });
           break;
         case 'read_tasks':
           result = await handleReadTasks();

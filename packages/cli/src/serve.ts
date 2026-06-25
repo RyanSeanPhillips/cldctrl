@@ -27,7 +27,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunches } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -221,6 +221,7 @@ async function buildOverview(): Promise<unknown> {
     },
     bridge: readAgentSearch(),
     cockpitLaunches: readCockpitLaunches(),
+    cockpitInjects: readCockpitInjects(),
     // tileId -> the sessionId its 'new' agent created, so the client can persist it
     // and resume the SAME conversation after a restart (no manual /resume).
     terminalSessions: Object.fromEntries([...terminals.entries()].filter(([, s]) => s.discoveredSessionId).map(([id, s]) => [id, s.discoveredSessionId!])),

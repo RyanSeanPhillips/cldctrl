@@ -7,7 +7,7 @@
  * wipes them; `syncCockpit()` reconciles the DOM/PTYs with the store.
  */
 import { marked } from 'marked';
-import { getState } from './store.js';
+import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './dock.js';
 import { fetchFile, postFile } from './api.js';
@@ -25,6 +25,8 @@ interface LiveTile {
   fit?: () => void;
   restart?: () => void;       // terminal tiles
   setTheme?: () => void;      // terminal tiles
+  toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
+  inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
   save?: () => void;          // doc tiles
   speak?: () => void;         // doc tiles — read aloud (toggle)
@@ -78,6 +80,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     : '';
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
+      <span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>
       <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
       <span class="dot on"></span>
       <span class="tile-title">${esc(meta.title)}</span>
@@ -87,11 +90,17 @@ function createTermTile(meta: CockpitTile): LiveTile {
       ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
+      <button class="btn icon" data-act="tile-compose" data-id="${esc(meta.id)}" title="Compose a message (edit + spellcheck + paste)">&#9998;&#65039;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
     </div>
-    <div class="tile-term"></div>`;
+    <div class="tile-term"></div>
+    <div class="tile-compose" style="display:none">
+      <textarea class="compose-input" rows="1" spellcheck="true"
+        placeholder="Compose a message — Enter to send · Shift+Enter for a newline"></textarea>
+      <button class="btn primary compose-send" title="Send to the conversation">Send</button>
+    </div>`;
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace',
@@ -172,8 +181,51 @@ function createTermTile(meta: CockpitTile): LiveTile {
   window.addEventListener('online', onWake);
   connect();
 
+  // ── compose-box ───────────────────────────────────────────
+  // A real <textarea> beneath the terminal: native click-to-edit, spellcheck and
+  // paste (things xterm can't give you), then send the composed message into the
+  // PTY on Enter. Multi-line text is wrapped in bracketed-paste so the agent
+  // treats embedded newlines as literal content instead of submitting each line.
+  const composeBar = el.querySelector('.tile-compose') as HTMLElement;
+  const composeTa = el.querySelector('.compose-input') as HTMLTextAreaElement;
+  const composeBtn = el.querySelector('.compose-send') as HTMLButtonElement;
+  const composeAutosize = () => {
+    if (!composeTa.value) { composeTa.style.height = ''; return; } // empty → let CSS min-height keep it one line
+    composeTa.style.height = 'auto';
+    composeTa.style.height = Math.min(composeTa.scrollHeight, 140) + 'px';
+  };
+  const sendCompose = (): void => {
+    const text = composeTa.value;
+    if (!text.trim()) { composeTa.focus(); return; }
+    const data = text.includes('\n') ? '\x1b[200~' + text + '\x1b[201~\r' : text + '\r';
+    if (!send({ type: 'input', data })) { connect(); return; } // dead socket → reconnect, keep text to retry
+    composeTa.value = ''; composeAutosize(); composeTa.focus();
+  };
+  composeTa.addEventListener('input', composeAutosize);
+  composeTa.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCompose(); }
+    else if (e.key === 'Escape') { toggleCompose(false); }
+  });
+  composeBtn.addEventListener('click', sendCompose);
+  let composeOpen = false;
+  const toggleCompose = (force?: boolean): void => {
+    composeOpen = force ?? !composeOpen;
+    composeBar.style.display = composeOpen ? '' : 'none';
+    el.querySelector('[data-act="tile-compose"]')?.classList.toggle('on', composeOpen);
+    setTimeout(doFit, 60); // term shrank/grew — refit
+    if (composeOpen) { composeAutosize(); composeTa.focus(); }
+  };
+
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
+    toggleCompose,
+    // Programmatic message-in (#9): drop text into this running session, optionally
+    // opening the compose-box first so the user can confirm/edit before it submits.
+    inject: (text: string, autoSend: boolean) => {
+      toggleCompose(true);
+      composeTa.value = text; composeAutosize(); composeTa.focus();
+      if (autoSend) sendCompose();
+    },
     dispose: () => {
       closedByUs = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -200,6 +252,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
   el.dataset.id = meta.id;
   el.innerHTML = `
     <div class="tile-head">
+      <span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>
       <span class="doc-mark">&#9998;</span>
       <span class="tile-title" title="${esc(file)}">${esc(name)}</span>
       <span class="doc-status"></span>
@@ -348,6 +401,63 @@ function destroyTile(id: string): void {
   tiles.delete(id);
 }
 
+// ── drag-to-reorder ──────────────────────────────────────────
+// Grips on each tile header start an HTML5 drag; dropping over another tile
+// reorders the store's `cp.tiles` array. syncCockpit then re-orders the DOM to
+// match WITHOUT recreating tiles, so PTYs/xterm state survive the reorder.
+let dndWired = false;
+let draggingId: string | null = null;
+function reorderTiles(targetId: string, before: boolean): void {
+  if (!draggingId || draggingId === targetId) return;
+  const cp = getState().ui.cockpit;
+  const arr = [...cp.tiles];
+  const from = arr.findIndex((t) => t.id === draggingId);
+  if (from < 0) return;
+  const [moved] = arr.splice(from, 1);
+  let to = arr.findIndex((t) => t.id === targetId);
+  if (to < 0) { arr.push(moved); } else { if (!before) to++; arr.splice(to, 0, moved); }
+  if (arr.some((t, i) => t.id !== cp.tiles[i]?.id)) setCockpit({ tiles: arr });
+}
+function wireGridDnD(grid: HTMLElement): void {
+  if (dndWired) return;
+  dndWired = true;
+  grid.addEventListener('dragstart', (e) => {
+    const grip = (e.target as HTMLElement).closest('.tile-grip');
+    if (!grip) return;
+    const tile = grip.closest('.tile') as HTMLElement | null;
+    if (!tile) return;
+    draggingId = tile.dataset.id ?? null;
+    tile.classList.add('dragging');
+    try { e.dataTransfer!.effectAllowed = 'move'; e.dataTransfer!.setData('text/plain', draggingId ?? ''); } catch { /* ignore */ }
+  });
+  grid.addEventListener('dragover', (e) => {
+    if (!draggingId) return;
+    e.preventDefault(); // allow drop
+    try { e.dataTransfer!.dropEffect = 'move'; } catch { /* ignore */ }
+    const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement | null;
+    grid.querySelectorAll('.drop-before,.drop-after').forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+    if (tile && tile.dataset.id !== draggingId) {
+      const r = tile.getBoundingClientRect();
+      tile.classList.add((e as DragEvent).clientX < r.left + r.width / 2 ? 'drop-before' : 'drop-after');
+    }
+  });
+  grid.addEventListener('drop', (e) => {
+    if (!draggingId) return;
+    e.preventDefault();
+    const tile = (e.target as HTMLElement).closest('.tile') as HTMLElement | null;
+    if (tile && tile.dataset.id && tile.dataset.id !== draggingId) {
+      const r = tile.getBoundingClientRect();
+      reorderTiles(tile.dataset.id, (e as DragEvent).clientX < r.left + r.width / 2);
+    }
+  });
+  const clearDnD = () => {
+    grid.querySelectorAll('.dragging,.drop-before,.drop-after').forEach((el) => el.classList.remove('dragging', 'drop-before', 'drop-after'));
+    draggingId = null;
+  };
+  grid.addEventListener('dragend', clearDnD);
+  grid.addEventListener('drop', clearDnD);
+}
+
 /** Reconcile the imperative cockpit DOM/PTYs with the store's cockpit state. */
 export function syncCockpit(): void {
   const st = getState();
@@ -355,6 +465,7 @@ export function syncCockpit(): void {
   const root = document.getElementById('cockpit');
   const grid = document.getElementById('cockpit-grid');
   if (!root || !grid) return;
+  wireGridDnD(grid);
 
   const show = cp.open && cp.tab !== 'stats' && !st.ui.selectedProject && !st.search.query.trim();
   root.classList.toggle('open', show);
@@ -371,12 +482,33 @@ export function syncCockpit(): void {
     t.el.classList.toggle('hidden-proj', hidden.has(meta.projectPath));
   }
 
-  if (show) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
+  // Enforce DOM order = store order (drag-reorder). appendChild MOVES existing
+  // nodes, preserving their xterm/PTY — only re-append when out of order so the
+  // 3s poll doesn't thrash the DOM.
+  let domChanged = false;
+  let prev: Element | null = null;
+  for (const meta of cp.tiles) {
+    const t = tiles.get(meta.id);
+    if (!t) continue;
+    const want: Element | null = prev ? prev.nextElementSibling : grid.firstElementChild;
+    if (want !== t.el) { grid.insertBefore(t.el, want); domChanged = true; }
+    prev = t.el;
+  }
+
+  if (show || domChanged) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
 }
 
 function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
 
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
+export function toggleTileCompose(id: string): void { tiles.get(id)?.toggleCompose?.(); }
+/** Inject a message into a running terminal tile (message-in, #9). */
+export function injectIntoTile(id: string, text: string, autoSend = false): boolean {
+  const t = tiles.get(id);
+  if (!t?.inject) return false;
+  t.inject(text, autoSend);
+  return true;
+}
 export function docToggle(id: string): void { tiles.get(id)?.toggleMode?.(); }
 export function docSave(id: string): void { tiles.get(id)?.save?.(); }
 export function docSpeak(id: string): void { tiles.get(id)?.speak?.(); }

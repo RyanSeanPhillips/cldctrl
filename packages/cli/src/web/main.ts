@@ -10,7 +10,7 @@ import {
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, docToggle, docSave, docSpeak } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, injectIntoTile, docToggle, docSave, docSpeak } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -222,6 +222,7 @@ async function refreshTranscript(): Promise<void> {
 let lastBridgeTs = 0;
 let lastScratchTs = 0;
 let lastCockpitLaunchTs = 0;
+let lastCockpitInjectTs = 0;
 async function poll(): Promise<void> {
   try {
     const data = await fetchOverview();
@@ -264,6 +265,22 @@ async function poll(): Promise<void> {
       if (cl.ts <= lastCockpitLaunchTs) continue;
       lastCockpitLaunchTs = cl.ts;
       if (Date.now() - cl.ts < 60_000) addLaunchTile(cl.projectPath, cl.project, cl.prompt);
+    }
+    // Message-in (#9): inject a message into a running cockpit session. Match by the
+    // tile's sessionId (resume) or the sessionId its 'new' agent created. Prefills
+    // the target's compose-box (confirm/edit) unless autoSend was requested.
+    for (const inj of data.cockpitInjects ?? []) {
+      if (inj.ts <= lastCockpitInjectTs) continue;
+      lastCockpitInjectTs = inj.ts;
+      if (Date.now() - inj.ts > 60_000) continue;
+      const tile = getState().ui.cockpit.tiles.find(
+        (t) => t.sessionId === inj.sessionId || t.discoveredSessionId === inj.sessionId,
+      );
+      if (!tile) { toast('↪ Message for a session that isn’t open in the cockpit'); continue; }
+      // Reveal the tile (unmute its project, drop any maximize) so the prefill is visible.
+      setCockpit({ hiddenProjects: getState().ui.cockpit.hiddenProjects.filter((p) => p !== tile.projectPath), maximized: null });
+      const ok = injectIntoTile(tile.id, inj.text, !!inj.autoSend);
+      toast(ok ? (inj.autoSend ? '↪ Message sent into ' + tile.title : '↪ Message ready in ' + tile.title + ' — review & send') : '✗ Could not reach that tile');
     }
     // Listen mode: speak each new assistant reply of the active session.
     if (isHandsFree()) { const t = latestActiveSession(); if (t) autoRead({ id: t.id, assistantTurns: t.assistantTurns }); }
@@ -317,6 +334,8 @@ document.addEventListener('click', async (ev) => {
     setCockpit({ maximized: cp.maximized === el.dataset.id ? null : el.dataset.id! });
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
+  } else if (act === 'tile-compose') {
+    toggleTileCompose(el.dataset.id!);
   } else if (act === 'doc-toggle') {
     docToggle(el.dataset.id!);
   } else if (act === 'doc-save') {

@@ -496,6 +496,14 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
   box-shadow: 0 0 0 1px var(--border-strong), 0 2px 8px var(--shadow); }
 .tile-head { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s3);
   background: var(--surface-2); border-bottom: 1px solid var(--border-strong); cursor: pointer; }
+/* drag-to-reorder grip + drop indicators */
+.tile-grip { flex-shrink: 0; color: var(--text-muted); cursor: grab; font-size: 12px; line-height: 1;
+  padding: 0 1px; opacity: 0.55; user-select: none; }
+.tile-grip:hover { opacity: 1; color: var(--text); }
+.tile-grip:active { cursor: grabbing; }
+.tile.dragging { opacity: 0.45; }
+.tile.drop-before { box-shadow: -3px 0 0 0 var(--accent), 0 0 0 1px var(--border-strong), 0 2px 8px var(--shadow); }
+.tile.drop-after { box-shadow: 3px 0 0 0 var(--accent), 0 0 0 1px var(--border-strong), 0 2px 8px var(--shadow); }
 .tile-ava { width: 18px; height: 18px; border-radius: 5px; flex-shrink: 0; display: inline-flex;
   align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #fff;
   font-family: var(--mono); letter-spacing: -0.02em; }
@@ -513,6 +521,15 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 .tile-head .sp { margin-left: auto; }
 .tile-term { flex: 1; min-height: 0; padding: var(--s2) var(--s1) var(--s2) var(--s2); }
 .tile-term .xterm { height: 100%; }
+/* compose-box: a real textarea under the terminal (edit + spellcheck + paste),
+   sends into the PTY on Enter. Hidden until the ✎ header button toggles it. */
+.tile-compose { display: flex; align-items: flex-end; gap: var(--s2); flex-shrink: 0;
+  padding: var(--s2); background: var(--surface-2); border-top: 1px solid var(--border-strong); }
+.compose-input { flex: 1; resize: none; min-height: 30px; max-height: 140px; overflow-y: auto;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.45; padding: 6px 8px; outline: none; }
+.compose-input:focus { border-color: var(--accent); }
+.compose-send { flex-shrink: 0; }
 .doc-mark { color: var(--accent); font-size: 13px; }
 .doc-status { font-size: 10.5px; color: var(--text-muted); }
 .doc-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }

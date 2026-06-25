@@ -20,6 +20,7 @@ const CONTEXT_FILE = 'dashboard-context.json';
 const AGENT_SEARCH_FILE = 'agent-search.json';
 const SCRATCH_OPEN_FILE = 'scratch-open.json';
 const COCKPIT_LAUNCH_FILE = 'cockpit-launch.json';
+const COCKPIT_INJECT_FILE = 'cockpit-inject.json';
 
 export interface DashboardContext {
   query: string;
@@ -123,4 +124,23 @@ export function readCockpitLaunches(): CockpitLaunch[] {
   const v = readJson<CockpitLaunch[] | CockpitLaunch>(COCKPIT_LAUNCH_FILE);
   if (!v) return [];
   return Array.isArray(v) ? v : [v]; // tolerate the old single-object format
+}
+
+// ── Message-in (agent → dashboard: inject text into a running session) ─
+// The coordination primitive (#9): one conversation (or the control-plane agent)
+// drops a message into another LIVE cockpit session. By default the dashboard
+// PREFILLS the target's compose-box for the user to confirm/edit (autoSend=false);
+// autoSend submits immediately. Targeted by sessionId (resume tiles) or the
+// sessionId a 'new' tile's agent created (discoveredSessionId).
+export interface CockpitInject { sessionId: string; text: string; autoSend?: boolean; note?: string; ts: number; }
+
+export function writeCockpitInject(inject: CockpitInject): void {
+  const queue = readCockpitInjects();
+  queue.push(inject);
+  const cutoff = inject.ts - 5 * 60_000;
+  writeJson(COCKPIT_INJECT_FILE, queue.filter((i) => i.ts >= cutoff).slice(-20));
+}
+export function readCockpitInjects(): CockpitInject[] {
+  const v = readJson<CockpitInject[]>(COCKPIT_INJECT_FILE);
+  return Array.isArray(v) ? v : [];
 }
