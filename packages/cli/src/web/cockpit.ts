@@ -467,6 +467,14 @@ export function syncCockpit(): void {
   if (!root || !grid) return;
   wireGridDnD(grid);
 
+  // Moving a tile's node (createTile append / order-enforcement insertBefore)
+  // BLURS any focused descendant — the compose <textarea> you're typing in. The
+  // node survives intact (value + caret), only focus is lost. Capture it here and
+  // restore at the end so a poll that re-parents a tile doesn't yank your cursor.
+  const ae = document.activeElement as HTMLTextAreaElement | HTMLInputElement | null;
+  const keepFocus = ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && grid.contains(ae)
+    ? { el: ae, start: ae.selectionStart, end: ae.selectionEnd } : null;
+
   const show = cp.open && cp.tab !== 'stats' && !st.ui.selectedProject && !st.search.query.trim();
   root.classList.toggle('open', show);
   grid.className = 'cockpit-grid ' + cp.layout + (cp.maximized ? ' has-max' : '');
@@ -493,6 +501,12 @@ export function syncCockpit(): void {
     const want: Element | null = prev ? prev.nextElementSibling : grid.firstElementChild;
     if (want !== t.el) { grid.insertBefore(t.el, want); domChanged = true; }
     prev = t.el;
+  }
+
+  // Re-focus the compose box if a DOM move blurred it (text/caret are preserved).
+  if (keepFocus && keepFocus.el.isConnected && document.activeElement !== keepFocus.el) {
+    keepFocus.el.focus();
+    try { keepFocus.el.setSelectionRange(keepFocus.start ?? 0, keepFocus.end ?? 0); } catch { /* ignore */ }
   }
 
   if (show || domChanged) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
