@@ -11,7 +11,7 @@ lost. Big items are also tracked as GitHub issues (linked). Last updated **2026-
 ---
 
 ## ▶ Suggested next sequence
-0. **Restart `cc serve` + refresh, then smoke-test the shipped work first** — especially the terminal-touching changes (Ctrl+C/V, clickable paths, reconnect-after-sleep, double-Ctrl+C warning, tab attention) and the Stats tab. Fix any regressions before building on top.
+0. **Restart `cc serve` + refresh, then smoke-test the shipped work first** — see the **🧪 Testing watch** section below for the live-verify checklist. Fix any regressions before building on top.
 1. ✅ **DONE — compose-box + drag-to-reorder** (the friction-removing easy wins). e2e-verified.
 2. ✅ **DONE (phase 1) — [#11] CodexSource → unified search.** Codex sessions are indexed cross-vendor. Next #11 slices: Codex in per-project/recent lists, Codex resume-in-cockpit, Codex usage in Stats, Gemini source.
 3. **Vector/semantic search** over that unified (now cross-vendor) corpus (memory tier S).
@@ -32,6 +32,18 @@ lost. Big items are also tracked as GitHub issues (linked). Last updated **2026-
 - **Branded favicon** (orange ⌃ tile) + **tab attention** (flash title + badge favicon when a conversation needs input while you're on another tab).
 - **Launch-queue** fix (cockpit-launch was a single slot that could clobber; now a queue).
 - **#8 fixed/closed** — `launch_session` no longer truncates multi-word prompts (Windows `cmd /c` quoting → temp `.bat`).
+- **Stats KPI cards blank on LIGHT themes — fixed** (commit `8191125`). `--text-bright` was referenced (KPI values, card `<h2>` titles, legend bold) but never declared in any theme, so it fell back to `#fff` → white-on-white on daylight/paper. Declared per theme + hardened fallback to `var(--text)`.
+
+---
+
+## 🧪 Testing watch — verify live / dogfood (after `cc serve` restart + refresh)
+Everything here is code- and Playwright-e2e-verified, but **needs confirmation in real daily use** (the dogfood loop). Keep an eye on these specifically — last updated 2026-06-24:
+- **Stats KPI cards on light themes** (fix `8191125`) — confirm values + card titles + legend numbers render on **daylight/paper** (were invisible white-on-white). ⚠️ **Audit watch:** grep for any other `var(--text-bright, …)` or hardcoded `#fff`/white text that could be invisible on light themes elsewhere (this class of bug hides until you switch themes).
+- **Compose-box** (`bd162c1`) — Enter sends, Shift+Enter newline, **multiline reaches the agent intact via bracketed-paste** (no per-line submit) across claude *and* codex; spellcheck/paste work; ✎ toggle; auto-grow + compact-when-empty.
+- **Message-in / #9** (`send_to_session` / `read_session`) — prefill+confirm into a running tile, autoSend path, and the "session isn't open in the cockpit" message. Watch matching by `discoveredSessionId` for `new` tiles.
+- **Drag-to-reorder** (`bd162c1`) — PTY survives a reorder (verified); watch real multi-tile reorders and that order persists across a restart.
+- **CodexSource / #11** (`d7b0e22` + lastTs fix `+ index v3`) — cross-vendor results, CODEX chip, guarded resume paths. Recency now uses file mtime for long sessions. ⚠️ **Known gap to watch:** the 40k-char doc cap fills from the file START, so **long Codex rollouts only index their opening** — late-session content isn't searchable until semantic/FTS lands (the vector-search item). Same limitation applies to long Claude sessions.
+- **Prior batch still needing live confirm** — session **auto-restore** on reopen, reconnect-after-sleep, double-Ctrl+C warning, tab attention. *(Ctrl+C/V copy-paste and Stats integration already confirmed live by the user.)*
 
 ---
 
@@ -82,6 +94,49 @@ Three-tier model (cldctrl as the orchestration layer, exposed to any agent via M
 - **Multi-agent council (layer 3)** — Claude drafts → Codex critiques → Claude revises, orchestrated by the control plane (layers 1–2 done: vendor-neutral terminals + `consult_agent`).
 - **Agent-spawn-with-context** — wire "narrow a search → spawn a session seeded with that topic + a goal" (bridge tools exist).
 
+### Integration plan — graft claude-mem's generic core + per-agent adapters + eval harness
+The goal is a **vendor-neutral memory layer** (the moat), not another Claude-only plugin. claude-mem
+is structurally ideal: it's a *thin Claude-Code integration shell over a thick generic core*, and the
+core's retrieval surface is **already MCP + HTTP** — the exact seam we need. License is **AGPL-3.0,
+same as cldctrl**, so we can fork/vendor cleanly. ([architecture overview](https://docs.claude-mem.ai/architecture/overview), [Augment Code writeup](https://www.augmentcode.com/learn/claude-mem-persistent-memory-claude-code))
+
+**Coupling map (decides what we reuse vs. rebuild):**
+
+| Layer | Claude-specific? | Plan |
+|---|---|---|
+| Capture (hooks: SessionStart, PreToolUse-Read, PostToolUse, Stop) | ✅ | **rebuild** as per-agent adapter (cldctrl owns session launch/drive) |
+| Compression (Anthropic Agent SDK summarizer) | ✅ | **abstract** — one pluggable summarizer model, decoupled from the *driven* agent |
+| Injection (SessionStart context API) | ✅ | **rebuild** as inject-at-launch per agent (cldctrl controls the launch cmd) |
+| Storage (SQLite + FTS5) | ❌ generic | **vendor as-is** |
+| Vectors (ChromaDB) | ❌ generic | **vendor as-is** |
+| Retrieval (HTTP API + MCP server, port 37777) | ❌ generic | **vendor as-is** — already works for any MCP agent |
+| Viewer UI | ❌ generic | optional; we have the cockpit |
+
+**Why it fits the neutral-controller goal:** retrieval is *already* LLM-neutral — Codex CLI and Gemini
+CLI both speak MCP, so they query the same store unchanged. Only capture + injection are per-agent, and
+those are exactly the layer cldctrl already owns (`launch_session`, `send_to_session`, `read_session`,
+dashboard bridge). **Neutral retrieval ships first/easily; neutral capture rolls out agent-by-agent**
+(Claude hooks → Codex → Gemini), with JSONL-tailing as the fallback capture path where an agent's hook
+ecosystem is thin (we already index `~/.codex/sessions` rollouts for #11).
+
+**Sequencing (fits the existing #11→#10→#9→#12 order):**
+1. Vendor the generic core (SQLite+FTS5 + ChromaDB + retrieval MCP/HTTP); wire behind cldctrl's existing `search_conversations`/MCP so it's usable from any agent. Pairs with **#11** (Codex already in the unified corpus to embed).
+2. Pluggable summarizer (drop the hard Anthropic-SDK dependency on non-Claude paths).
+3. Per-agent capture adapter: Claude hooks first, then Codex/Gemini; JSONL-tail fallback. Ties to **#12 working memory**.
+4. Inject-at-launch adapter (relevance-gated top-k, prefill+confirm — not auto-inject-everything; reuses the #9 `send_to_session` confirm surface).
+
+**Keep, don't replace, the markdown-git memory.** Current `MEMORY.md` + per-fact files are *curated,
+human-readable truth* and the thing the eval audits; claude-mem is *auto-captured observations*. Use the
+vector layer to index/retrieve over **both**.
+
+**Memory-eval harness (the differentiator — agent-neutral, the part nobody else has built):**
+- **Faithfulness/staleness audit** — parse each memory file into discrete claims; a fresh agent verifies each against the live repo (codeindex/grep/read as ground truth) → ✅confirmed / ⚠️stale / ❌wrong / 🤷unverifiable + evidence. Tractable; **start here.** Surface verdicts in the dashboard with re-verify/update/delete actions (a daemon "memory health" job).
+- **Lift eval** — run representative tasks cold (no memory) vs. warm (memory injected); memory earns its place only when warm beats cold. Anchor on tasks with checkable outcomes (LLM-judged "usefulness" is noisy).
+
+**Caveats:** (1) capture fidelity varies per agent — MCP retrieval is uniform, auto-capture is uneven; (2) AGPL graft is fine (we're AGPL) but makes the obligation explicit; (3) two memory systems coexist by design — don't merge blindly.
+
+**Sources:** [thedotmack/claude-mem](https://github.com/thedotmack/claude-mem) · [architecture overview](https://docs.claude-mem.ai/architecture/overview) · [Augment Code writeup](https://www.augmentcode.com/learn/claude-mem-persistent-memory-claude-code) · [hybrid memory: storage/injection/recall](https://www.mindstudio.ai/blog/hybrid-ai-memory-system-claude-code-storage-injection-recall) · [AgentOS/Hermes framing](https://www.geeky-gadgets.com/claude-code-agentos-memory-upgrade/) · alternatives: [mem0 self-hosted MCP](https://dev.to/n3rdh4ck3r/how-to-give-claude-code-persistent-memory-with-a-self-hosted-mem0-mcp-server-h68), [Memory Vault (Postgres+pgvector)](https://www.makeuseof.com/fixed-claudes-memory-problem-postgres-database-changed-everything/)
+
 ---
 
 ## 🛠 Build strategy — parallel worktrees + dogfooding the orchestrator
@@ -90,6 +145,7 @@ Idea: build the backlog using git-worktree isolation + parallel agents, AND use 
 - **The worktree merge-after flow matters** (already backlogged) — it's what makes parallel sane; have it before fanning out widely.
 - **Chicken-and-egg for the orchestrator test:** the orchestrator = #9/#10 (message-into-session, read-back/verify, driver model) — NOT built yet. Today only a SEMI-manual version is possible (existing: createWorktree + cockpit "isolated worktree" new-session, launch_session, consult_agent, control-plane chat). Clean sequence: **build #9→#10 first, then use them to drive parallel worktree builds of the disjoint backlog** — ships features AND validates the orchestrator on real work.
 - **Costs:** token cost scales with N agents; for a solo dev the per-branch REVIEW burden can eat the speedup unless tasks are well-isolated. **Start small** — a 2–3 task parallel experiment on truly independent slices to learn the worktree + merge-after workflow before scaling.
+- **Unattended/overnight runs — pull the isolation, don't build it.** For "set a task list, skip approvals, review in the morning," the isolation layer is solved open-source; don't reinvent it. Options by threat model: running OUR OWN trusted repo → **git worktree + `--dangerously-skip-permissions`** (fast, local, real E2E testing) or Anthropic's reference **`.devcontainer`** (firewall + non-root, built for unattended skip-permissions); running UNTRUSTED code → a microVM (**E2B**, Firecracker) — a container can't stop a malicious project exfiltrating creds *inside* it. We have the **Cloudflare `sandbox-sdk`** skill on hand too. The differentiated cldctrl piece is NOT the cage — it's the **queue + verify-gate (`tsc`/`tsup`/smoke + Chrome UI pass on the cockpit) + morning report in the dashboard.** UI/UX review works well on the **web cockpit** via Claude-in-Chrome (clicks, screenshots, console/network); the **Ink TUI** is snapshot-only. Sources: [Claude Code devcontainer docs](https://code.claude.com/docs/en/devcontainer) · [skip-permissions safety contradiction (#19978)](https://github.com/anthropics/claude-code/issues/19978) · [sandbox roundup](https://blaxel.ai/blog/code-execution-sandboxes-for-ai-agents) · [unlimited-session microVMs (Northflank)](https://northflank.com/blog/best-code-execution-sandbox-for-ai-agents).
 
 ## 🧭 Direction / strategic notes (not tasks, but steer priorities)
 - **Moat = the brain, not the skin.** Anthropic/OpenAI ship first-party apps (parallel sessions, worktrees, diff/preview); don't compete on UI polish. Invest in cross-project orchestration, cross-vendor memory/search, and data-stays-local — things they structurally won't build.
