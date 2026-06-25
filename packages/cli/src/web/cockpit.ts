@@ -90,7 +90,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
-      <button class="btn icon" data-act="tile-compose" data-id="${esc(meta.id)}" title="Compose a message (edit + spellcheck + paste)">&#9998;&#65039;</button>
+      <button class="btn icon" data-act="tile-compose" data-id="${esc(meta.id)}" title="Compose box — spellcheck, edit, paste &amp; multi-line (the terminal stays primary)">&#128221;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
@@ -98,7 +98,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     <div class="tile-term"></div>
     <div class="tile-compose" style="display:none">
       <textarea class="compose-input" rows="1" spellcheck="true"
-        placeholder="Compose a message — Enter to send · Shift+Enter for a newline"></textarea>
+        placeholder="Compose a message — Enter sends · Shift+Enter newline · Esc back to terminal"></textarea>
       <button class="btn primary compose-send" title="Send to the conversation">Send</button>
     </div>`;
 
@@ -204,9 +204,15 @@ function createTermTile(meta: CockpitTile): LiveTile {
   composeTa.addEventListener('input', composeAutosize);
   composeTa.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCompose(); }
-    else if (e.key === 'Escape') { toggleCompose(false); }
+    // Escape collapses the compose box and hands focus back to the terminal for
+    // raw interaction (slash-menu autocomplete, y/n prompts, Ctrl+C, arrows).
+    else if (e.key === 'Escape') { toggleCompose(false); try { term.focus(); } catch { /* ignore */ } }
   });
   composeBtn.addEventListener('click', sendCompose);
+  // Terminal stays PRIMARY (slash-command autocomplete, y/n prompts, interrupts,
+  // plan mode all need the real TUI). The compose box is an opt-in helper for the
+  // things a terminal prompt line can't do — spellcheck, multi-line, paste, edit —
+  // toggled by the 📝 button. Esc drops you straight back into the terminal.
   let composeOpen = false;
   const toggleCompose = (force?: boolean): void => {
     composeOpen = force ?? !composeOpen;
