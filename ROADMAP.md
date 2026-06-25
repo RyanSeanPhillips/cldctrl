@@ -65,6 +65,40 @@ Recommended build order: **#11 → #10 → #9 → #12**.
 
 ---
 
+## 🧬 Vendor-neutral project merge model (design note, 2026-06-25)
+How cldctrl unifies Claude / Codex / Gemini into one per-project view. Underpins #11
+(and the per-project parity work) — the answer to "how do we merge how each vendor
+handles projects?"
+
+**Key insight: there's no vendor "project model" to reconcile.** All three are CLIs
+launched *in a directory*; each implicitly defines a project as that working dir.
+That shared **cwd** is the join key. We don't merge project abstractions — we extract
+each session's cwd, normalize it to a canonical path (`normalizePathForCompare`), and
+**that path IS the project**. cldctrl's project (a registered directory) is already
+vendor-neutral by construction.
+
+**Where each vendor records the cwd (only the storage differs):**
+| Vendor | Session storage | cwd location |
+|---|---|---|
+| Claude | `~/.claude/projects/<encoded-cwd>/<id>.jsonl` | folder name + `cwd` field per line (folder encoding is lossy → read `cwd` from content) |
+| Codex | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `session_meta.payload.cwd` inside the file |
+| Gemini | `~/.gemini/…` (TBD) | cwd-based; confirm exact shape when integrating |
+
+**Pattern (already proven in `conversation-search.ts`):** a per-vendor **SessionSource
+adapter** maps native storage → a common record `{ sessionId, projectPath(=cwd), lastTs,
+vendor, … }`; attribution = normalized-path match against the project list. The unified
+search index does this for Claude + Codex today.
+
+**Merge in layers:**
+1. **Sessions per project** *(mostly built — remaining #11)* — apply the same cwd→path join to the per-project & recent-conversation lists, so one project shows all vendors' sessions, each `vendor`-chipped.
+2. **Project universe = union** — projects = every dir any vendor has a session in ∪ registered projects. Today we auto-discover Claude's `~/.claude/projects`; extend to fold in Codex/Gemini session cwds (a dir only ever touched in Codex still appears).
+3. **Resume/launch routing** — vendor-tagged sessions dispatch per vendor: Claude `--resume`, Codex `exec resume` (mechanics nailed down in the threaded-consult work), Gemini TBD. Cockpit already guards Claude-only resume; generalize it.
+4. **Project *context* (the real prize, ties to #12)** — each vendor reads its own file: `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`. Neutrality = cldctrl holds ONE canonical project brief and **projects it into each vendor's convention file** (generate/sync or symlink), so switching a project's agent carries the same context. This is where it stops being plumbing and becomes the brain.
+
+**Edge cases:** lossy Claude folder-name encoding (→ read cwd from content, done); path normalization (drive-letter case / slashes / trailing — handled); worktrees are a *different path* → separate project by default, optionally group under repo root; unregistered dirs (auto-surface vs "unregistered" bucket); session ids are per-vendor namespaces → keep everything `vendor`-tagged.
+
+**Status:** join-on-cwd + adapter pattern BUILT for search (Claude+Codex). To build: extend to per-project/recent lists, union-discovery, per-vendor resume routing, Gemini adapter, and canonical-context projection. Gemini slots in once Codex parity proves the shape.
+
 ## 📋 Backlog — Cockpit / Web UX (parked; not yet issues)
 - **Multi-monitor / extended cockpit (pop-out windows)** — split the cockpit across screens: pop a filtered subset of tiles into a second window and drag it to another monitor (e.g. overflow conversations → an "extended cockpit"). ENABLER (already true): PTYs live SERVER-SIDE in the named-terminal registry (replay buffer + multi-client), so windows are just *views* that attach by tile id — tiles can split/duplicate across windows without losing state. Phases: **v1** pop-out a filtered window (reuse focus-chip filtering; per-window tile set via `?tiles=…`/window id; works in any browser, drag to monitor 2; app-mode = feels like a 2nd app); **v2** auto-place via the **Window Management API** (`getScreenDetails()`, Chrome, "Move to other screen" button, fallback to manual drag); **v3** native multi-window in the **Tauri** app (positioned/remembered per monitor). Needs per-window scoping of the `cldctrl.session.v1` restore (primary + named popouts).
 - **Promote Stats to a top-level destination** — *(user-requested 2026-06-25: "move the stats thing out of the cockpit … probably not there")*. Usage stats are account-GLOBAL but are currently a sub-tab of the Cockpit, so they only appear on the Conversations pane + Cockpit view (hidden in List view, project detail, and search — NOT gated on tiles, but feels conversation-dependent). Quick fix: a **"Stats" button in the top bar** reachable from anywhere. Cleaner: make Stats its own top-level view/route (sibling of Conversations/Detail). `#stats` overlay already exists; just needs a view flag independent of `cockpit.tab`.
