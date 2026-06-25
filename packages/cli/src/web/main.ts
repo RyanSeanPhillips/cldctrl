@@ -510,7 +510,7 @@ function restoreSession(): void {
   // Resume the SAME conversation a 'new' tile created (no manual /resume): if we
   // captured its real sessionId, restore it as a resume tile. Otherwise strip the
   // seed prompt so a restart never re-runs the original task as a fresh convo.
-  const tiles = (p.cockpit?.tiles ?? []).map((t): CockpitTile => {
+  const mapped = (p.cockpit?.tiles ?? []).map((t): CockpitTile => {
     // Convert a discovered 'new' tile into a resume of its real session — but NOT
     // worktree tiles: their session lives under the worktree's slug and the resume
     // path only accepts known-project cwds, so faithful worktree resume needs deeper
@@ -520,6 +520,13 @@ function restoreSession(): void {
     }
     return (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t;
   });
+  // Dedupe by id: converting a discovered 'new' tile into resume:<sessionId> can
+  // collide with an existing resume tile of the SAME conversation (it was also
+  // opened directly), leaving two cp.tiles entries sharing one id. syncCockpit
+  // (keyed by id) then renders one DOM tile while the focus-chip count shows two
+  // — a "phantom conversation" that can't be opened or closed. Keep first.
+  const seen = new Set<string>();
+  const tiles = mapped.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
