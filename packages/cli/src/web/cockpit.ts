@@ -28,6 +28,7 @@ interface LiveTile {
   toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
   toggleNote?: (force?: boolean) => void;       // terminal tiles — show/hide docked notepad
   setContext?: (size: number, model: string | null, window?: number) => void; // terminal tiles — context-window meter
+  setReadSession?: (sid: string | null) => void; // terminal tiles — bind/show the read-aloud button once a session id is known
   focus?: () => void;         // terminal tiles — focus the xterm
   inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
@@ -119,10 +120,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const locBtns =
     (feats?.openExplorer ? `<button class="btn icon" data-act="tile-reveal" data-path="${pp}" title="Open project folder">&#128193;</button>` : '') +
     (feats?.openVscode ? `<button class="btn icon" data-act="tile-code" data-path="${pp}" title="Open in VS Code">&lt;/&gt;</button>` : '');
-  // Read the latest agent reply aloud (only when we know the session id).
-  const readBtn = meta.sessionId
-    ? `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId)}" title="Read the latest reply aloud">&#128266;</button>`
-    : '';
+  // Read the latest agent reply aloud. Always rendered, but hidden until we know a
+  // session id — fresh ('new') tiles only discover theirs after claude writes the
+  // first JSONL, so setReadSession() reveals + binds it later (in syncCockpit).
+  const readBtn = `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId ?? '')}" title="Read the latest reply aloud"${meta.sessionId ? '' : ' style="display:none"'}>&#128266;</button>`;
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
       <span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>
@@ -466,6 +467,12 @@ function createTermTile(meta: CockpitTile): LiveTile {
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
     toggleCompose, toggleNote, setContext,
+    setReadSession: (sid: string | null) => {
+      const b = el.querySelector('[data-act="tile-readout"]') as HTMLElement | null;
+      if (!b) return;
+      if (sid) { b.dataset.session = sid; b.style.display = ''; }
+      else b.style.display = 'none';
+    },
     focus: () => { try { term.focus(); } catch { /* ignore */ } },
     // Programmatic message-in (#9): drop text into this running session, optionally
     // opening the compose-box first so the user can confirm/edit before it submits.
@@ -737,7 +744,15 @@ export function syncCockpit(): void {
   for (const meta of cp.tiles) {
     let t = tiles.get(meta.id);
     if (!t) { t = createTile(meta); tiles.set(meta.id, t); grid.appendChild(t.el); }
-    t.el.classList.toggle('maxed', cp.maximized === meta.id);
+    const maxed = cp.maximized === meta.id;
+    t.el.classList.toggle('maxed', maxed);
+    // Swap the maximize button to a "restore" affordance while this tile is full-bleed.
+    const mb = t.el.querySelector('[data-act="tile-max"]') as HTMLElement | null;
+    if (mb && mb.dataset.maxed !== String(maxed)) {
+      mb.dataset.maxed = String(maxed);
+      mb.innerHTML = maxed ? '&#10697;' : '&#8689;'; // ⧉ restore / ⤡ maximize
+      mb.title = maxed ? 'Restore' : 'Maximize';
+    }
     // Focus chips: mute a project's tiles without tearing down their PTYs.
     t.el.classList.toggle('hidden-proj', hidden.has(meta.projectPath));
     // Reflect "needs input" so the pulse survives re-render/reorder.
@@ -776,6 +791,7 @@ export function syncCockpit(): void {
       const sid = meta.kind === 'new' ? discovered[meta.id] : meta.sessionId;
       const s = sid ? byId.get(sid) : undefined;
       t.setContext(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
+      t.setReadSession?.(sid ?? null); // reveal/bind the read-aloud button once the id is known
     }
   }
 
