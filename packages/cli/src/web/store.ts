@@ -24,6 +24,7 @@ export interface CockpitTile {
   prompt?: string;            // new sessions: seed prompt typed into the agent
   scratch?: boolean;          // doc tiles: a scratchpad (opens in edit mode, focused)
   noteOpen?: boolean;         // term tiles: the docked notepad panel is open (persists with the conversation)
+  noteAnnounced?: boolean;    // term tiles: the one-time "a notepad is linked" notice has been sent to the agent
   discoveredSessionId?: string; // 'new' tiles: the sessionId claude created → resume it (not re-spawn) on restore
 }
 
@@ -35,6 +36,7 @@ export interface CockpitState {
   statsDays: number;          // Stats range (1/3/7/30)
   maximized: string | null;   // tile id shown full-bleed
   hiddenProjects: string[];   // project paths whose tiles are muted (focus chips)
+  attnTiles: string[];        // tile ids whose conversation is waiting for input (ephemeral — not persisted)
   addOpen: boolean;           // the "+ Add" picker overlay
   addQuery: string;
   addResults: SearchResult[];
@@ -99,7 +101,7 @@ const state: State = {
     dockOpen: false,
     sidebarCollapsed: false,
     collapsedGroups: [],
-    cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], addOpen: false, addQuery: '', addResults: [] },
+    cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], attnTiles: [], addOpen: false, addQuery: '', addResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
     restoreOffer: null,

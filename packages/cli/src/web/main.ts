@@ -10,7 +10,7 @@ import {
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -331,7 +331,12 @@ document.addEventListener('click', async (ev) => {
     setCockpit({ tiles, open: tiles.length > 0 && cp.open, maximized: cp.maximized === el.dataset.id ? null : cp.maximized });
   } else if (act === 'tile-max') {
     const cp = getState().ui.cockpit;
-    setCockpit({ maximized: cp.maximized === el.dataset.id ? null : el.dataset.id! });
+    const id = el.dataset.id!;
+    const maximizing = cp.maximized !== id;
+    setCockpit({ maximized: maximizing ? id : null });
+    if (maximizing) clearTileAttn(id); // you're now looking at it
+  } else if (act === 'cockpit-waiting') {
+    focusWaitingTile();
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
   } else if (act === 'tile-compose') {

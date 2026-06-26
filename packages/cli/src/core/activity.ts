@@ -62,6 +62,7 @@ function newParseState(): ParseState {
       assistantTurns: 0,
       toolUseTurns: 0,
       lastContextSize: 0,
+      maxContextSize: 0,
     },
     hourEvents: new Map(),
     touched: new Map(),
@@ -126,7 +127,10 @@ function processLine(line: string, state: ParseState): void {
       activity.tokenBreakdown.cacheWrite += cacheW;
       activity.inputPerMessage.push(inp);
       const turnCtx = cacheR + inp + cacheW;
-      if (turnCtx > 0) activity.lastContextSize = turnCtx;
+      if (turnCtx > 0) {
+        activity.lastContextSize = turnCtx;
+        if (turnCtx > (activity.maxContextSize ?? 0)) activity.maxContextSize = turnCtx;
+      }
     }
 
     // Tool use from content array
@@ -232,6 +236,7 @@ function buildSnapshot(state: ParseState, now: number): SessionActivity {
     assistantTurns: a.assistantTurns,
     toolUseTurns: a.toolUseTurns,
     lastContextSize: a.lastContextSize,
+    maxContextSize: a.maxContextSize ?? 0,
     touchedFiles: [...state.touched.entries()]
       .map(([p, t]) => ({ path: p, reads: t.reads, writes: t.writes, lastTs: t.lastTs }))
       .sort((x, y) => y.lastTs - x.lastTs)

@@ -27,13 +27,41 @@ interface LiveTile {
   setTheme?: () => void;      // terminal tiles
   toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
   toggleNote?: (force?: boolean) => void;       // terminal tiles — show/hide docked notepad
-  setContext?: (size: number, model: string | null) => void; // terminal tiles — context-window meter
+  setContext?: (size: number, model: string | null, window?: number) => void; // terminal tiles — context-window meter
+  focus?: () => void;         // terminal tiles — focus the xterm
   inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
   save?: () => void;          // doc tiles
   speak?: () => void;         // doc tiles — read aloud (toggle)
 }
 const tiles = new Map<string, LiveTile>();
+
+// ── "needs input" attention ──────────────────────────────────
+// A conversation is "waiting for you" when its agent went quiet after working, or
+// rang the bell. We track those tile ids in the store so the always-visible cockpit
+// toolbar can show a "● N waiting" pill (and the tile header pulses in grid mode).
+// Ephemeral by design — not persisted, so it never survives a reload.
+function setAttn(id: string, on: boolean): void {
+  const cur = getState().ui.cockpit.attnTiles ?? [];
+  const has = cur.includes(id);
+  if (on === has) { tiles.get(id)?.el.classList.toggle('attn', on); return; } // class only
+  setCockpit({ attnTiles: on ? [...cur, id] : cur.filter((x) => x !== id) });
+  tiles.get(id)?.el.classList.toggle('attn', on);
+}
+const markAttn = (id: string) => setAttn(id, true);
+const clearAttn = (id: string) => setAttn(id, false);
+/** Drop a tile's "waiting" state from outside (e.g. when it's maximized/focused). */
+export function clearTileAttn(id: string): void { clearAttn(id); }
+/** Toolbar "waiting" pill → bring the oldest waiting conversation to the front. */
+export function focusWaitingTile(): void {
+  const cp = getState().ui.cockpit;
+  const id = (cp.attnTiles ?? [])[0];
+  if (!id) return;
+  if (cp.maximized) setCockpit({ maximized: id }); // swap the full-bleed tile to this one
+  clearAttn(id);
+  const t = tiles.get(id);
+  if (t) { try { t.el.scrollIntoView({ block: 'nearest' }); t.focus?.(); } catch { /* ignore */ } }
+}
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -101,12 +129,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
       <span class="dot on"></span>
       <span class="tile-title">${esc(meta.title)}</span>
+      <span class="tile-ctx-pct" style="display:none" title=""></span>
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
-      <span class="tile-ctx" style="display:none" title="">
-        <span class="tile-ctx-bar"><i></i></span>
-        <span class="tile-ctx-pct"></span>
-      </span>
+      <i class="tile-ctxline" style="display:none"></i>
       <button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>
       ${readBtn}
       ${locBtns}
@@ -124,7 +150,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
           <span class="note-name" title="">notepad</span>
           <span class="note-status"></span>
           <span class="sp"></span>
-          <button class="btn icon" data-note="chat" title="Send this draft's file path to the chat so the agent can edit it">&#128206;</button>
+          <button class="btn icon" data-note="chat" title="Ask the agent to read &amp; review this draft (sends a clear instruction + the file path so it reads it directly, no searching)">&#128206;</button>
           <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
           <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
         </div>
@@ -162,23 +188,52 @@ function createTermTile(meta: CockpitTile): LiveTile {
   let sock: WebSocket | null = null;
   let closedByUs = false, retry = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  // flag tab attention when the agent produces output then goes quiet while you're
-  // on another tab (i.e., it likely finished its turn / needs input)
-  let idleAlertTimer: ReturnType<typeof setTimeout> | null = null;
-  const scheduleIdleAlert = () => {
-    if (!document.hidden) return;
-    if (idleAlertTimer) clearTimeout(idleAlertTimer);
-    idleAlertTimer = setTimeout(() => flagAttention(meta.title + ' · needs input'), 4000);
+  // Attention: a conversation "needs input" when its agent produces output then
+  // goes quiet (turn finished) or rings the bell. Two consumers: the browser-tab
+  // flash (only when you're on another tab) and the in-app "● N waiting" pill +
+  // tile-header pulse (whenever the tile isn't the one you're already looking at).
+  // `armed` gates marking until the reconnect buffer-replay settles, so resumed
+  // tiles don't all light up as "waiting" the instant they load.
+  let idleAttnTimer: ReturnType<typeof setTimeout> | null = null;
+  let armTimer: ReturnType<typeof setTimeout> | null = null;
+  let armed = false;
+  const arm = () => { armed = false; if (armTimer) clearTimeout(armTimer); armTimer = setTimeout(() => { armed = true; }, 6000); };
+  const focused = () => getState().ui.cockpit.maximized === meta.id // already full-bleed
+    || el.contains(document.activeElement); // or you're typing in this tile
+  const onIdle = () => {
+    if (document.hidden) flagAttention(meta.title + ' · needs input');
+    if (armed && !focused()) markAttn(meta.id);
+  };
+  const onOutput = () => {
+    clearAttn(meta.id); // streaming → working, not waiting (also drops a stale pulse)
+    if (idleAttnTimer) clearTimeout(idleAttnTimer);
+    idleAttnTimer = setTimeout(onIdle, 5000);
   };
   const send = (msg: any): boolean => { if (sock && sock.readyState === 1) { sock.send(JSON.stringify(msg)); return true; } return false; };
-  const doFit = () => { if (fit) { try { fit.fit(); } catch { /* ignore */ } } send({ type: 'resize', cols: term.cols, rows: term.rows }); };
+  const doFit = () => {
+    if (fit) {
+      // Preserve the scroll position across the resize. fit.fit() → term.resize(),
+      // and a column change (grid ↔ fullscreen are different widths) REFLOWS the
+      // buffer, which otherwise drops the viewport at a random line. Capture where
+      // we are relative to the bottom, then restore after the reflow.
+      const buf = term.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      const fromBottom = buf.baseY - buf.viewportY;
+      try { fit.fit(); } catch { /* ignore */ }
+      try {
+        if (atBottom) term.scrollToBottom();
+        else term.scrollToLine(Math.max(0, term.buffer.active.baseY - fromBottom));
+      } catch { /* ignore */ }
+    }
+    send({ type: 'resize', cols: term.cols, rows: term.rows });
+  };
   const connect = () => {
     if (closedByUs) return;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     sock = new WebSocket(wsUrl(meta));
     sock.binaryType = 'arraybuffer';
-    sock.onopen = () => { retry = 0; if (status) status.textContent = 'live'; if (dot) dot.className = 'dot on'; setTimeout(doFit, 40); };
-    sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); scheduleIdleAlert(); };
+    sock.onopen = () => { retry = 0; if (status) status.textContent = 'live'; if (dot) dot.className = 'dot on'; arm(); setTimeout(doFit, 40); };
+    sock.onmessage = (ev) => { const d = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data); term.write(d); onOutput(); };
     sock.onclose = () => {
       if (dot) dot.className = 'dot';
       if (closedByUs) return;
@@ -189,7 +244,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     sock.onerror = () => { try { sock?.close(); } catch { /* triggers onclose → reconnect */ } };
   };
   // typing into a dead socket → kick a reconnect instead of dropping the input
-  term.onData((d: string) => { if (!send({ type: 'input', data: d })) connect(); });
+  term.onData((d: string) => { clearAttn(meta.id); if (!send({ type: 'input', data: d })) connect(); });
   // Terminals don't map Ctrl/Cmd+C/V to clipboard. Make Ctrl+C copy the SELECTION
   // (and only fall through to interrupt when nothing is selected), Ctrl+V paste.
   let lastCtrlC = 0;
@@ -212,7 +267,9 @@ function createTermTile(meta: CockpitTile): LiveTile {
     return true;
   });
   registerFileLinks(term, meta.projectPath); // clickable file paths in output
-  try { term.onBell(() => flagAttention(meta.title + ' · needs input')); } catch { /* onBell needs proposed API */ }
+  // The bell is the agent's explicit "I need you" (permission prompt / turn done):
+  // flash the tab when you're away, and mark the tile waiting when you're not on it.
+  try { term.onBell(() => { flagAttention(meta.title + ' · needs input'); if (armed && !focused()) markAttn(meta.id); }); } catch { /* onBell needs proposed API */ }
   // wake-from-sleep / network back: reconnect any tile whose socket died
   const onWake = () => { if (!closedByUs && (!sock || sock.readyState > 1)) connect(); };
   document.addEventListener('visibilitychange', onWake);
@@ -272,6 +329,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const noteName = el.querySelector('.note-name') as HTMLElement;
   const noteStatus = el.querySelector('.note-status') as HTMLElement;
   let noteOpen = false, notePath: string | null = null, noteReqd = false;
+  let noteAnnounced = !!meta.noteAnnounced; // one-time "a notepad is linked" notice already sent?
   let noteContent = '', noteMtime = 0, noteDirty = false, noteMode: 'edit' | 'preview' = 'edit';
   let notePoll: ReturnType<typeof setInterval> | null = null;
   let noteSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -303,21 +361,44 @@ function createTermTile(meta: CockpitTile): LiveTile {
       else noteStatus.textContent = '✗ ' + (r.error || 'save failed');
     } catch { noteStatus.textContent = '✗ save failed'; }
   };
+  const persistNoteAnnounced = () => {
+    const cp = getState().ui.cockpit;
+    if (cp.tiles.find((t) => t.id === meta.id)?.noteAnnounced) return; // already flagged
+    setCockpit({ tiles: cp.tiles.map((t) => (t.id === meta.id ? { ...t, noteAnnounced: true } : t)) });
+  };
+  // One-time: the FIRST time you edit the notepad, tell the agent it's linked (with
+  // the absolute path) so it never hunts for a "scratchpad" it knows nothing about.
+  // Fires once per conversation (persisted on the tile) and only while you're typing
+  // in the notepad — focus is here, not the terminal, so it won't mangle a half-typed
+  // command. Framed as FYI/"no action needed" to minimise interruption.
+  const announceNote = (): void => {
+    if (noteAnnounced || !notePath) return;
+    noteAnnounced = true;
+    persistNoteAnnounced();
+    const msg = `(cldctrl) FYI: I've linked a notepad to this conversation — a scratchpad file at ${notePath}. When I refer to "the notepad" or "scratchpad", read or edit that file directly (no need to search). No action needed right now.`;
+    if (!send({ type: 'input', data: msg + '\r' })) connect();
+  };
   noteEdit.addEventListener('input', () => {
     noteContent !== noteEdit.value && (noteDirty = true);
     if (noteDirty) noteStatus.textContent = 'unsaved';
+    if (noteEdit.value.trim()) announceNote(); // first real edit → one-time linked-notepad notice
     if (noteSaveTimer) clearTimeout(noteSaveTimer);
     noteSaveTimer = setTimeout(noteSave, 900); // debounced autosave
   });
   noteEdit.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); noteSave(); } });
   (el.querySelector('[data-note="save"]') as HTMLButtonElement).addEventListener('click', noteSave);
   (el.querySelector('[data-note="mode"]') as HTMLButtonElement).addEventListener('click', () => noteSetMode(noteMode === 'edit' ? 'preview' : 'edit'));
-  // "→ chat": drop the draft's file path into the compose box so you can ask the
-  // agent to edit it (the agent reads/writes the same file; its edits sync here).
+  // "→ chat": hand the draft to the agent. We inject a self-describing instruction
+  // (not a bare path) so the agent reads the file DIRECTLY instead of hunting for a
+  // "scratchpad" it knows nothing about — that search wastes turns and pollutes the
+  // conversation. An empty compose gets the full framing; if you've already typed,
+  // we just append the path (deduped) so your own wording leads.
   (el.querySelector('[data-note="chat"]') as HTMLButtonElement).addEventListener('click', () => {
     if (!notePath) return;
     toggleCompose(true);
-    composeTa.value = (composeTa.value ? composeTa.value.replace(/\s*$/, ' ') : '') + notePath + ' ';
+    const blurb = `Please read and review the draft in my cldctrl notepad for this conversation — it's a docked scratchpad file, so read it directly at this path (no need to search): ${notePath}`;
+    if (!composeTa.value.trim()) composeTa.value = blurb + ' ';
+    else if (!composeTa.value.includes(notePath)) composeTa.value = composeTa.value.replace(/\s*$/, ' ') + notePath + ' ';
     composeAutosize(); composeTa.focus();
   });
 
@@ -355,26 +436,37 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // ── context-window meter ──────────────────────────────────
   // Updated every poll from getState().data.sessions (see syncCockpit). Hidden
   // until the session reports a context size (no assistant turn yet → nothing to show).
-  const ctxEl = el.querySelector('.tile-ctx') as HTMLElement;
-  const ctxFill = el.querySelector('.tile-ctx-bar > i') as HTMLElement;
   const ctxPct = el.querySelector('.tile-ctx-pct') as HTMLElement;
-  const setContext = (size: number, model: string | null): void => {
-    if (!size || size <= 0) { ctxEl.style.display = 'none'; return; }
-    const win = contextWindowFor(model);
+  const ctxLine = el.querySelector('.tile-ctxline') as HTMLElement;
+  const setContext = (size: number, model: string | null, window?: number): void => {
+    if (!size || size <= 0) { ctxPct.style.display = 'none'; ctxLine.style.display = 'none'; return; }
+    // Prefer the server's window (it infers the real 1M beta from observed peak);
+    // fall back to the model-name heuristic only when the server didn't send one.
+    const win = window && window > 0 ? window : contextWindowFor(model);
     const pct = Math.min(100, Math.round((size / win) * 100));
-    ctxEl.style.display = '';
-    ctxFill.style.width = pct + '%';
-    ctxPct.textContent = pct + '%';
-    ctxEl.dataset.level = pct >= 85 ? 'crit' : pct >= 65 ? 'warn' : 'ok';
-    ctxEl.title = `Context window: ${fmtTok(size)} / ${fmtTok(win)} used (${pct}%)`
+    const level = pct >= 85 ? 'crit' : pct >= 65 ? 'warn' : 'ok';
+    const title = `Context: ${fmtTok(size)} / ${fmtTok(win)} (${pct}%)`
       + (pct >= 85 ? ' — getting full, consider /compact' : '');
+    // % chip lives next to the title; the fill is a subtle bar under the header.
+    ctxPct.style.display = '';
+    ctxPct.textContent = pct + '%';
+    ctxPct.dataset.level = level;
+    ctxPct.title = title;
+    ctxLine.style.display = '';
+    ctxLine.style.width = pct + '%';
+    ctxLine.dataset.level = level;
+    ctxLine.title = title;
   };
 
   if (meta.noteOpen) toggleNote(true); // restore the docked notepad on resume
 
+  // Clicking into a tile means you're attending to it → drop any "waiting" pulse.
+  el.addEventListener('mousedown', () => clearAttn(meta.id));
+
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
     toggleCompose, toggleNote, setContext,
+    focus: () => { try { term.focus(); } catch { /* ignore */ } },
     // Programmatic message-in (#9): drop text into this running session, optionally
     // opening the compose-box first so the user can confirm/edit before it submits.
     inject: (text: string, autoSend: boolean) => {
@@ -385,7 +477,8 @@ function createTermTile(meta: CockpitTile): LiveTile {
     dispose: () => {
       closedByUs = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (idleAlertTimer) clearTimeout(idleAlertTimer);
+      if (idleAttnTimer) clearTimeout(idleAttnTimer);
+      if (armTimer) clearTimeout(armTimer);
       if (notePoll) clearInterval(notePoll);
       if (noteSaveTimer) clearTimeout(noteSaveTimer);
       document.removeEventListener('visibilitychange', onWake);
@@ -557,6 +650,7 @@ function destroyTile(id: string): void {
   try { t.dispose(); } catch { /* ignore */ }
   t.el.remove();
   tiles.delete(id);
+  clearAttn(id); // a closed conversation can't be "waiting"
 }
 
 // ── drag-to-reorder ──────────────────────────────────────────
@@ -646,6 +740,8 @@ export function syncCockpit(): void {
     t.el.classList.toggle('maxed', cp.maximized === meta.id);
     // Focus chips: mute a project's tiles without tearing down their PTYs.
     t.el.classList.toggle('hidden-proj', hidden.has(meta.projectPath));
+    // Reflect "needs input" so the pulse survives re-render/reorder.
+    t.el.classList.toggle('attn', (cp.attnTiles ?? []).includes(meta.id));
   }
 
   // Enforce DOM order = store order (drag-reorder). appendChild MOVES existing
@@ -679,7 +775,7 @@ export function syncCockpit(): void {
       if (!t?.setContext) continue;
       const sid = meta.kind === 'new' ? discovered[meta.id] : meta.sessionId;
       const s = sid ? byId.get(sid) : undefined;
-      t.setContext(s?.contextSize ?? 0, s?.model ?? null);
+      t.setContext(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
     }
   }
 

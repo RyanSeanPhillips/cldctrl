@@ -149,6 +149,16 @@ function dominantModel(models: Record<string, number>): string | null {
     .replace(/-/g, ' ');
 }
 
+/** True context window for the meter denominator. Model ids don't encode the 1M
+ *  beta (e.g. `claude-opus-4-8` runs either 200k or 1M), so we infer it: any turn
+ *  that exceeded 200k can ONLY exist on the 1M window — that's proof, not a guess.
+ *  Falls back to the model-name "1m" tag, else 200k. */
+function contextWindowFor(model: string | null, peak?: number): number {
+  if ((peak ?? 0) > 200_000) return 1_000_000;
+  if (model && /\b1m\b|1m]|-1m/i.test(model)) return 1_000_000;
+  return 200_000;
+}
+
 // ── Session file map (server-side only — clients never send paths) ──
 
 const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]{1,200}$/;
@@ -238,6 +248,7 @@ async function buildOverview(): Promise<unknown> {
       assistantTurns: s.stats.assistantTurns,
       toolCalls: s.stats.toolCalls.reads + s.stats.toolCalls.writes + s.stats.toolCalls.bash + s.stats.toolCalls.other,
       contextSize: s.stats.lastContextSize,
+      contextWindow: contextWindowFor(dominantModel(s.stats.models), s.stats.maxContextSize),
       durationMs: s.stats.duration,
       model: dominantModel(s.stats.models),
       files: (s.stats.touchedFiles ?? []).slice(0, 60).map(f => ({

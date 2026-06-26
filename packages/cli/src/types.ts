@@ -158,6 +158,10 @@ export interface SessionActivity {
   assistantTurns: number;    // total assistant API responses (each is an API round-trip)
   toolUseTurns: number;      // assistant turns that contained at least one tool_use block
   lastContextSize: number;   // most recent turn's context size (cache_read + input + cache_write)
+  /** Largest per-turn context seen in this session. Proves the real window: any
+   *  turn >200k can only exist on the 1M beta, so a 200k model id that exceeds
+   *  200k is actually running 1M. Optional — only the incremental parser fills it. */
+  maxContextSize?: number;
   /** Files touched via tool calls (absolute paths), most recently touched first.
    *  Optional — only filled by the incremental parser in activity.ts. */
   touchedFiles?: TouchedFile[];

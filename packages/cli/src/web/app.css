@@ -434,6 +434,13 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cp-subtab { background: transparent; border: none; color: var(--text-muted); font: inherit; font-size: 11.5px;
   font-weight: 600; padding: 3px 10px; border-radius: 5px; cursor: pointer; }
 .cp-subtab.on { background: var(--accent); color: var(--on-accent, #06080d); }
+/* "● N waiting" — a conversation finished its turn / wants input. Pulses so it
+   catches the eye even while you're heads-down in a maximized tile. */
+.cp-wait { margin-left: var(--s3); background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); border-radius: 999px;
+  color: var(--warn); font: inherit; font-size: 11.5px; font-weight: 700; line-height: 1;
+  padding: 4px 11px; cursor: pointer; white-space: nowrap; animation: pulse 1.4s ease-in-out infinite; }
+.cp-wait:hover { background: color-mix(in srgb, var(--warn) 26%, transparent); animation: none; }
 .cp-range { display: flex; gap: 2px; }
 .cp-range .btn.on { border-color: var(--accent); color: var(--accent); }
 
@@ -498,7 +505,13 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
   /* hairline ring + soft shadow so each conversation reads as a distinct, floating panel */
   box-shadow: 0 0 0 1px var(--border-strong), 0 2px 8px var(--shadow); }
 .tile-head { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s3);
-  background: var(--surface-2); border-bottom: 1px solid var(--border-strong); cursor: pointer; }
+  background: var(--surface-2); border-bottom: 1px solid var(--border-strong); cursor: pointer;
+  position: relative; }
+/* "needs input": tint the header + pulse the status dot so the tile stands out in
+   the grid (the toolbar's "● N waiting" pill covers the maximized case). */
+.tile.attn > .tile-head { background: color-mix(in srgb, var(--warn) 14%, var(--surface-2));
+  box-shadow: inset 2px 0 0 0 var(--warn); }
+.tile.attn > .tile-head .dot { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
 /* drag-to-reorder grip + drop indicators */
 /* per-vendor badge on cross-vendor search results */
 .vendor-chip { display: inline-flex; align-items: center; padding: 0 5px; height: 15px; border-radius: 4px;
@@ -517,16 +530,17 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
   font-family: var(--mono); letter-spacing: -0.02em; }
 .tile-title { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-status { font-size: 10.5px; color: var(--text-muted); }
-/* per-conversation context-window meter (how full the context is → /compact cue) */
-.tile-ctx { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; cursor: help; }
-.tile-ctx-bar { width: 34px; height: 4px; background: var(--surface-1); border-radius: var(--r-pill);
-  overflow: hidden; border: 1px solid var(--border); }
-.tile-ctx-bar > i { display: block; height: 100%; width: 0; background: var(--info);
-  transition: width .5s cubic-bezier(.2, .8, .2, 1); }
-.tile-ctx-pct { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 26px; text-align: right; }
-.tile-ctx[data-level="warn"] > .tile-ctx-bar > i { background: var(--warn); }
-.tile-ctx[data-level="crit"] > .tile-ctx-bar > i { background: var(--crit); }
-.tile-ctx[data-level="crit"] > .tile-ctx-pct { color: var(--crit); }
+/* per-conversation context-window meter (how full the context is → /compact cue):
+   a small % chip beside the title + a subtle fill bar along the header's bottom edge */
+.tile-ctx-pct { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums;
+  flex-shrink: 0; cursor: help; letter-spacing: 0.02em; }
+.tile-ctx-pct[data-level="warn"] { color: var(--warn); }
+.tile-ctx-pct[data-level="crit"] { color: var(--crit); }
+.tile-ctxline { position: absolute; left: 0; bottom: -1px; height: 2px; width: 0; pointer-events: none;
+  background: var(--info); opacity: 0.85; border-radius: 0 1px 1px 0;
+  transition: width .5s cubic-bezier(.2, .8, .2, 1), background .3s ease; }
+.tile-ctxline[data-level="warn"] { background: var(--warn); }
+.tile-ctxline[data-level="crit"] { background: var(--crit); }
 /* active read-aloud (stop state) */
 .tile-head .btn.icon.on { color: var(--accent); }
 .topbar .btn.icon.on { color: var(--accent); }

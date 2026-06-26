@@ -63,12 +63,12 @@ function usageBar(w: UsageWindow): Tpl {
     <span class="bar-val">${val}</span>`;
 }
 
-function ctxGauge(ctx: number): Tpl | string {
+function ctxGauge(ctx: number, window?: number): Tpl | string {
   if (!ctx || ctx <= 0) return '';
-  const CAP = 200000;
+  const CAP = window && window > 0 ? window : 200000;
   const pct = clamp(Math.round((ctx / CAP) * 100), 0, 100);
   const cls = pct >= 85 ? 'crit' : pct >= 60 ? 'warn' : '';
-  return html`<div class="ctx-gauge" title=${'context ' + tok(ctx) + ' / ~200k'}><div class=${cls} style=${'width:' + pct + '%'}></div></div>`;
+  return html`<div class="ctx-gauge" title=${'context ' + tok(ctx) + ' / ' + tok(CAP)}><div class=${cls} style=${'width:' + pct + '%'}></div></div>`;
 }
 
 function themeSwitch(): Tpl {
@@ -263,7 +263,7 @@ function sessionRow(s: SessionInfo, totalTokens: number, state: State): Tpl {
       <span class="c num r">${sharePct}%</span>
       <span class="c num r">${s.messages}</span>
       <span class="c num r">${turnsPerReq(s.assistantTurns, s.messages)}</span>
-      <span class="c num r ctxcell">${tok(s.contextSize)}${ctxGauge(s.contextSize)}</span>
+      <span class="c num r ctxcell">${tok(s.contextSize)}${ctxGauge(s.contextSize, s.contextWindow)}</span>
       <span class="c num r">${dur(s.durationMs)}</span>
       <span class="c num r ago">${ago(s.lastActivity)}</span>
     </div>
@@ -602,6 +602,8 @@ function convTabs(d: OverviewPayload, state: State): Tpl {
       <button class=${'cp-subtab' + (cp.tab !== 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="grid">Grid</button>
       <button class=${'cp-subtab' + (cp.tab === 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="stats">Stats</button>
     </span>` : ''}
+    ${cp.open && (cp.attnTiles?.length ?? 0) > 0 ? html`<button class="cp-wait" data-act="cockpit-waiting"
+      title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button>` : ''}
     ${cp.open && cp.tab !== 'stats' ? cockpitChips(d, state) : ''}
     ${cp.open && cp.tab !== 'stats' ? html`<span class="sp"></span>
       <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>

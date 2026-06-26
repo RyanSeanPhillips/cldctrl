@@ -34,6 +34,7 @@ export interface SessionInfo {
   assistantTurns: number;
   toolCalls: number;
   contextSize: number;
+  contextWindow?: number; // true window (server infers 1M beta from observed peak)
   durationMs: number;
   model: string | null;
   files: TouchedFile[];
