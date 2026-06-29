@@ -403,15 +403,28 @@ function createTermTile(meta: CockpitTile): LiveTile {
     composeAutosize(); composeTa.focus();
   });
 
+  const bindNotePath = (p: string): void => {
+    notePath = p;
+    noteName.textContent = p.split(/[/\\]/).pop() || 'notepad';
+    noteName.title = p;
+  };
+  const persistNotePath = (p: string): void => {
+    const cp = getState().ui.cockpit;
+    if (cp.tiles.find((t) => t.id === meta.id)?.notePath === p) return; // no-op
+    setCockpit({ tiles: cp.tiles.map((t) => (t.id === meta.id ? { ...t, notePath: p } : t)) });
+  };
   const ensureNotePath = async (): Promise<void> => {
     if (notePath || noteReqd) return;
+    // Reopen the SAME draft on resume: a previously-resolved path is persisted in
+    // the tile meta. Re-deriving from meta.id would break when a 'new' tile is
+    // restored as 'resume:<sessionId>' (different id → fresh empty notepad).
+    if (meta.notePath) { bindNotePath(meta.notePath); await noteLoad(); return; }
     noteReqd = true;
     try {
       const r = await postNotepad(meta.id);
       if (r.path) {
-        notePath = r.path;
-        noteName.textContent = notePath.split(/[/\\]/).pop() || 'notepad';
-        noteName.title = notePath;
+        bindNotePath(r.path);
+        persistNotePath(r.path);
         await noteLoad();
       } else { noteStatus.textContent = '✗ ' + (r.error || 'no notepad'); noteReqd = false; }
     } catch { noteStatus.textContent = '✗ notepad failed'; noteReqd = false; }

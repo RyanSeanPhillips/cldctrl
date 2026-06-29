@@ -521,7 +521,10 @@ function restoreSession(): void {
     // path only accepts known-project cwds, so faithful worktree resume needs deeper
     // support (#9). They fall back to prompt-strip instead of a broken resume.
     if (t.kind === 'new' && t.discoveredSessionId && !t.worktree) {
-      return { id: 'resume:' + t.discoveredSessionId, kind: 'resume', sessionId: t.discoveredSessionId, projectPath: t.projectPath, title: t.title };
+      // Carry the docked notepad across the id change (new:… → resume:<sid>) so the
+      // draft reopens instead of being orphaned + re-minted empty.
+      return { id: 'resume:' + t.discoveredSessionId, kind: 'resume', sessionId: t.discoveredSessionId, projectPath: t.projectPath, title: t.title,
+        noteOpen: t.noteOpen, notePath: t.notePath, noteAnnounced: t.noteAnnounced };
     }
     return (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t;
   });
@@ -536,6 +539,10 @@ function restoreSession(): void {
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
     setCockpit({ tiles, layout: p.cockpit.layout, open: p.cockpit.open, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
+    // If the cockpit was the active view, actually land on it — otherwise a project
+    // left in the URL hash (readHash set selectedProject) hides the restored tiles,
+    // so they're invisible until you manually re-open one. Mirror restore-accept.
+    if (p.cockpit.open) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
   } else {
     setUi({ restoreOffer: { tiles, layout: p.cockpit.layout } });
   }
