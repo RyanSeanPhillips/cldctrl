@@ -563,10 +563,34 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 .note-head { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2);
   background: var(--surface-2); border-bottom: 1px solid var(--border); }
 .note-mark { color: var(--accent); font-size: 12px; flex-shrink: 0; }
-.note-name { font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+/* note name is a dropdown trigger (switch / new / open from this project) */
+.note-name { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600;
+  color: var(--text); white-space: nowrap; max-width: 55%; background: none; border: none; cursor: pointer;
+  padding: 1px 4px; border-radius: 4px; }
+.note-name:hover { background: var(--surface-3, rgba(255,255,255,0.06)); }
+.note-name-text { overflow: hidden; text-overflow: ellipsis; }
+.note-caret { color: var(--text-muted); font-size: 9px; flex-shrink: 0; }
 .note-status { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; }
+.note-head { position: relative; }
 .note-head .sp { margin-left: auto; }
+/* the dropdown itself — anchored under the name */
+.note-menu { position: absolute; top: 100%; left: var(--s2); z-index: 60; min-width: 220px; max-width: 320px;
+  max-height: 50vh; overflow-y: auto; margin-top: 3px; padding: 4px;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 8px;
+  box-shadow: 0 6px 22px var(--shadow); }
+.note-menu-sec { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-faint); padding: 5px 6px 2px; }
+.note-menu-empty { font-size: 11px; color: var(--text-muted); padding: 8px; text-align: center; }
+.note-menu-div { height: 1px; background: var(--border); margin: 4px 2px; }
+.note-item { display: flex; align-items: center; gap: var(--s2); width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; color: var(--text); font-size: 11.5px;
+  padding: 5px 6px; border-radius: 5px; }
+.note-item:hover { background: var(--highlight); }
+.note-item.on { color: var(--accent); }
+.note-item.on::before { content: '\2713'; margin-right: 2px; font-size: 10px; }
+.note-item.act { color: var(--text-muted); }
+.note-item .ni-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-item .ni-ago { color: var(--text-faint); font-size: 10px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .note-edit { flex: 1; min-height: 0; resize: none; border: none; outline: none; background: transparent;
   color: var(--text); padding: var(--s2) var(--s3); font-size: 13.5px; line-height: 1.6; }
 .note-edit::placeholder { color: var(--text-faint); }

@@ -10,7 +10,7 @@ import { marked } from 'marked';
 import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './dock.js';
-import { fetchFile, postFile, postNotepad } from './api.js';
+import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, type NoteEntry } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
 import { flagAttention } from './tabalert.js';
@@ -149,13 +149,14 @@ function createTermTile(meta: CockpitTile): LiveTile {
       <div class="tile-note" style="display:none">
         <div class="note-head">
           <span class="note-mark">&#128211;</span>
-          <span class="note-name" title="">notepad</span>
+          <button class="note-name" data-note="menu" title="Switch note · new · open from this project"><span class="note-name-text">notepad</span> <span class="note-caret">&#9662;</span></button>
           <span class="note-status"></span>
           <span class="sp"></span>
           <button class="btn icon" data-note="chat" title="Ask the agent to read &amp; review this draft (sends a clear instruction + the file path so it reads it directly, no searching)">&#128206;</button>
           <button class="btn icon" data-note="read" title="Read aloud (selection, else the whole note)">&#128266;</button>
           <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
           <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
+          <div class="note-menu" style="display:none"></div>
         </div>
         <textarea class="note-edit" spellcheck="true"
           placeholder="Draft beside the chat — autosaves · Ctrl+S · the agent's edits to this file sync in"></textarea>
@@ -329,9 +330,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const noteBar = el.querySelector('.tile-note') as HTMLElement;
   const noteEdit = el.querySelector('.note-edit') as HTMLTextAreaElement;
   const notePreview = el.querySelector('.note-preview') as HTMLElement;
-  const noteName = el.querySelector('.note-name') as HTMLElement;
+  const noteName = el.querySelector('.note-name-text') as HTMLElement;
+  const noteMenu = el.querySelector('.note-menu') as HTMLElement;
   const noteStatus = el.querySelector('.note-status') as HTMLElement;
   let noteOpen = false, notePath: string | null = null, noteReqd = false;
+  const convKey = meta.sessionId || meta.id; // stable conversation key for note association (survives new→resume)
   let noteAnnounced = !!meta.noteAnnounced; // one-time "a notepad is linked" notice already sent?
   let noteContent = '', noteMtime = 0, noteDirty = false, noteMode: 'edit' | 'preview' = 'edit';
   let notePoll: ReturnType<typeof setInterval> | null = null;
@@ -431,6 +434,61 @@ function createTermTile(meta: CockpitTile): LiveTile {
   };
   noteReadBtn.addEventListener('click', noteReadAloud);
 
+  // ── note switcher (dropdown on the note name) ─────────────────
+  // One conversation usually has one note, but you can keep several — and, more
+  // importantly, pull up any note from THIS PROJECT (across its conversations).
+  let noteMenuOpen = false;
+  const agoShort = (ms: number): string => {
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 60) return 'now';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    if (s < 86400) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 86400) + 'd';
+  };
+  const samePath = (a: string | null, b: string | null): boolean =>
+    !!a && !!b && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
+  const closeNoteMenu = (): void => { noteMenuOpen = false; noteMenu.style.display = 'none'; };
+  const noteItemHtml = (n: NoteEntry): string =>
+    `<button class="note-item${samePath(n.path, notePath) ? ' on' : ''}" data-np="${esc(n.path)}" title="${esc(n.preview || n.path)}">`
+    + `<span class="ni-title">${esc(n.title || 'untitled')}</span><span class="ni-ago">${agoShort(n.updated)}</span></button>`;
+  const renderNoteMenu = async (scope: 'project' | 'all' = 'project'): Promise<void> => {
+    noteMenuOpen = true; noteMenu.style.display = '';
+    noteMenu.innerHTML = '<div class="note-menu-empty">…</div>';
+    const convNotes = await fetchNotes({ conversation: convKey });
+    const wide = scope === 'all' ? await fetchNotes() : (meta.projectPath ? await fetchNotes({ project: meta.projectPath }) : []);
+    const convSet = new Set(convNotes.map((n) => n.path.replace(/\\/g, '/').toLowerCase()));
+    const others = wide.filter((n) => !convSet.has(n.path.replace(/\\/g, '/').toLowerCase()));
+    if (!noteMenuOpen) return; // closed while awaiting
+    let html = '';
+    if (convNotes.length) html += '<div class="note-menu-sec">This conversation</div>' + convNotes.map(noteItemHtml).join('');
+    if (others.length) html += `<div class="note-menu-sec">${scope === 'all' ? 'All notes' : 'This project'}</div>` + others.slice(0, 40).map(noteItemHtml).join('');
+    if (!convNotes.length && !others.length) html += '<div class="note-menu-empty">No notes yet</div>';
+    html += '<div class="note-menu-div"></div><button class="note-item act" data-act="new">&#65291; New note</button>';
+    if (scope !== 'all') html += '<button class="note-item act" data-act="all">&#128270; All notes…</button>';
+    noteMenu.innerHTML = html;
+  };
+  (el.querySelector('[data-note="menu"]') as HTMLButtonElement).addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (noteMenuOpen) { closeNoteMenu(); return; }
+    renderNoteMenu('project');
+  });
+  noteMenu.addEventListener('click', async (e) => {
+    const item = (e.target as HTMLElement).closest('[data-np],[data-act]') as HTMLElement | null;
+    if (!item) return;
+    if (item.dataset.act === 'all') { renderNoteMenu('all'); return; }
+    if (item.dataset.act === 'new') {
+      closeNoteMenu();
+      const r = await postNewNote(meta.projectPath, convKey);
+      if (r.path) openNoteAt(r.path); else noteStatus.textContent = '✗ ' + (r.error || 'could not create note');
+      return;
+    }
+    if (item.dataset.np) { closeNoteMenu(); openNoteAt(item.dataset.np); }
+  });
+  const onDocMouseForNote = (e: MouseEvent): void => {
+    if (noteMenuOpen && !noteMenu.contains(e.target as Node) && !(e.target as HTMLElement).closest('[data-note="menu"]')) closeNoteMenu();
+  };
+  document.addEventListener('mousedown', onDocMouseForNote);
+
   const bindNotePath = (p: string): void => {
     notePath = p;
     noteName.textContent = p.split(/[/\\]/).pop() || 'notepad';
@@ -449,7 +507,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (meta.notePath) { bindNotePath(meta.notePath); await noteLoad(); return; }
     noteReqd = true;
     try {
-      const r = await postNotepad(meta.id);
+      const r = await postNotepad(meta.id, meta.projectPath, convKey);
       if (r.path) {
         bindNotePath(r.path);
         persistNotePath(r.path);
@@ -478,7 +536,8 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // agent's open_scratchpad routes its draft here (one notepad system) instead of
   // spawning a separate scratchpad tile. Adopts the path so user + agent share it.
   const openNoteAt = (p: string): void => {
-    if (p && p !== notePath) {
+    if (p && !samePath(p, notePath)) {
+      if (noteDirty && notePath) noteSave(); // flush pending edits to the OLD file before switching
       bindNotePath(p); persistNotePath(p);
       noteContent = ''; noteMtime = 0; noteDirty = false; noteEdit.value = ''; // force a fresh load from the new file
     }
@@ -540,6 +599,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       if (notePoll) clearInterval(notePoll);
       if (noteSaveTimer) clearTimeout(noteSaveTimer);
       document.removeEventListener('visibilitychange', onWake);
+      document.removeEventListener('mousedown', onDocMouseForNote);
       window.removeEventListener('online', onWake);
       try { sock?.close(); } catch { /* ignore */ }
       try { term.dispose(); } catch { /* ignore */ }
@@ -871,6 +931,9 @@ export function openAgentScratchpad(path: string): boolean {
   const t = tiles.get(targetId);
   if (!t?.openNoteAt) return false;
   t.openNoteAt(path);
+  // Associate the adopted draft with this conversation/project so it surfaces later.
+  const tm = cp.tiles.find((x) => x.id === targetId);
+  if (tm) postRecordNote(path, tm.projectPath, tm.sessionId || tm.id);
   return true;
 }
 /** Inject a message into a running terminal tile (message-in, #9). */

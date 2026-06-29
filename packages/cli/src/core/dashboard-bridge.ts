@@ -108,6 +108,22 @@ export function newScratchFile(title?: string): string {
   return p;
 }
 
+/** Mint a fresh, empty, uniquely-named notepad file (note-<slug>[-n].md) — for the
+ *  notepad's "+ New note". Caller records the conversation/project association. */
+export function newNoteFile(title?: string): string {
+  const base = (title && title.trim()) ? title.trim() : 'note';
+  const slug = base.replace(/\.md$/i, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note';
+  let p = path.join(scratchDir(), 'note-' + slug + '.md');
+  if (fs.existsSync(p)) {
+    for (let i = 2; i < 1000; i++) {
+      const cand = path.join(scratchDir(), `note-${slug}-${i}.md`);
+      if (!fs.existsSync(cand)) { p = cand; break; }
+    }
+  }
+  fs.writeFileSync(p, '', 'utf-8');
+  return p;
+}
+
 /** Seed/ensure a scratchpad and signal the dashboard to open it. Returns the path. */
 export function openScratchpad(content: string | undefined, title: string | undefined): string {
   const p = scratchPath(title);
@@ -118,6 +134,58 @@ export function openScratchpad(content: string | undefined, title: string | unde
 }
 
 export function readScratchOpen(): ScratchOpen | null { return readJson<ScratchOpen>(SCRATCH_OPEN_FILE); }
+
+// ── Notes index ──────────────────────────────────────────────
+// Notes live as .md files in the scratch dir; this sidecar records which
+// conversation/project each belongs to, so the dashboard can surface a project's
+// notes (across its conversations) and a conversation's notes. Title/preview/recency
+// are derived live from the file (no index drift) — the index only holds association.
+const NOTES_INDEX_FILE = 'notes-index.json';
+interface NoteMeta { project: string; conversation: string; created: number; }
+type NotesIndex = Record<string, NoteMeta>;
+const noteKey = (p: string) => normSlash(p);
+function readNotesIndex(): NotesIndex { return readJson<NotesIndex>(NOTES_INDEX_FILE) ?? {}; }
+
+/** Associate a note file with a conversation + project (idempotent; upserts). */
+export function recordNote(p: string, project: string, conversation: string): void {
+  if (!p) return;
+  const idx = readNotesIndex();
+  const k = noteKey(p);
+  if (!idx[k]) idx[k] = { project: project || '', conversation: conversation || '', created: Date.now() };
+  else { if (project) idx[k].project = project; if (conversation) idx[k].conversation = conversation; }
+  writeJson(NOTES_INDEX_FILE, idx);
+}
+
+export interface NoteEntry { path: string; title: string; preview: string; project: string; conversation: string; updated: number; }
+
+/** List notes, optionally scoped to a project and/or conversation. Scans the scratch
+ *  dir (so pre-existing/orphan notes still surface) and enriches from the index. */
+export function listNotes(filter?: { project?: string; conversation?: string }): NoteEntry[] {
+  const idx = readNotesIndex();
+  const dir = scratchDir();
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.md')); } catch { /* ignore */ }
+  const out: NoteEntry[] = [];
+  for (const f of files) {
+    const full = path.join(dir, f);
+    const meta = idx[noteKey(full)];
+    const project = meta?.project ?? '';
+    const conversation = meta?.conversation ?? '';
+    if (filter?.project && normSlash(project) !== normSlash(filter.project)) continue;
+    if (filter?.conversation && conversation !== filter.conversation) continue;
+    let updated = 0, title = f.replace(/\.md$/i, ''), preview = '';
+    try {
+      updated = fs.statSync(full).mtimeMs;
+      const head = fs.readFileSync(full, 'utf-8').slice(0, 800);
+      const firstLine = head.split(/\r?\n/).find((l) => l.trim());
+      if (firstLine) title = (firstLine.replace(/^#+\s*/, '').slice(0, 60).trim()) || title;
+      preview = head.replace(/\s+/g, ' ').trim().slice(0, 140);
+    } catch { /* unreadable — keep filename as title */ }
+    out.push({ path: full, title, preview, project, conversation, updated });
+  }
+  out.sort((a, b) => b.updated - a.updated);
+  return out;
+}
 
 // ── Cockpit launch (agent/CTRL → dashboard: open a new session as a tile) ─
 export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; ts: number; }

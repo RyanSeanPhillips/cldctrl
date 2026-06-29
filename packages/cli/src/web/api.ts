@@ -104,25 +104,52 @@ export async function postReveal(path: string, target: 'explorer' | 'code'): Pro
   return r.json();
 }
 
-/** Mint a fresh scratchpad file (for the conversation "draft" button) and return its path. */
-export async function postScratch(title?: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
+/** Resolve (creating if needed) a STABLE per-conversation notepad path keyed by
+ *  the conversation, so the docked notepad reopens the same draft on resume. The
+ *  project/conversation association lets it surface in the project's notes list. */
+export async function postNotepad(key: string, project?: string, conversation?: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
   const r = await fetch('/api/scratch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ key, project, conversation }),
   });
   return r.json();
 }
 
-/** Resolve (creating if needed) a STABLE per-conversation notepad path keyed by
- *  the conversation, so the docked notepad reopens the same draft on resume. */
-export async function postNotepad(key: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
-  const r = await fetch('/api/scratch', {
+/** Mint an ADDITIONAL fresh note for a conversation ("+ New note"). */
+export async function postNewNote(project: string, conversation: string, title?: string): Promise<{ ok?: boolean; path?: string; error?: string }> {
+  const r = await fetch('/api/notes/new', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
-    body: JSON.stringify({ key }),
+    body: JSON.stringify({ project, conversation, title }),
   });
   return r.json();
+}
+
+/** Associate an existing note file with a conversation/project (e.g. an agent
+ *  scratchpad adopted as a conversation's notepad) so it surfaces in the list. */
+export async function postRecordNote(path: string, project: string, conversation: string): Promise<void> {
+  try {
+    await fetch('/api/notes/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+      body: JSON.stringify({ path, project, conversation }),
+    });
+  } catch { /* best-effort */ }
+}
+
+export interface NoteEntry { path: string; title: string; preview: string; project: string; conversation: string; updated: number; }
+
+/** List notes, scoped to a project and/or conversation (omit for all). */
+export async function fetchNotes(opts?: { project?: string; conversation?: string }): Promise<NoteEntry[]> {
+  const qs = new URLSearchParams();
+  if (opts?.project) qs.set('project', opts.project);
+  if (opts?.conversation) qs.set('conversation', opts.conversation);
+  try {
+    const r = await fetch('/api/notes?' + qs.toString());
+    const j = await r.json();
+    return Array.isArray(j.notes) ? j.notes : [];
+  } catch { return []; }
 }
 
 /** Capture a screenshot and have the server type its path into a terminal. */

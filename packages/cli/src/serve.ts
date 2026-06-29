@@ -27,7 +27,7 @@ import { getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
-import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, notepadFile, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
+import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, notepadFile, newNoteFile, recordNote, listNotes, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -1013,8 +1013,33 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         const key = typeof body.key === 'string' && body.key.trim() ? body.key.trim() : undefined;
         const title = typeof body.title === 'string' ? body.title.slice(0, 80) : undefined;
         const p = key ? notepadFile(key) : newScratchFile(title);
+        // Associate with the conversation/project so it surfaces in the notes list.
+        const proj = typeof body.project === 'string' ? body.project : '';
+        const conv = typeof body.conversation === 'string' ? body.conversation : (key ?? '');
+        if (proj || conv) recordNote(p, proj, conv);
         log('serve_scratch', { path: p, keyed: !!key });
         sendJson(res, 200, { ok: true, path: p });
+      } else if (req.method === 'POST' && url.pathname === '/api/notes/new') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const title = typeof body.title === 'string' ? body.title.slice(0, 80) : undefined;
+        const proj = typeof body.project === 'string' ? body.project : '';
+        const conv = typeof body.conversation === 'string' ? body.conversation : '';
+        const p = newNoteFile(title);
+        recordNote(p, proj, conv);
+        log('serve_note_new', { path: p });
+        sendJson(res, 200, { ok: true, path: p });
+      } else if (req.method === 'POST' && url.pathname === '/api/notes/record') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const p = typeof body.path === 'string' ? body.path : '';
+        if (!p || !isScratchPath(p)) { sendJson(res, 400, { error: 'Not a notes path' }); return; }
+        recordNote(p, typeof body.project === 'string' ? body.project : '', typeof body.conversation === 'string' ? body.conversation : '');
+        sendJson(res, 200, { ok: true });
+      } else if (req.method === 'GET' && url.pathname === '/api/notes') {
+        const proj = url.searchParams.get('project') || undefined;
+        const conv = url.searchParams.get('conversation') || undefined;
+        sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv }) });
       } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);
