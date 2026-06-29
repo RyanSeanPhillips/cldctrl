@@ -6,11 +6,11 @@ import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postScratch, postReveal,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -146,19 +146,6 @@ function addDocTile(filePath: string, projectPath: string, openNow: boolean, scr
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
 }
 
-/** Mint a fresh scratchpad and open it as a doc tile beside the given chat tile. */
-async function openScratchpadFor(tileId: string): Promise<void> {
-  const tile = getState().ui.cockpit.tiles.find((t) => t.id === tileId);
-  const proj = tile?.projectPath ?? getState().ui.selectedProject ?? '';
-  toast('Opening scratchpad…');
-  try {
-    const r = await postScratch();
-    if (!r.path) { toast('✗ ' + (r.error || 'could not open scratchpad')); return; }
-    addDocTile(r.path, proj, true, true);
-    if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
-    toast('✓ Scratchpad ready — draft away, Ctrl+S to save');
-  } catch { toast('✗ Scratchpad failed'); }
-}
 
 /** Open a new agent session as a cockpit tile (CTRL launched it from the web). */
 function addLaunchTile(projectPath: string, projectName: string | undefined, prompt?: string): void {
@@ -248,13 +235,19 @@ async function poll(): Promise<void> {
     } else if (b && b.ts > lastBridgeTs) {
       lastBridgeTs = b.ts; // mark seen without adopting
     }
-    // Pop open a scratchpad the agent requested (recent only).
+    // A scratchpad the agent requested (recent only). One notepad system: dock it as
+    // the active conversation's notepad; only if there's no terminal tile to dock onto
+    // do we fall back to a standalone doc tile (so the draft is never lost).
     const sc = data.scratch;
     if (sc && sc.ts > lastScratchTs) {
       lastScratchTs = sc.ts;
       if (Date.now() - sc.ts < 5 * 60_000) {
-        addDocTile(sc.path, '', true, true);
-        if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+        if (openAgentScratchpad(sc.path)) {
+          if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+        } else {
+          addDocTile(sc.path, '', true, true);
+          if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
+        }
       }
     }
     // Open new sessions as cockpit tiles when CTRL launched them from the web
@@ -368,7 +361,6 @@ document.addEventListener('click', async (ev) => {
   else if (act === 'dockRestart') { restartDock(); }
   else if (act === 'dock-shot') { shoot('control'); }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
-  else if (act === 'tile-scratch') { openScratchpadFor(el.dataset.id!); }
   else if (act === 'tile-note') { toggleTileNote(el.dataset.id!); }
   else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
   else if (act === 'tile-readout') { readSession(el.dataset.session); }

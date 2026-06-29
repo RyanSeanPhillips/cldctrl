@@ -27,6 +27,7 @@ interface LiveTile {
   setTheme?: () => void;      // terminal tiles
   toggleCompose?: (force?: boolean) => void;    // terminal tiles — show/hide compose-box
   toggleNote?: (force?: boolean) => void;       // terminal tiles — show/hide docked notepad
+  openNoteAt?: (path: string) => void;          // terminal tiles — dock a specific file as the notepad (agent scratchpad routing)
   setContext?: (size: number, model: string | null, window?: number) => void; // terminal tiles — context-window meter
   setReadSession?: (sid: string | null) => void; // terminal tiles — bind/show the read-aloud button once a session id is known
   focus?: () => void;         // terminal tiles — focus the xterm
@@ -152,6 +153,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
           <span class="note-status"></span>
           <span class="sp"></span>
           <button class="btn icon" data-note="chat" title="Ask the agent to read &amp; review this draft (sends a clear instruction + the file path so it reads it directly, no searching)">&#128206;</button>
+          <button class="btn icon" data-note="read" title="Read aloud (selection, else the whole note)">&#128266;</button>
           <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
           <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
         </div>
@@ -402,6 +404,32 @@ function createTermTile(meta: CockpitTile): LiveTile {
     else if (!composeTa.value.includes(notePath)) composeTa.value = composeTa.value.replace(/\s*$/, ' ') + notePath + ' ';
     composeAutosize(); composeTa.focus();
   });
+  // Read the note aloud (selection if any, else the whole thing) via the browser's
+  // Web Speech API — no server, no key. Toggles off. (Ported from the doc tile;
+  // the docked notepad is now the single notepad system.)
+  const noteStripMd = (s: string) => s.replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const noteReadBtn = el.querySelector('[data-note="read"]') as HTMLButtonElement;
+  const setNoteSpeaking = (on: boolean) => {
+    noteReadBtn.innerHTML = on ? '&#9209;' : '&#128266;'; // ⏹ stop / 🔊 speaker
+    noteReadBtn.title = on ? 'Stop reading' : 'Read aloud (selection, else the whole note)';
+    noteReadBtn.classList.toggle('on', on);
+  };
+  const noteReadAloud = () => {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      if (synth.speaking || synth.pending) { synth.cancel(); setNoteSpeaking(false); return; } // toggle off
+      const sel = noteEdit.value.substring(noteEdit.selectionStart ?? 0, noteEdit.selectionEnd ?? 0);
+      const text = (sel.trim() || noteStripMd(noteEdit.value)).slice(0, 32000).trim();
+      if (!text) return;
+      setNoteSpeaking(true);
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = () => setNoteSpeaking(false);
+      u.onerror = () => setNoteSpeaking(false);
+      synth.speak(u);
+    } catch { setNoteSpeaking(false); }
+  };
+  noteReadBtn.addEventListener('click', noteReadAloud);
 
   const bindNotePath = (p: string): void => {
     notePath = p;
@@ -446,6 +474,16 @@ function createTermTile(meta: CockpitTile): LiveTile {
       if (!notePoll) notePoll = setInterval(noteLoad, 2500); // pick up the agent's edits
     } else if (notePoll) { clearInterval(notePoll); notePoll = null; }
   };
+  // Dock a SPECIFIC file as this conversation's notepad and open it — used when the
+  // agent's open_scratchpad routes its draft here (one notepad system) instead of
+  // spawning a separate scratchpad tile. Adopts the path so user + agent share it.
+  const openNoteAt = (p: string): void => {
+    if (p && p !== notePath) {
+      bindNotePath(p); persistNotePath(p);
+      noteContent = ''; noteMtime = 0; noteDirty = false; noteEdit.value = ''; // force a fresh load from the new file
+    }
+    if (!noteOpen) toggleNote(true); else noteLoad();
+  };
 
   // ── context-window meter ──────────────────────────────────
   // Updated every poll from getState().data.sessions (see syncCockpit). Hidden
@@ -479,7 +517,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
 
   return {
     el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
-    toggleCompose, toggleNote, setContext,
+    toggleCompose, toggleNote, openNoteAt, setContext,
     setReadSession: (sid: string | null) => {
       const b = el.querySelector('[data-act="tile-readout"]') as HTMLElement | null;
       if (!b) return;
@@ -816,6 +854,25 @@ function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
 export function toggleTileCompose(id: string): void { tiles.get(id)?.toggleCompose?.(); }
 export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.(); }
+/**
+ * Route an agent-opened scratchpad into a conversation's docked notepad (the single
+ * notepad system) rather than a standalone scratchpad tile. Targets the tile the
+ * operator is most likely looking at: the maximized one, else the focused one, else
+ * the first terminal tile. Returns false if there's no terminal tile to dock onto —
+ * the caller then falls back to a standalone doc tile so the draft is never lost.
+ */
+export function openAgentScratchpad(path: string): boolean {
+  const cp = getState().ui.cockpit;
+  const termTiles = cp.tiles.filter((t) => t.kind !== 'doc');
+  if (!termTiles.length) return false;
+  const focusedId = termTiles.find((t) => tiles.get(t.id)?.el.contains(document.activeElement))?.id;
+  const targetId = (cp.maximized && termTiles.some((t) => t.id === cp.maximized) ? cp.maximized : null)
+    ?? focusedId ?? termTiles[0].id;
+  const t = tiles.get(targetId);
+  if (!t?.openNoteAt) return false;
+  t.openNoteAt(path);
+  return true;
+}
 /** Inject a message into a running terminal tile (message-in, #9). */
 export function injectIntoTile(id: string, text: string, autoSend = false): boolean {
   const t = tiles.get(id);
