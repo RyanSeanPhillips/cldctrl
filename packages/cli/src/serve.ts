@@ -1039,7 +1039,8 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
       } else if (req.method === 'GET' && url.pathname === '/api/notes') {
         const proj = url.searchParams.get('project') || undefined;
         const conv = url.searchParams.get('conversation') || undefined;
-        sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv }) });
+        const query = url.searchParams.get('q') || undefined;
+        sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv, query }) });
       } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

@@ -495,19 +495,26 @@ document.addEventListener('input', (ev) => {
       } catch { /* ignore */ }
     }, 250);
   } else if (t.id === 'notes-search') {
-    setCockpit({ notesQuery: (t as HTMLInputElement).value }); // client-side filter over the loaded scope
+    setCockpit({ notesQuery: (t as HTMLInputElement).value });
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadNotes, 200); // server-side full-text (title + body)
   }
 });
 
-/** Fetch the notes list for the current library scope (conversation/project/all). */
+/** Fetch the notes list for the current library scope + full-text query. */
 async function loadNotes(): Promise<void> {
   const cp = getState().ui.cockpit;
   const info = activeTileInfo();
-  const params = cp.notesScope === 'conversation' && info ? { conversation: info.conversation }
+  const params: { project?: string; conversation?: string; query?: string } =
+    cp.notesScope === 'conversation' && info ? { conversation: info.conversation }
     : cp.notesScope === 'project' && info ? { project: info.project }
     : {}; // 'all', or scoped-but-no-active-tile → everything
+  const q = cp.notesQuery.trim();
+  if (q) params.query = q;
   const notes = await fetchNotes(params);
-  if (getState().ui.cockpit.notesOpen) setCockpit({ notesResults: notes });
+  // Drop a stale response if the user has since retyped or rescoped.
+  const now = getState().ui.cockpit;
+  if (now.notesOpen && now.notesQuery.trim() === q && now.notesScope === cp.notesScope) setCockpit({ notesResults: notes });
 }
 
 document.addEventListener('keydown', (ev) => {

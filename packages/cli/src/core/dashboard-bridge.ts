@@ -158,13 +158,16 @@ export function recordNote(p: string, project: string, conversation: string): vo
 
 export interface NoteEntry { path: string; title: string; preview: string; project: string; conversation: string; updated: number; }
 
-/** List notes, optionally scoped to a project and/or conversation. Scans the scratch
- *  dir (so pre-existing/orphan notes still surface) and enriches from the index. */
-export function listNotes(filter?: { project?: string; conversation?: string }): NoteEntry[] {
+/** List notes, optionally scoped to a project and/or conversation, and optionally
+ *  full-text filtered by `query` (matches the title AND the note body). Scans the
+ *  scratch dir (so pre-existing/orphan notes still surface) and enriches from the
+ *  index; when querying, the preview becomes a snippet around the first match. */
+export function listNotes(filter?: { project?: string; conversation?: string; query?: string }): NoteEntry[] {
   const idx = readNotesIndex();
   const dir = scratchDir();
   let files: string[] = [];
   try { files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.md')); } catch { /* ignore */ }
+  const q = (filter?.query ?? '').trim().toLowerCase();
   const out: NoteEntry[] = [];
   for (const f of files) {
     const full = path.join(dir, f);
@@ -173,14 +176,25 @@ export function listNotes(filter?: { project?: string; conversation?: string }):
     const conversation = meta?.conversation ?? '';
     if (filter?.project && normSlash(project) !== normSlash(filter.project)) continue;
     if (filter?.conversation && conversation !== filter.conversation) continue;
-    let updated = 0, title = f.replace(/\.md$/i, ''), preview = '';
+    let updated = 0, title = f.replace(/\.md$/i, ''), preview = '', body = '';
     try {
       updated = fs.statSync(full).mtimeMs;
-      const head = fs.readFileSync(full, 'utf-8').slice(0, 800);
-      const firstLine = head.split(/\r?\n/).find((l) => l.trim());
+      const raw = fs.readFileSync(full, 'utf-8');
+      body = raw.length > 200_000 ? raw.slice(0, 200_000) : raw; // cap pathological files
+      const firstLine = body.split(/\r?\n/).find((l) => l.trim());
       if (firstLine) title = (firstLine.replace(/^#+\s*/, '').slice(0, 60).trim()) || title;
-      preview = head.replace(/\s+/g, ' ').trim().slice(0, 140);
+      preview = body.replace(/\s+/g, ' ').trim().slice(0, 140);
     } catch { /* unreadable — keep filename as title */ }
+    if (q) {
+      const flat = body.replace(/\s+/g, ' ').trim();
+      const at = flat.toLowerCase().indexOf(q);
+      const inTitle = title.toLowerCase().includes(q);
+      if (at < 0 && !inTitle) continue; // no body/title match → drop
+      if (at >= 0) { // snippet around the body match for context
+        const start = Math.max(0, at - 40);
+        preview = (start > 0 ? '…' : '') + flat.slice(start, at + q.length + 80).trim() + (flat.length > at + q.length + 80 ? '…' : '');
+      }
+    }
     out.push({ path: full, title, preview, project, conversation, updated });
   }
   out.sort((a, b) => b.updated - a.updated);

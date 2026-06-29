@@ -573,10 +573,8 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
 function notesOverlay(d: OverviewPayload, state: State): Tpl | string {
   const cp = state.ui.cockpit;
   if (!cp.notesOpen) return '';
-  const q = cp.notesQuery.trim().toLowerCase();
-  const rows = q
-    ? cp.notesResults.filter((n) => (n.title + ' ' + n.preview + ' ' + n.path).toLowerCase().includes(q))
-    : cp.notesResults;
+  const q = cp.notesQuery.trim();
+  const rows = cp.notesResults; // server already applied scope + full-text query
   const nameOf = (p: string) => d.projects.find((pr) => pr.path === p)?.name || (p ? p.split(/[/\\]/).pop() : '') || '';
   const scopeBtn = (id: 'conversation' | 'project' | 'all', label: string) =>
     html`<button class=${'notes-scope' + (cp.notesScope === id ? ' on' : '')} data-act="notes-scope" data-scope=${id}>${label}</button>`;
@@ -588,7 +586,7 @@ function notesOverlay(d: OverviewPayload, state: State): Tpl | string {
         ${scopeBtn('project', 'This project')}
         ${scopeBtn('all', 'All')}
       </div>
-      <input id="notes-search" class="search" placeholder="Filter notes…" .value=${cp.notesQuery}>
+      <input id="notes-search" class="search" placeholder="Search notes — title &amp; body…" .value=${cp.notesQuery}>
       <div class="cp-add-list notes-list">
         ${rows.length ? rows.map((n) => html`<div class="notes-row" data-act="notes-open" data-path=${n.path} title=${n.path}>
           <div class="notes-main">

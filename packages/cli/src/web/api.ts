@@ -139,11 +139,13 @@ export async function postRecordNote(path: string, project: string, conversation
   } catch { /* best-effort */ }
 }
 
-/** List notes, scoped to a project and/or conversation (omit for all). */
-export async function fetchNotes(opts?: { project?: string; conversation?: string }): Promise<NoteEntry[]> {
+/** List notes, scoped to a project and/or conversation (omit for all), optionally
+ *  full-text filtered by `query` (matches note titles and bodies, server-side). */
+export async function fetchNotes(opts?: { project?: string; conversation?: string; query?: string }): Promise<NoteEntry[]> {
   const qs = new URLSearchParams();
   if (opts?.project) qs.set('project', opts.project);
   if (opts?.conversation) qs.set('conversation', opts.conversation);
+  if (opts?.query) qs.set('q', opts.query);
   try {
     const r = await fetch('/api/notes?' + qs.toString());
     const j = await r.json();

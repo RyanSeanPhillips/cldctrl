@@ -384,6 +384,13 @@ npx tsc --noEmit
 # Build
 npx tsup
 
+# Automated tests (vitest — tests/**/*.test.ts)
+npm test
+# tests/notes-e2e.test.ts boots the REAL built server (dist/index.js serve) against an
+# isolated CLDCTRL_CONFIG_DIR and drives the notes pipeline over HTTP (create → write →
+# new → adopt/record → list with scope + full-text). Requires `npx tsup` first (runs the
+# built artifact); never launches a Claude session, so it's safe unattended.
+
 # Manual smoke tests
 cc --demo --snapshot    # renders one frame, exits
 cc --demo              # full TUI with synthetic data
