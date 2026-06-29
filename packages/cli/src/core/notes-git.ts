@@ -13,7 +13,7 @@
 import spawn from 'cross-spawn';
 import fs from 'node:fs';
 import path from 'node:path';
-import { scratchDir } from './dashboard-bridge.js';
+import { scratchDir, isScratchPath } from './dashboard-bridge.js';
 
 const MIN_INTERVAL_MS = 20_000; // at most one commit per ~20s (immediate when idle)
 let inited: boolean | null = null; // null = unknown, false = git unavailable → disabled
@@ -25,6 +25,18 @@ function runGit(args: string[], cwd: string): Promise<void> {
     const child = spawn('git', args, { cwd, stdio: 'ignore', windowsHide: true });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('git ' + (args[0] ?? '') + ' exit ' + code))));
+  });
+}
+
+/** Like runGit but captures stdout (for log/show reads). */
+function runGitOut(args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd, windowsHide: true });
+    let out = '', err = '';
+    child.stdout?.on('data', (d) => (out += d.toString()));
+    child.stderr?.on('data', (d) => (err += d.toString()));
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error('git ' + (args[0] ?? '') + ' exit ' + code + ': ' + err.trim()))));
   });
 }
 
@@ -65,4 +77,40 @@ export function commitNotesSoon(): void {
     void doCommit();
   }, delay);
   timer.unref?.(); // don't keep the process alive for a pending snapshot
+}
+
+// ── history & restore ────────────────────────────────────────
+export interface NoteRevision { hash: string; date: string; subject: string; }
+
+/** Commit history for one note file (newest first). [] if not versioned / no git. */
+export async function noteHistory(filePath: string, limit = 30): Promise<NoteRevision[]> {
+  if (!isScratchPath(filePath) || !(await ensureRepo())) return [];
+  const rel = path.basename(filePath);
+  try {
+    const out = await runGitOut(['log', '-n', String(limit), '--format=%H%x09%cI%x09%s', '--', rel], scratchDir());
+    return out.split(/\r?\n/).filter(Boolean).map((line) => {
+      const [hash, date, ...rest] = line.split('\t');
+      return { hash, date, subject: rest.join('\t') };
+    });
+  } catch { return []; }
+}
+
+/** Content of a note at a specific commit. null if unavailable. `rev` must be a hash. */
+export async function noteRevisionContent(filePath: string, rev: string): Promise<string | null> {
+  if (!isScratchPath(filePath) || !/^[0-9a-fA-F]{4,40}$/.test(rev) || !(await ensureRepo())) return null;
+  try {
+    return await runGitOut(['show', `${rev}:${path.basename(filePath)}`], scratchDir());
+  } catch { return null; }
+}
+
+/** Restore a note to a past revision (writes it back, then snapshots the restore). */
+export async function restoreNoteRevision(filePath: string, rev: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isScratchPath(filePath)) return { ok: false, error: 'not a notes path' };
+  const content = await noteRevisionContent(filePath, rev);
+  if (content === null) return { ok: false, error: 'revision not found' };
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    commitNotesSoon(); // record the restore as its own snapshot (history stays linear & recoverable)
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e) }; }
 }

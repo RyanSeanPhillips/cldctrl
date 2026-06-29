@@ -28,7 +28,7 @@ import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
 import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, notepadFile, newNoteFile, recordNote, listNotes, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
-import { commitNotesSoon } from './core/notes-git.js';
+import { commitNotesSoon, noteHistory, noteRevisionContent, restoreNoteRevision } from './core/notes-git.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -1040,6 +1040,24 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         if (!p || !isScratchPath(p)) { sendJson(res, 400, { error: 'Not a notes path' }); return; }
         recordNote(p, typeof body.project === 'string' ? body.project : '', typeof body.conversation === 'string' ? body.conversation : '');
         sendJson(res, 200, { ok: true });
+      } else if (req.method === 'GET' && url.pathname === '/api/notes/history') {
+        const p = url.searchParams.get('path') || '';
+        if (!p || !isScratchPath(p)) { sendJson(res, 400, { error: 'Not a notes path' }); return; }
+        sendJson(res, 200, { ok: true, revisions: await noteHistory(p) });
+      } else if (req.method === 'GET' && url.pathname === '/api/notes/revision') {
+        const p = url.searchParams.get('path') || '';
+        const rev = url.searchParams.get('rev') || '';
+        if (!p || !isScratchPath(p)) { sendJson(res, 400, { error: 'Not a notes path' }); return; }
+        const content = await noteRevisionContent(p, rev);
+        if (content === null) { sendJson(res, 404, { error: 'revision not found' }); return; }
+        sendJson(res, 200, { ok: true, content });
+      } else if (req.method === 'POST' && url.pathname === '/api/notes/restore') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        const body = await readJsonBody(req);
+        const p = typeof body.path === 'string' ? body.path : '';
+        const rev = typeof body.rev === 'string' ? body.rev : '';
+        if (!p || !isScratchPath(p)) { sendJson(res, 400, { error: 'Not a notes path' }); return; }
+        sendJson(res, 200, await restoreNoteRevision(p, rev));
       } else if (req.method === 'GET' && url.pathname === '/api/notes') {
         const proj = url.searchParams.get('project') || undefined;
         const conv = url.searchParams.get('conversation') || undefined;

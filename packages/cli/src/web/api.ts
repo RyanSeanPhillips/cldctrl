@@ -127,6 +127,29 @@ export async function postNewNote(project: string, conversation: string, title?:
   return r.json();
 }
 
+export interface NoteRevision { hash: string; date: string; subject: string; }
+
+/** Git history (newest-first) for one note file. */
+export async function fetchNoteHistory(path: string): Promise<NoteRevision[]> {
+  try {
+    const r = await fetch('/api/notes/history?path=' + encodeURIComponent(path));
+    const j = await r.json();
+    return Array.isArray(j.revisions) ? j.revisions : [];
+  } catch { return []; }
+}
+
+/** Restore a note to a past revision (hash). */
+export async function postRestoreNote(path: string, rev: string): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const r = await fetch('/api/notes/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+      body: JSON.stringify({ path, rev }),
+    });
+    return r.json();
+  } catch { return { ok: false, error: 'request failed' }; }
+}
+
 /** Associate an existing note file with a conversation/project (e.g. an agent
  *  scratchpad adopted as a conversation's notepad) so it surfaces in the list. */
 export async function postRecordNote(path: string, project: string, conversation: string): Promise<void> {

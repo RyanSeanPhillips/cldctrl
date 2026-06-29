@@ -43,6 +43,7 @@ import { searchConversations } from './core/conversation-search.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readDashboardContext, writeAgentSearch, openScratchpad, scratchPath, writeCockpitLaunch, writeCockpitInject } from './core/dashboard-bridge.js';
+import { noteHistory, restoreNoteRevision } from './core/notes-git.js';
 import { consultAgent, listAgents, setAgentPath } from './core/agents.js';
 import { getThread, saveThread } from './core/consult-threads.js';
 import { randomUUID } from 'node:crypto';
@@ -773,6 +774,29 @@ async function main(): Promise<void> {
         },
       },
       {
+        name: 'list_note_revisions',
+        description:
+          "List the git version history of a cldctrl notepad file (the docked scratchpad you were told the path of). Returns revisions newest-first with a short hash, ISO timestamp, and subject. Notes are auto-snapshotted to git, so this is how you (or the operator) recover an earlier draft. Pair with restore_note. `path` is the absolute notepad file path.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: { path: { type: 'string', description: 'Absolute path to the notepad file.' } },
+          required: ['path'],
+        },
+      },
+      {
+        name: 'restore_note',
+        description:
+          "Restore a cldctrl notepad to an earlier version from its git history. Pass the notepad `path` and a revision hash from list_note_revisions (or omit `rev` to roll back to the immediately previous version). Writes the old content back to the file (which the operator's cockpit live-reloads) and snapshots the restore. Use when the operator says 'undo'/'go back to the earlier draft'.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: { type: 'string', description: 'Absolute path to the notepad file.' },
+            rev: { type: 'string', description: 'Commit hash to restore (from list_note_revisions). Omit for the previous version.' },
+          },
+          required: ['path'],
+        },
+      },
+      {
         name: 'get_dashboard_context',
         description:
           "See what the operator is currently looking at in the cldctrl browser dashboard: their active conversation search query, the matching sessions they're seeing, and any selected project. Use this when they say things like \"narrow down what I'm looking at\" or \"help me with this search\" so you act on their actual screen instead of guessing.",
@@ -905,6 +929,25 @@ async function main(): Promise<void> {
         case 'save_scratchpad':
           result = handleSaveScratchpad(args as { project: string; path: string; title?: string });
           break;
+        case 'list_note_revisions': {
+          const a = args as { path: string };
+          const revs = await noteHistory(a.path);
+          result = revs.length
+            ? { ok: true, path: a.path, revisions: revs }
+            : { ok: true, path: a.path, revisions: [], note: 'No history (file not git-versioned yet, or git unavailable).' };
+          break;
+        }
+        case 'restore_note': {
+          const a = args as { path: string; rev?: string };
+          let rev = a.rev;
+          if (!rev) { // no rev → the immediately previous version
+            const revs = await noteHistory(a.path, 2);
+            if (revs.length < 2) { result = { ok: false, error: 'No previous version to roll back to.' }; break; }
+            rev = revs[1].hash;
+          }
+          result = await restoreNoteRevision(a.path, rev);
+          break;
+        }
         case 'get_dashboard_context':
           result = handleGetDashboardContext();
           break;

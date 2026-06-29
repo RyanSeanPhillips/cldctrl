@@ -212,4 +212,39 @@ describe.skipIf(!hasGit)('cockpit notes — git backup (Phase A)', () => {
     const tracked = (git(['ls-files']).stdout || '').split(/\r?\n/).filter(Boolean);
     expect(tracked.some((f) => f.toLowerCase().endsWith('.md'))).toBe(true); // a note is versioned
   });
+
+  it('history lists a note\'s revisions and restore rolls it back', async () => {
+    const sign = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false'];
+    // a dedicated note with two committed versions
+    const hp = (await post('/api/scratch', { key: 'resume:HIST', project: PROJ_A, conversation: 'HIST' })).path;
+    await post('/api/file', { path: hp, content: 'VERSION ONE body alpha' });
+    git(['add', '-A']); git([...sign, 'commit', '-m', 'v1']);
+    await post('/api/file', { path: hp, content: 'VERSION TWO body beta' });
+    git(['add', '-A']); git([...sign, 'commit', '-m', 'v2']);
+
+    const hist = await get('/api/notes/history?path=' + encodeURIComponent(hp));
+    expect(hist.ok).toBe(true);
+    expect(hist.revisions.length).toBeGreaterThanOrEqual(2);
+
+    // find the revision holding v1 (the empty create may also be in history) via the
+    // revision endpoint, then restore to it
+    let v1hash = '';
+    for (const r of hist.revisions as Array<{ hash: string }>) {
+      const rc = await get('/api/notes/revision?path=' + encodeURIComponent(hp) + '&rev=' + r.hash);
+      if (rc.ok && rc.content.includes('VERSION ONE') && !rc.content.includes('VERSION TWO')) { v1hash = r.hash; break; }
+    }
+    expect(v1hash).toBeTruthy();
+
+    const rr = await post('/api/notes/restore', { path: hp, rev: v1hash });
+    expect(rr.ok).toBe(true);
+    const f = await get('/api/file?path=' + encodeURIComponent(hp));
+    expect(f.content).toContain('VERSION ONE');
+    expect(f.content).not.toContain('VERSION TWO');
+  });
+
+  it('rejects a non-notes path for history', async () => {
+    const j = await get('/api/notes/history?path=' + encodeURIComponent('C:/Windows/system32/drivers/etc/hosts'));
+    expect(j.error).toBeTruthy();
+    expect(j.revisions).toBeUndefined();
+  });
 });

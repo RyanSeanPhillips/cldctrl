@@ -10,7 +10,7 @@ import { marked } from 'marked';
 import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './dock.js';
-import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, type NoteEntry } from './api.js';
+import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, fetchNoteHistory, postRestoreNote, type NoteEntry, type NoteRevision } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
 import { flagAttention } from './tabalert.js';
@@ -381,7 +381,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (noteAnnounced || !notePath) return;
     noteAnnounced = true;
     persistNoteAnnounced();
-    const msg = `(cldctrl) FYI: I've linked a notepad to this conversation — a scratchpad file at ${notePath}. When I refer to "the notepad" or "scratchpad", read or edit that file directly (no need to search). No action needed right now.`;
+    const msg = `(cldctrl) FYI: I've linked a notepad to this conversation — a scratchpad file at ${notePath}. When I refer to "the notepad" or "scratchpad", read or edit that file directly (no need to search). It's auto-versioned in git — if I ask to undo or go back to an earlier draft, use the list_note_revisions / restore_note tools on this path. No action needed right now.`;
     if (!send({ type: 'input', data: msg + '\r' })) connect();
   };
   noteEdit.addEventListener('input', () => {
@@ -464,7 +464,21 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (others.length) html += `<div class="note-menu-sec">${scope === 'all' ? 'All notes' : 'This project'}</div>` + others.slice(0, 40).map(noteItemHtml).join('');
     if (!convNotes.length && !others.length) html += '<div class="note-menu-empty">No notes yet</div>';
     html += '<div class="note-menu-div"></div><button class="note-item act" data-act="new">&#65291; New note</button>';
+    if (notePath) html += '<button class="note-item act" data-act="history">&#128338; History…</button>';
     if (scope !== 'all') html += '<button class="note-item act" data-act="all">&#128270; All notes…</button>';
+    noteMenu.innerHTML = html;
+  };
+  const renderNoteHistory = async (): Promise<void> => {
+    if (!notePath) return;
+    noteMenuOpen = true; noteMenu.style.display = '';
+    noteMenu.innerHTML = '<div class="note-menu-empty">…</div>';
+    const revs = await fetchNoteHistory(notePath);
+    if (!noteMenuOpen) return;
+    let html = '<button class="note-item act" data-act="menu-back">&#8592; Back</button><div class="note-menu-sec">History — click to restore</div>';
+    html += revs.length
+      ? revs.map((r: NoteRevision) => `<button class="note-item" data-rev="${esc(r.hash)}" title="${esc(r.hash.slice(0, 8))} · ${esc(r.subject)}">`
+          + `<span class="ni-title">${esc(agoShort(Date.parse(r.date)))} ago</span><span class="ni-ago">restore</span></button>`).join('')
+      : '<div class="note-menu-empty">No history yet (saves snapshot to git as you write)</div>';
     noteMenu.innerHTML = html;
   };
   (el.querySelector('[data-note="menu"]') as HTMLButtonElement).addEventListener('click', (e) => {
@@ -473,13 +487,24 @@ function createTermTile(meta: CockpitTile): LiveTile {
     renderNoteMenu('project');
   });
   noteMenu.addEventListener('click', async (e) => {
-    const item = (e.target as HTMLElement).closest('[data-np],[data-act]') as HTMLElement | null;
+    const item = (e.target as HTMLElement).closest('[data-np],[data-act],[data-rev]') as HTMLElement | null;
     if (!item) return;
     if (item.dataset.act === 'all') { renderNoteMenu('all'); return; }
+    if (item.dataset.act === 'history') { renderNoteHistory(); return; }
+    if (item.dataset.act === 'menu-back') { renderNoteMenu('project'); return; }
     if (item.dataset.act === 'new') {
       closeNoteMenu();
       const r = await postNewNote(meta.projectPath, convKey);
       if (r.path) openNoteAt(r.path); else noteStatus.textContent = '✗ ' + (r.error || 'could not create note');
+      return;
+    }
+    if (item.dataset.rev && notePath) {
+      const target = notePath;
+      closeNoteMenu();
+      noteStatus.textContent = 'restoring…';
+      const r = await postRestoreNote(target, item.dataset.rev);
+      if (r.ok) { noteDirty = false; noteContent = ''; await noteLoad(); noteStatus.textContent = 'restored'; setTimeout(() => { if (!noteDirty) noteStatus.textContent = ''; }, 1500); }
+      else noteStatus.textContent = '✗ ' + (r.error || 'restore failed');
       return;
     }
     if (item.dataset.np) { closeNoteMenu(); openNoteAt(item.dataset.np); }
