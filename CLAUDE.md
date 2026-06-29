@@ -71,7 +71,9 @@ src/
 ├── daemon.ts             Background poller: git/issues/stats → cache.json;
 │                         also fires deadline/focus nudges (control.ts) once per tier
 ├── serve.ts              `cc serve` browser dashboard (localhost HTTP, embedded HTML,
-│                         transcript tail + launch endpoints; CSRF via X-CLDCTRL header)
+│                         transcript tail + launch endpoints; CSRF via X-CLDCTRL header;
+│                         notes API /api/notes[/new|/record] backed by core/notes-git.ts
+│                         git-history backup of the scratch dir)
 ├── mcp-server.ts         stdio MCP server (registered globally in ~/.claude.json):
 │                         list_projects, get_project_context, get_active_sessions,
 │                         launch_session, rescan_projects, create_project,

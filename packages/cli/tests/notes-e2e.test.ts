@@ -13,7 +13,7 @@
  * run unattended and never opens VS Code or a browser. Run: `npm test`.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import fs from 'node:fs';
@@ -46,6 +46,8 @@ let child: ChildProcess;
 let tmpDir: string;
 let base: string;
 let stderr = '';
+const hasGit = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
+const git = (args: string[]) => spawnSync('git', ['-C', path.join(tmpDir, 'scratch'), ...args], { encoding: 'utf-8' });
 // paths the seed step creates, for assertions
 const P: Record<string, string> = {};
 
@@ -189,5 +191,25 @@ describe('cockpit notes — end to end', () => {
     const j = await get('/api/notes?q=' + encodeURIComponent('zzz-no-such-token-xyzzy'));
     expect(j.ok).toBe(true);
     expect(j.notes).toEqual([]);
+  });
+});
+
+describe.skipIf(!hasGit)('cockpit notes — git backup (Phase A)', () => {
+  it('the scratch dir becomes a git repo and snapshots saved notes', async () => {
+    // saves trigger a throttled commit (immediate when idle); poll for it
+    const scratch = path.join(tmpDir, 'scratch');
+    const deadline = Date.now() + 8000;
+    let log = '';
+    while (Date.now() < deadline) {
+      if (fs.existsSync(path.join(scratch, '.git'))) {
+        log = git(['log', '--oneline']).stdout || '';
+        if (log.trim()) break;
+      }
+      await sleep(250);
+    }
+    expect(fs.existsSync(path.join(scratch, '.git'))).toBe(true); // repo created
+    expect(log.trim().length).toBeGreaterThan(0);                  // ≥1 commit
+    const tracked = (git(['ls-files']).stdout || '').split(/\r?\n/).filter(Boolean);
+    expect(tracked.some((f) => f.toLowerCase().endsWith('.md'))).toBe(true); // a note is versioned
   });
 });

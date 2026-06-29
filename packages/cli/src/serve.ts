@@ -28,6 +28,7 @@ import { getIssues, isGhAvailable, getGhInstallUrl } from './core/github.js';
 import { parseGitignore, readDirectory } from './core/filetree.js';
 import { searchConversations, deriveGist, cleanPrompt, isWeak, condense } from './core/conversation-search.js';
 import { writeDashboardContext, readAgentSearch, readScratchOpen, isScratchPath, newScratchFile, notepadFile, newNoteFile, recordNote, listNotes, readCockpitLaunches, readCockpitInjects } from './core/dashboard-bridge.js';
+import { commitNotesSoon } from './core/notes-git.js';
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
@@ -1003,7 +1004,10 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         // Doc/scratchpad writes can be large (up to FILE_CAP) — don't apply the
         // small-body cap that the other JSON endpoints use.
-        const result = handleWriteFile(await readJsonBody(req, FILE_CAP + 100_000));
+        const writeBody = await readJsonBody(req, FILE_CAP + 100_000);
+        const result = handleWriteFile(writeBody);
+        // Back up notes to git on save (throttled). Only scratch-dir files (notepads).
+        if ((result.body as { ok?: boolean })?.ok && typeof writeBody.path === 'string' && isScratchPath(writeBody.path)) commitNotesSoon();
         sendJson(res, result.status, result.body);
       } else if (req.method === 'POST' && url.pathname === '/api/scratch') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
@@ -1088,6 +1092,13 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
   // Docked agent terminal over WebSocket (localhost only). Best-effort: if the
   // optional deps are missing, the dashboard still serves without it.
   const agentOk = setupAgentTerminal(server);
+
+  // Notes git backup: snapshot at startup (captures pre-existing notes), then on a
+  // slow tick to catch the AGENT's direct Write/Edit to a note file (those bypass
+  // /api/file, which only fires for the operator's own saves). Throttled + unref'd.
+  commitNotesSoon();
+  const notesSnap = setInterval(() => commitNotesSoon(), 90_000);
+  notesSnap.unref?.();
 
   // Localhost ONLY — transcripts, terminal, and launch must not reach the network.
   server.listen(port, '127.0.0.1', () => {
