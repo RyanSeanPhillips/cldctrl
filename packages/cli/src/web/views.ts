@@ -567,6 +567,44 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
+// ── notes library overlay (Phase 2) ─────────────────────────
+// Browse notepads across a conversation, a project, or everywhere; click one to
+// dock it into the active conversation (or open standalone if no chat is up).
+function notesOverlay(d: OverviewPayload, state: State): Tpl | string {
+  const cp = state.ui.cockpit;
+  if (!cp.notesOpen) return '';
+  const q = cp.notesQuery.trim().toLowerCase();
+  const rows = q
+    ? cp.notesResults.filter((n) => (n.title + ' ' + n.preview + ' ' + n.path).toLowerCase().includes(q))
+    : cp.notesResults;
+  const nameOf = (p: string) => d.projects.find((pr) => pr.path === p)?.name || (p ? p.split(/[/\\]/).pop() : '') || '';
+  const scopeBtn = (id: 'conversation' | 'project' | 'all', label: string) =>
+    html`<button class=${'notes-scope' + (cp.notesScope === id ? ' on' : '')} data-act="notes-scope" data-scope=${id}>${label}</button>`;
+  return html`<div class="cp-add-backdrop notes-backdrop">
+    <div class="cp-add notes-lib">
+      <div class="cp-add-head"><span>&#128221; Notes</span><button class="btn icon" data-act="notes-close" title="Close (Esc)">&#10005;</button></div>
+      <div class="notes-scopes">
+        ${scopeBtn('conversation', 'This conversation')}
+        ${scopeBtn('project', 'This project')}
+        ${scopeBtn('all', 'All')}
+      </div>
+      <input id="notes-search" class="search" placeholder="Filter notes…" .value=${cp.notesQuery}>
+      <div class="cp-add-list notes-list">
+        ${rows.length ? rows.map((n) => html`<div class="notes-row" data-act="notes-open" data-path=${n.path} title=${n.path}>
+          <div class="notes-main">
+            <div class="notes-title">${n.title || 'untitled'}</div>
+            <div class="notes-sub">${n.preview || '—'}</div>
+          </div>
+          <div class="notes-meta">
+            ${n.project ? html`<span class="notes-proj">${nameOf(n.project)}</span>` : ''}
+            <span class="notes-ago">${ago(new Date(n.updated).toISOString())}</span>
+          </div>
+        </div>`) : html`<div class="empty">${q ? 'No matching notes.' : 'No notes in this scope yet.'}</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+
 // ── conversations-pane tabs (List / Cockpit) ─────────────────
 /** Per-project focus chips: one per distinct project among open tiles. Toggling
  *  a chip mutes/shows that project's tiles so you can focus on a subset. */
@@ -606,6 +644,7 @@ function convTabs(d: OverviewPayload, state: State): Tpl {
       title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button>` : ''}
     ${cp.open && cp.tab !== 'stats' ? cockpitChips(d, state) : ''}
     ${cp.open && cp.tab !== 'stats' ? html`<span class="sp"></span>
+      <button class="btn" data-act="cockpit-notes" title="Browse notes — this conversation, this project, or all">&#128221; Notes</button>
       <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
       <div class="cp-layouts">
         <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
@@ -651,5 +690,6 @@ export function appView(state: State): Tpl {
       </main>
     </div>
     ${cockpitAddPanel(d, state)}
+    ${notesOverlay(d, state)}
   `;
 }

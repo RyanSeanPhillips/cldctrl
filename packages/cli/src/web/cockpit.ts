@@ -921,18 +921,41 @@ export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.()
  * the first terminal tile. Returns false if there's no terminal tile to dock onto —
  * the caller then falls back to a standalone doc tile so the draft is never lost.
  */
-export function openAgentScratchpad(path: string): boolean {
+/** The terminal tile the operator is most likely looking at: maximized → focused →
+ *  first terminal tile. Null if there are no terminal tiles. */
+function pickActiveTermTileId(): string | null {
   const cp = getState().ui.cockpit;
   const termTiles = cp.tiles.filter((t) => t.kind !== 'doc');
-  if (!termTiles.length) return false;
+  if (!termTiles.length) return null;
   const focusedId = termTiles.find((t) => tiles.get(t.id)?.el.contains(document.activeElement))?.id;
-  const targetId = (cp.maximized && termTiles.some((t) => t.id === cp.maximized) ? cp.maximized : null)
+  return (cp.maximized && termTiles.some((t) => t.id === cp.maximized) ? cp.maximized : null)
     ?? focusedId ?? termTiles[0].id;
+}
+/** Project + conversation key of the active terminal tile (for scoping the notes list). */
+export function activeTileInfo(): { project: string; conversation: string } | null {
+  const id = pickActiveTermTileId();
+  if (!id) return null;
+  const m = getState().ui.cockpit.tiles.find((t) => t.id === id);
+  return m ? { project: m.projectPath, conversation: m.sessionId || m.id } : null;
+}
+/** Dock an EXISTING note into the active conversation's notepad WITHOUT reassigning
+ *  its home conversation (used by the notes library). Returns false if no term tile. */
+export function dockNoteInActiveTile(path: string): boolean {
+  const id = pickActiveTermTileId();
+  if (!id) return false;
+  const t = tiles.get(id);
+  if (!t?.openNoteAt) return false;
+  t.openNoteAt(path);
+  return true;
+}
+export function openAgentScratchpad(path: string): boolean {
+  const targetId = pickActiveTermTileId();
+  if (!targetId) return false;
   const t = tiles.get(targetId);
   if (!t?.openNoteAt) return false;
   t.openNoteAt(path);
   // Associate the adopted draft with this conversation/project so it surfaces later.
-  const tm = cp.tiles.find((x) => x.id === targetId);
+  const tm = getState().ui.cockpit.tiles.find((x) => x.id === targetId);
   if (tm) postRecordNote(path, tm.projectPath, tm.sessionId || tm.id);
   return true;
 }

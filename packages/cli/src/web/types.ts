@@ -139,6 +139,9 @@ export interface SearchResult {
   vendor?: 'claude' | 'codex'; // which CLI the session belongs to (Codex resume isn't cockpit-wired yet)
 }
 
+// ── Notes (/api/notes) — a project's notepads across its conversations ──
+export interface NoteEntry { path: string; title: string; preview: string; project: string; conversation: string; updated: number; }
+
 // ── Stats tab (/api/stats) — mirror of core/stats.ts StatsPayload ──
 export interface StatsTurn { t: number; s: number; k: number; b: number; c: number; f: 0 | 1 | 2; }
 export interface StatsSession { id: string; slug: string; project: string; label: string; total: number; }

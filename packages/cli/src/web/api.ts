@@ -1,8 +1,9 @@
 /** Fetch wrappers for the dashboard API. */
 import type {
   OverviewPayload, TranscriptEntry,
-  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult, StatsPayload,
+  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult, StatsPayload, NoteEntry,
 } from './types.js';
+export type { NoteEntry } from './types.js';
 
 export async function fetchOverview(): Promise<OverviewPayload> {
   const r = await fetch('/api/overview');
@@ -137,8 +138,6 @@ export async function postRecordNote(path: string, project: string, conversation
     });
   } catch { /* best-effort */ }
 }
-
-export interface NoteEntry { path: string; title: string; preview: string; project: string; conversation: string; updated: number; }
 
 /** List notes, scoped to a project and/or conversation (omit for all). */
 export async function fetchNotes(opts?: { project?: string; conversation?: string }): Promise<NoteEntry[]> {

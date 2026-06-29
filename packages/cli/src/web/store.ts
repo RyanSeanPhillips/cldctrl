@@ -6,7 +6,7 @@
  */
 import type {
   OverviewPayload, TranscriptEntry, DetailTab,
-  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult,
+  ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult, NoteEntry,
 } from './types.js';
 
 export type SortKey = 'tokens' | 'share' | 'msgs' | 'tr' | 'ctx' | 'dur' | 'ago';
@@ -41,6 +41,10 @@ export interface CockpitState {
   addOpen: boolean;           // the "+ Add" picker overlay
   addQuery: string;
   addResults: SearchResult[];
+  notesOpen: boolean;                              // the notes-library overlay
+  notesScope: 'conversation' | 'project' | 'all'; // which notes the library lists
+  notesQuery: string;                              // client-side filter over the listed notes
+  notesResults: NoteEntry[];                       // last fetch for the current scope
 }
 
 export interface UiState {
@@ -102,7 +106,7 @@ const state: State = {
     dockOpen: false,
     sidebarCollapsed: false,
     collapsedGroups: [],
-    cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], attnTiles: [], addOpen: false, addQuery: '', addResults: [] },
+    cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], attnTiles: [], addOpen: false, addQuery: '', addResults: [], notesOpen: false, notesScope: 'project', notesQuery: '', notesResults: [] },
     sortKey: 'tokens',
     sortDir: 1,
     restoreOffer: null,

@@ -6,11 +6,11 @@ import type { SortKey, CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -29,7 +29,7 @@ function renderApp(): void {
   // Preserve text-input focus + caret across the re-render (typing re-renders
   // the app to show results, and uhtml may recreate the input node).
   const active = document.activeElement as HTMLInputElement | null;
-  const PRESERVE_FOCUS = ['search-input', 'cockpit-add-search', 'newsession-prompt'];
+  const PRESERVE_FOCUS = ['search-input', 'cockpit-add-search', 'newsession-prompt', 'notes-search'];
   const focusedId = active?.id && PRESERVE_FOCUS.includes(active.id) ? active.id : null;
   const caret = focusedId ? active!.selectionStart : null;
 
@@ -283,7 +283,9 @@ async function poll(): Promise<void> {
 
 // ── event delegation ─────────────────────────────────────────
 document.addEventListener('click', async (ev) => {
-  // Click on the picker backdrop (but not its panel) closes it.
+  // Click on a picker backdrop (but not its panel) closes it. Notes first — its
+  // backdrop also carries cp-add-backdrop for styling, so check the specific class.
+  if ((ev.target as HTMLElement).classList?.contains('notes-backdrop')) { setCockpit({ notesOpen: false }); return; }
   if ((ev.target as HTMLElement).classList?.contains('cp-add-backdrop')) { setCockpit({ addOpen: false }); return; }
   const el = (ev.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
   if (!el) return;
@@ -298,6 +300,18 @@ document.addEventListener('click', async (ev) => {
     setCockpit({ addOpen: !cp.addOpen, addQuery: '', addResults: [] });
   } else if (act === 'cockpit-add-close') {
     setCockpit({ addOpen: false });
+  } else if (act === 'cockpit-notes') {
+    setCockpit({ notesOpen: true, notesQuery: '', notesScope: activeTileInfo() ? 'project' : 'all', notesResults: [] });
+    loadNotes();
+  } else if (act === 'notes-close') {
+    setCockpit({ notesOpen: false });
+  } else if (act === 'notes-scope') {
+    setCockpit({ notesScope: el.dataset.scope as 'conversation' | 'project' | 'all', notesResults: [] });
+    loadNotes();
+  } else if (act === 'notes-open') {
+    const p = el.dataset.path!;
+    if (!dockNoteInActiveTile(p)) addDocTile(p, '', true, false); // no chat tile → open standalone
+    setCockpit({ notesOpen: false });
   } else if (act === 'cockpit-add-resume') {
     addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, false);
     setCockpit({ addOpen: false, addQuery: '', addResults: [] });
@@ -480,13 +494,27 @@ document.addEventListener('input', (ev) => {
         if (getState().ui.cockpit.addQuery === q) setCockpit({ addResults: res });
       } catch { /* ignore */ }
     }, 250);
+  } else if (t.id === 'notes-search') {
+    setCockpit({ notesQuery: (t as HTMLInputElement).value }); // client-side filter over the loaded scope
   }
 });
+
+/** Fetch the notes list for the current library scope (conversation/project/all). */
+async function loadNotes(): Promise<void> {
+  const cp = getState().ui.cockpit;
+  const info = activeTileInfo();
+  const params = cp.notesScope === 'conversation' && info ? { conversation: info.conversation }
+    : cp.notesScope === 'project' && info ? { project: info.project }
+    : {}; // 'all', or scoped-but-no-active-tile → everything
+  const notes = await fetchNotes(params);
+  if (getState().ui.cockpit.notesOpen) setCockpit({ notesResults: notes });
+}
 
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && (ev.target as HTMLElement).id === 'newsession-prompt') {
     (document.querySelector('[data-act="newlaunch"]') as HTMLElement | null)?.click();
   }
+  if (ev.key === 'Escape' && getState().ui.cockpit.notesOpen) { setCockpit({ notesOpen: false }); }
 });
 
 // Reveal the branch field when "Isolated worktree" is ticked.
