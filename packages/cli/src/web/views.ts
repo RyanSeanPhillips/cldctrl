@@ -26,7 +26,7 @@ const iCols2 = () => svgWrap(svg`<rect x="4" y="4" width="7" height="16" rx="1">
 /** Resume a conversation as a live tile in the web cockpit (the in-app surface). */
 function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl {
   return html`<button class="btn primary" data-act="openincockpit" data-id=${sessionId} data-path=${projectPath} data-title=${title}
-    title="Resume this conversation here in the cockpit">${iGrid()} Resume in cockpit</button>`;
+    title="Resume this conversation here">${iGrid()} Resume here</button>`;
 }
 
 /** A small per-vendor badge so cross-vendor search results read at a glance which
@@ -86,7 +86,7 @@ function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
   return html`<header class="topbar">
-    <div class="brand" data-act="nav-cockpit" title="Go to cockpit">
+    <div class="brand" data-act="nav-cockpit" title="Go to your conversations">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
     </div>
@@ -176,7 +176,7 @@ function sideConvItem(s: SessionInfo): Tpl {
     <span class="side-conv-when">${ago(s.lastActivity)}</span>`;
   return s.id
     ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
-        title="Resume this conversation in the cockpit">${inner}</div>`
+        title="Resume this conversation">${inner}</div>`
     : html`<div class=${'side-conv ' + cls}>${inner}</div>`;
 }
 
@@ -190,7 +190,7 @@ function ctrlRow(d: OverviewPayload, state: State): Tpl | string {
   const open = cp.tiles.some((t) => t.kind === 'control');
   const waiting = (cp.attnTiles ?? []).includes('control');
   return html`<div class=${'side-ctrl-row' + (open || waiting ? ' active' : '')} data-act="open-control"
-    title="CTRL — mission-control agent (opens as a cockpit tile)">
+    title="CTRL — mission-control agent (opens as a tile)">
     <span class="side-vmark v-ctrl">◆</span>
     <span class="side-ctrl-nm">CTRL</span>
     <span class=${'side-ctrl-tag' + (waiting ? ' waiting' : '')}>${
@@ -206,7 +206,7 @@ function sideRecentItem(s: SessionInfo): Tpl {
     <span class="side-recent-when">${ago(s.lastActivity)}</span>`;
   return s.id
     ? html`<div class="side-recent-row" data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
-        title="Resume this conversation in the cockpit">${inner}</div>`
+        title="Resume this conversation">${inner}</div>`
     : html`<div class="side-recent-row">${inner}</div>`;
 }
 
@@ -256,7 +256,7 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   return html`<aside class="sidebar">
     <div class="side-top">
       <div class="side-head-row">
-        <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Conversations — click to go to the cockpit">
+        <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Click to open your live conversations">
           ${iGrid()}
           <span class="side-conv-head-t">Conversations</span>
           <span class="side-conv-head-live"><span class="dot active"></span>${live} live</span>
@@ -425,7 +425,7 @@ function projectDetail(d: OverviewPayload, state: State): Tpl {
       <h2 class="detail-name">${name}</h2>
       ${p ? gitBadge(p) : ''}
       <span class="sp"></span>
-      <button class="btn primary" data-act="newcockpit" data-path=${projPath} data-name=${name} title="Start a new conversation as a cockpit tile (open several at once)">${iGrid()} New in cockpit</button>
+      <button class="btn primary" data-act="newcockpit" data-path=${projPath} data-name=${name} title="Start a new conversation here (open several at once)">${iGrid()} New here</button>
       <button class="btn" data-act="newsession" data-path=${projPath} title="Start a new conversation in a separate terminal window">${iTerminal()} New in terminal</button>
     </div>
     ${ui.newSessionOpen ? html`<div class="launch-form detail-launch">
@@ -468,7 +468,7 @@ function searchView(state: State): Tpl {
           </div>
           <div class="res-actions">
             ${r.vendor === 'codex'
-              ? html`<span class="res-note" title="Codex session — resume from your Codex CLI; cockpit resume is Claude-only for now">found in Codex</span>`
+              ? html`<span class="res-note" title="Codex session — resume from your Codex CLI; in-app resume is Claude-only for now">found in Codex</span>`
               : html`${cockpitBtn(r.sessionId, r.projectPath, r.project)}
                 <button class="btn" data-act="resume" data-id=${r.sessionId} data-path=${r.projectPath} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>`}
           </div>
@@ -487,7 +487,7 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
     : d.sessions.filter((s) => s.id).map((s) => ({ id: s.id!, path: s.path, title: s.project, sub: s.currentAction || s.status }));
   return html`<div class="cp-add-backdrop">
     <div class="cp-add">
-      <div class="cp-add-head"><span>Add to cockpit</span><button class="btn icon" data-act="cockpit-add-close" title="Close">&#10005;</button></div>
+      <div class="cp-add-head"><span>Add a session</span><button class="btn icon" data-act="cockpit-add-close" title="Close">&#10005;</button></div>
       <input id="cockpit-add-search" class="search" placeholder="Search conversations to add…" .value=${cp.addQuery}>
       <div class="cp-add-list">
         ${rows.length ? rows.map((r) => html`<div class="cp-add-row">

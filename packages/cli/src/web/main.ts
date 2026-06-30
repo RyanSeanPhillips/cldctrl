@@ -141,7 +141,7 @@ function addResumeTile(sessionId: string, projectPath: string, title: string, op
   const hiddenProjects = cp.hiddenProjects.filter((p) => p !== projectPath);
   setCockpit({ tiles, hiddenProjects, open: openNow ? true : cp.open, maximized: null });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
-  if (already) toast('Already open in the cockpit — focused it');
+  if (already) toast('Already open — focused it');
 }
 
 function addDocTile(filePath: string, projectPath: string, openNow: boolean, scratch = false): void {
@@ -278,7 +278,7 @@ async function poll(): Promise<void> {
       const tile = getState().ui.cockpit.tiles.find(
         (t) => t.sessionId === inj.sessionId || t.discoveredSessionId === inj.sessionId,
       );
-      if (!tile) { toast('↪ Message for a session that isn’t open in the cockpit'); continue; }
+      if (!tile) { toast('↪ Message for a session that isn’t open here'); continue; }
       // Reveal the tile (unmute its project, drop any maximize) so the prefill is visible.
       setCockpit({ hiddenProjects: getState().ui.cockpit.hiddenProjects.filter((p) => p !== tile.projectPath), maximized: null });
       const ok = injectIntoTile(tile.id, inj.text, !!inj.autoSend);
@@ -457,7 +457,7 @@ document.addEventListener('click', async (ev) => {
     // Start a fresh parallel conversation from this project as a cockpit tile
     // (distinct from "New in terminal" which opens a separate window).
     addLaunchTile(el.dataset.path!, el.dataset.name || undefined);
-    toast('Opening a new conversation in the cockpit…');
+    toast('Opening a new conversation…');
   } else if (act === 'newsession') {
     setUi({ newSessionOpen: !ui.newSessionOpen, newSessionDraft: '' });
   } else if (act === 'newlaunch') {
