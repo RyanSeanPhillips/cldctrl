@@ -171,11 +171,42 @@ function wire(body: HTMLElement): void {
   }));
 }
 
+// ── image lightbox: a single-image gallery you can step through with ‹/›, ←/→ or
+// the on-screen arrows; Esc or a backdrop click closes. `uris` are the images for
+// the clicked turn/bucket; the counter shows position within that set. ──
+let lbUris: string[] = [];
+let lbIndex = 0;
+
 function openLightbox(uris: string[]): void {
-  const lb = document.getElementById('lb'); const wrap = document.getElementById('lb-imgs');
-  if (!lb || !wrap) return;
-  wrap.innerHTML = uris.length ? uris.map((u) => `<img src="${u}">`).join('') : '<div class="lb-note">No images found for this turn.</div>';
+  const lb = document.getElementById('lb');
+  if (!lb) return;
+  lbUris = uris; lbIndex = 0;
+  lbRender();
   lb.classList.add('open');
+}
+
+function lbRender(): void {
+  const wrap = document.getElementById('lb-imgs');
+  const count = document.querySelector('#lb .lb-count') as HTMLElement | null;
+  const navs = document.querySelectorAll('#lb .lb-nav');
+  if (!wrap) return;
+  if (!lbUris.length) {
+    wrap.innerHTML = '<div class="lb-note">No images found for this turn.</div>';
+    if (count) count.textContent = '';
+    navs.forEach((n) => ((n as HTMLElement).style.display = 'none'));
+    return;
+  }
+  lbIndex = (lbIndex + lbUris.length) % lbUris.length; // wrap past either end
+  wrap.innerHTML = `<img src="${lbUris[lbIndex]}">`;
+  const multi = lbUris.length > 1;
+  if (count) count.textContent = multi ? `${lbIndex + 1} / ${lbUris.length}` : '';
+  navs.forEach((n) => ((n as HTMLElement).style.display = multi ? '' : 'none'));
+}
+
+function lbStep(delta: number): void {
+  if (lbUris.length < 2) return;
+  lbIndex += delta;
+  lbRender();
 }
 
 // ── sync (called on every render; shows when the cockpit Stats tab is active) ──
@@ -200,9 +231,20 @@ export function syncStats(): void {
   }
 }
 
-// lightbox close (bound once)
+// lightbox controls (bound once)
 document.addEventListener('click', (e) => {
   const lb = document.getElementById('lb'); if (!lb || !lb.classList.contains('open')) return;
   const t = e.target as HTMLElement;
-  if (t === lb || t.classList.contains('lb-close')) lb.classList.remove('open');
+  if (t.classList.contains('lb-prev')) { lbStep(-1); return; }
+  if (t.classList.contains('lb-next')) { lbStep(1); return; }
+  // backdrop (the #lb padding or the empty image area) or ✕ closes; the image itself doesn't
+  if (t === lb || t.id === 'lb-imgs' || t.classList.contains('lb-close')) lb.classList.remove('open');
+});
+document.addEventListener('keydown', (e) => {
+  const lb = document.getElementById('lb'); if (!lb || !lb.classList.contains('open')) return;
+  if (e.key === 'Escape') lb.classList.remove('open');
+  else if (e.key === 'ArrowLeft') lbStep(-1);
+  else if (e.key === 'ArrowRight') lbStep(1);
+  else return;
+  e.preventDefault();
 });

@@ -593,7 +593,7 @@ const SHELL = `<!doctype html>
 <div id="app"><div class="loading">Loading dashboard…</div></div>
 <div id="cockpit"><div id="cockpit-grid" class="cockpit-grid cols2"></div></div>
 <div id="stats"><div id="stats-body"></div></div>
-<div id="lb"><span class="lb-close">✕</span><div id="lb-imgs"></div></div>
+<div id="lb"><span class="lb-close">✕</span><button class="lb-nav lb-prev" aria-label="Previous image">‹</button><div id="lb-imgs"></div><button class="lb-nav lb-next" aria-label="Next image">›</button><div class="lb-count"></div></div>
 <div id="toast"></div>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>

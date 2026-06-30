@@ -502,11 +502,17 @@ body.no-agent .main { right: 0; }
 #stats .dim { opacity: .12 !important; } #stats .hl { opacity: 1 !important; stroke-width: 2.6; }
 #stats-tip { position: fixed; display: none; pointer-events: none; background: rgba(0,0,0,.85); border: 1px solid var(--accent);
   border-radius: 6px; padding: 4px 8px; font-size: 11px; color: #fff; z-index: 120; }
-#lb { position: fixed; inset: 0; display: none; background: rgba(0,0,0,.85); z-index: 110; padding: 32px; overflow: auto; }
-#lb.open { display: block; } #lb #lb-imgs { display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start; }
-#lb img { max-width: 340px; max-height: 340px; border: 1px solid var(--border); border-radius: 6px; background: #000; }
-#lb .lb-close { position: fixed; top: 12px; right: 18px; color: #fff; font-size: 22px; cursor: pointer; }
+#lb { position: fixed; inset: 0; display: none; background: rgba(0,0,0,.9); z-index: 110; padding: 32px; }
+#lb.open { display: flex; align-items: center; justify-content: center; }
+#lb #lb-imgs { display: flex; align-items: center; justify-content: center; max-width: 92vw; max-height: 90vh; }
+#lb img { max-width: 92vw; max-height: 90vh; border: 1px solid var(--border); border-radius: 6px; background: #000; object-fit: contain; }
+#lb .lb-close { position: fixed; top: 12px; right: 18px; color: #fff; font-size: 22px; cursor: pointer; z-index: 2; }
 #lb .lb-note { color: var(--text-muted); font-size: 12px; }
+#lb .lb-nav { position: fixed; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 76px; border: none; border-radius: 8px; background: rgba(0,0,0,.4); color: #fff; font-size: 40px; line-height: 1; cursor: pointer; }
+#lb .lb-nav:hover { background: rgba(0,0,0,.75); }
+#lb .lb-prev { left: 14px; } #lb .lb-next { right: 14px; }
+#lb .lb-count { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 13px; background: rgba(0,0,0,.55); padding: 3px 11px; border-radius: 11px; }
 
 /* Sidebar collapse handle — a subtle divider you click to toggle */
 .side-divider { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); bottom: 0; width: 11px; z-index: 31;
