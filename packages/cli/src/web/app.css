@@ -295,13 +295,13 @@ body.no-agent .main { right: 0; }
 .side-usage-row .bar { flex: 1; height: 5px; }
 .side-usage-row .bar-val { font-size: 10px; flex-shrink: 0; }
 .proj-group { margin-bottom: var(--s3); }
-/* Groups read as collapsible LABELS (not selectable rows) — no background/edge, so
-   they don't compete with the green active-project rows nested beneath them. */
-.group-head { display: flex; align-items: center; gap: 6px; padding: 5px 4px; cursor: pointer;
-  user-select: none; color: var(--text-muted); margin-top: 2px; }
-.group-head:hover .group-name { color: var(--text-secondary); }
-.group-caret { font-size: 9px; width: 10px; color: var(--text-muted); }
-.group-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+/* Groups = soft filled header bars: clearly dividers, distinct from the green
+   active-project rows nested beneath, without the heavy orange of a solid bar. */
+.group-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer;
+  user-select: none; border-radius: var(--r-sm); background: var(--surface-3); color: var(--text); margin: 2px 0 4px; }
+.group-head:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-3)); }
+.group-caret { font-size: 13px; width: 12px; color: var(--accent); }
+.group-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); }
 .group-count { font-size: 10px; color: var(--text-muted); }
 .group-live { display: flex; align-items: center; gap: 3px; margin-left: auto; font-size: 10px; color: var(--success); }
 .group-live .dot { width: 6px; height: 6px; }
