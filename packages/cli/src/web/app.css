@@ -30,7 +30,7 @@
   --topbar-h: 54px;
   --rail-w: 46px;
   --sidebar-w: 264px;
-  --convtabs-h: 44px;
+  --cptoolbar-h: 44px;
   --dock-w: 460px;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Consolas, Menlo, monospace;
@@ -99,6 +99,7 @@ body {
   color: var(--text);
   font: 13px/1.5 var(--ui);
   font-feature-settings: "tnum" 1;
+  overflow: hidden; /* fit-to-page: the shell is 100vh; only inner zones scroll */
 }
 body.sidebar-collapsed { --sidebar-w: 0px; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -122,11 +123,15 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 .wordmark { font-weight: 700; letter-spacing: 0.14em; font-size: 15px; }
 .tier { font-size: 11px; color: var(--text-muted); border: 1px solid var(--border-strong);
   padding: 1px 6px; border-radius: var(--r-pill); }
-.usage-mini { display: grid; grid-template-columns: auto 1fr auto auto 1fr auto;
-  align-items: center; gap: var(--s2) var(--s3); flex: 1; max-width: 560px; }
-.um-label { font-size: 11px; color: var(--text-muted); }
-.usage-mini .bar { width: 100%; min-width: 70px; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s4); flex-shrink: 0; }
+.shell-spacer { flex: 1; }
+/* Stats — top-level view switch (orange tint+ring when active) */
+.statbtn { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-secondary);
+  font: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer; transition: all .12s ease; flex-shrink: 0; }
+.statbtn:hover { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+.statbtn.nav-on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.statbtn svg { flex-shrink: 0; }
+.topbar-right { display: flex; align-items: center; gap: var(--s4); flex-shrink: 0; }
 .live-count { display: flex; align-items: center; gap: var(--s2); font-size: 12px; color: var(--text-secondary); }
 .updated { font-size: 11.5px; color: var(--text-muted); }
 .theme-switch { display: flex; align-items: center; gap: 5px; }
@@ -163,28 +168,30 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 
 /* ── body layout ──────────────────────────────────────────── */
 .body { display: block; }
+/* Sidebar = 3 fixed-height flex zones: top (nav + conversations), scrolling
+   projects, bottom usage telemetry. Only .side-scroll scrolls. */
 .sidebar { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--sidebar-w);
-  overflow-y: auto; overflow-x: hidden; padding: var(--s4);
+  display: flex; flex-direction: column; overflow: hidden;
   transition: transform .2s ease; z-index: 30; }
 body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
-.main { margin-left: var(--sidebar-w); margin-right: var(--rail-w); padding: var(--s5);
-  display: flex; flex-direction: column; gap: var(--s5); transition: margin .2s ease; }
-body.dock-open .main { margin-right: var(--dock-w); }
-body.no-agent .main { margin-right: 0; }
-body.conv-home .main { padding-top: calc(var(--convtabs-h) + var(--s4)); }
+.side-top { flex: none; padding: var(--s3) var(--s3) var(--s1); }
+.side-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--s2) var(--s3) var(--s3); }
+.side-usage { flex: none; border-top: 1px solid var(--border); background: var(--surface-1);
+  padding: var(--s2) var(--s3); display: flex; flex-direction: column; gap: 4px; }
+.main { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); bottom: 0;
+  overflow: auto; padding: var(--s5);
+  display: flex; flex-direction: column; gap: var(--s5); transition: left .2s ease, right .2s ease; }
+body.dock-open .main { right: var(--dock-w); }
+body.no-agent .main { right: 0; }
 
-/* Conversations-pane tabs (List / Cockpit) — fixed across the content area */
-.conv-tabs { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w);
-  height: var(--convtabs-h); display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s5);
-  background: var(--bg); border-bottom: 1px solid var(--border); z-index: 26; transition: left .2s ease, right .2s ease; }
-body.dock-open .conv-tabs { right: var(--dock-w); }
-.no-agent .conv-tabs { right: 0; }
-.conv-tabs .sp { margin-left: auto; }
-.conv-tab { background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted);
-  font: inherit; font-size: 13px; font-weight: 600; padding: 0 var(--s2); height: 100%; cursor: pointer; }
-.conv-tab:hover { color: var(--text-secondary); }
-.conv-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.conv-tab .num { color: var(--text-faint); font-weight: 400; font-size: 11.5px; }
+/* Cockpit toolbar — slim contextual bar fixed across the content area, above the
+   cockpit/stats overlays (which start below it). */
+.shell-cptoolbar { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w);
+  height: var(--cptoolbar-h); display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4);
+  background: var(--surface-1); border-bottom: 1px solid var(--border); z-index: 26; transition: left .2s ease, right .2s ease; }
+body.dock-open .shell-cptoolbar { right: var(--dock-w); }
+.no-agent .shell-cptoolbar { right: 0; }
+.shell-cptoolbar .sp { margin-left: auto; }
 /* Per-project focus chips — kept on one row so the cockpit's top offset is stable. */
 .cp-chips { display: flex; align-items: center; gap: var(--s2); margin-left: var(--s3);
   min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 0 var(--s1); }
@@ -207,14 +214,56 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .sidebar { background: var(--surface-1); }
 .card-head { display: flex; align-items: baseline; gap: var(--s3);
   padding-bottom: var(--s3); margin-bottom: var(--s4); border-bottom: 1px solid var(--border-faint); }
-.card-head h2, .side-head, .ft-head, .sub {
+.card-head h2, .side-head, .sub {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); font-weight: 600; }
 .card-meta { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
 
 /* ── sidebar / projects ───────────────────────────────────── */
-.sidebar { padding: var(--s4); }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+
+/* sidebar top zone: Cockpit nav button + inline search magnifier (shares the row) */
+.side-navrow { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+.side-nav-cockpit { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: var(--s2);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-secondary);
+  font: inherit; font-size: 13px; font-weight: 500; padding: 7px var(--s2); cursor: pointer; transition: all .12s ease; }
+.side-nav-cockpit:hover { background: var(--surface-2); color: var(--text); }
+.side-nav-cockpit.nav-on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.side-nav-cockpit svg { flex-shrink: 0; }
+.side-nav-cnt { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.side-qbtn { flex: none; width: 32px; height: 32px; display: grid; place-items: center;
+  background: transparent; border: 1px solid var(--border); border-radius: var(--r-sm);
+  color: var(--text-muted); cursor: pointer; transition: all .12s ease; }
+.side-qbtn:hover { background: var(--surface-2); color: var(--text); }
+.side-qbtn.on { border-color: var(--accent); color: var(--accent); }
+.side-search-box { position: relative; margin-bottom: var(--s2); }
+
+/* sidebar Conversations list (Live, then dimmed Recent) */
+.side-sec-head { display: flex; align-items: center; gap: 6px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-muted); font-weight: 600; margin: var(--s2) var(--s1) 6px; }
+.side-sec-ct { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--success); }
+.side-sec-ct .dot { width: 7px; height: 7px; }
+.side-live-list { display: flex; flex-direction: column; gap: 2px; max-height: 38vh; overflow-y: auto; }
+.side-conv { padding: 6px var(--s2); border-radius: var(--r-sm); cursor: pointer; }
+.side-conv:hover { background: var(--surface-2); }
+.side-conv-top { display: flex; align-items: center; gap: var(--s2); }
+.side-conv-nm { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-conv-when { margin-left: auto; font-size: 10px; color: var(--text-faint); flex-shrink: 0; }
+.side-conv-act { margin-left: 16px; margin-top: 2px; font-size: 11px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-conv.active .side-conv-act { color: var(--text-secondary); }
+.side-conv.idle .side-conv-nm { font-weight: 500; color: var(--text-secondary); }
+.side-sub-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint);
+  margin: 8px var(--s2) 4px; }
+
+/* sidebar bottom zone: compact usage telemetry */
+.side-usage-line { display: flex; align-items: center; justify-content: space-between; }
+.side-usage-tier { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; }
+.side-usage-cost { font-size: 10px; color: var(--text-faint); }
+.side-usage-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted); }
+.side-usage-row .side-usage-lbl { width: 18px; flex: none; color: var(--text-faint); }
+.side-usage-row .bar { flex: 1; height: 5px; }
+.side-usage-row .bar-val { font-size: 10px; flex-shrink: 0; }
 .proj-group { margin-bottom: var(--s3); }
 .group-head { display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s2); cursor: pointer;
   border-radius: var(--r-sm); user-select: none; color: var(--text-secondary);
@@ -269,37 +318,8 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .heat-legend { display: flex; align-items: center; gap: 4px; margin-top: var(--s3); font-size: 10px; color: var(--text-faint); }
 .heat-legend .cell { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 
-/* ── conversations table ──────────────────────────────────── */
-.conv-table { display: flex; flex-direction: column; }
-.thead, .srow-head { display: grid;
-  grid-template-columns: minmax(180px, 1.7fr) repeat(7, minmax(52px, 0.62fr));
-  align-items: center; gap: var(--s2); }
-.thead { padding: 0 var(--s2) var(--s2); border-bottom: 1px solid var(--border-faint); }
-.thead .col-proj, .thead .th { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
-.thead .th { text-align: right; cursor: pointer; user-select: none; }
-.thead .th:hover { color: var(--text-secondary); }
-.thead .th.active { color: var(--accent); }
-.srow { border-bottom: 1px solid var(--border-faint); }
-.srow:last-child { border-bottom: none; }
-.srow-head { padding: var(--s3) var(--s2); cursor: pointer; border-radius: var(--r-sm); transition: background .12s ease; }
-.srow-head:hover { background: var(--surface-2); }
-.srow.expanded > .srow-head { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
-.srow-id { display: flex; align-items: flex-start; gap: var(--s2); min-width: 0; }
-.srow-id > .dot { margin-top: 5px; }
-.srow-main { min-width: 0; flex: 1; }
-.srow-title { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
-.srow-title .proj-name { font-size: 13.5px; font-weight: 600; }
-.srow .action { color: var(--accent); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.share-bar { height: 3px; background: var(--surface-2); border-radius: var(--r-pill); margin-top: 5px; max-width: 280px; overflow: hidden; }
-.share-bar > div { height: 100%; background: linear-gradient(90deg, #1c8f82, var(--success)); border-radius: var(--r-pill); }
-.srow .c { font-size: 12px; color: var(--text-secondary); text-align: right; }
-.srow .c.r { justify-self: end; }
-.srow .ctxcell { display: flex; flex-direction: column; align-items: flex-end; gap: 0; }
-.srow .ago { color: var(--text-muted); }
-
-/* ── session detail ───────────────────────────────────────── */
+/* ── session detail transcript (project-detail Sessions tab) ── */
 .detail { padding: var(--s2) var(--s2) var(--s4); }
-.detail-cols { display: flex; gap: var(--s3); }
 .transcript { flex: 2 1 320px; max-height: 340px; overflow-y: auto; background: var(--bg);
   border: 1px solid var(--border); border-radius: var(--r-sm); padding: var(--s3); font-size: 12px; }
 .transcript > div { margin-top: var(--s2); }
@@ -307,17 +327,6 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .t-user { color: var(--accent); }
 .t-assistant { color: var(--text-secondary); }
 .t-tool { color: var(--info); font-family: var(--mono); font-size: 11.5px; }
-.ft { flex: 1 1 220px; max-height: 340px; display: flex; flex-direction: column; background: var(--bg);
-  border: 1px solid var(--border); border-radius: var(--r-sm); }
-.ft-head { padding: var(--s2) var(--s3) var(--s1); }
-.filetree { overflow-y: auto; padding: 0 var(--s3) var(--s2); font-size: 12px; font-family: var(--mono); }
-.ft-dir { color: var(--text-muted); margin-top: var(--s2); }
-.ft-file { padding-left: var(--s3); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ft-file.hot { color: var(--success); }
-.ft-file.hot::before { content: '● '; }
-.ft-w { color: var(--accent); }
-.ft-r { color: var(--text-muted); }
-.detail-actions { margin-top: var(--s3); padding-left: var(--s2); }
 
 .overage { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--crit);
   background: color-mix(in srgb, var(--crit) 12%, transparent); border: 1px solid color-mix(in srgb, var(--crit) 35%, transparent);
@@ -349,12 +358,6 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 .proj-row.dim { opacity: 0.4; }
 .proj-row.dim:hover { opacity: 0.7; }
 
-/* ── sidebar nav ──────────────────────────────────────────── */
-.side-nav { margin-bottom: var(--s4); }
-.nav-item { display: block; width: 100%; text-align: left; background: transparent; border: none;
-  color: var(--text-secondary); font: inherit; font-size: 13px; padding: 7px var(--s2); border-radius: var(--r-sm); cursor: pointer; }
-.nav-item:hover { background: var(--surface-2); color: var(--text); }
-.nav-item.selected { background: var(--surface-2); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
 .proj-row.selected { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
 
 /* ── project detail ───────────────────────────────────────── */
@@ -412,7 +415,7 @@ body.dock-open .conv-tabs { right: var(--dock-w); }
 
 /* ── cockpit (grid of live conversation terminals) ────────── */
 /* Sits in the content area beside the (always-visible) sidebar — not an overlay. */
-#cockpit { position: fixed; top: calc(var(--topbar-h) + var(--convtabs-h)); left: var(--sidebar-w); right: var(--rail-w); bottom: 0; z-index: 25;
+#cockpit { position: fixed; top: calc(var(--topbar-h) + var(--cptoolbar-h)); left: var(--sidebar-w); right: var(--rail-w); bottom: 0; z-index: 25;
   background: var(--surface-2); display: none; flex-direction: column; transition: left .2s ease, right .2s ease; }
 #cockpit.open { display: flex; }
 .no-agent #cockpit { right: 0; }
@@ -428,12 +431,7 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cockpit-grid:empty::after { content: 'No live sessions yet — use “+ Add”, or “Open here” on a conversation.'; color: var(--text-muted); font-size: 13px; }
 .nav-count { color: var(--text-faint); font-size: 11px; }
 
-/* ── cockpit sub-tabs + Stats range ───────────────────────────── */
-.cp-subtabs { display: inline-flex; gap: 2px; margin-left: var(--s3); background: var(--surface-2);
-  border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
-.cp-subtab { background: transparent; border: none; color: var(--text-muted); font: inherit; font-size: 11.5px;
-  font-weight: 600; padding: 3px 10px; border-radius: 5px; cursor: pointer; }
-.cp-subtab.on { background: var(--accent); color: var(--on-accent, #06080d); }
+/* ── cockpit "waiting" pill + Stats range ─────────────────────── */
 /* "● N waiting" — a conversation finished its turn / wants input. Pulses so it
    catches the eye even while you're heads-down in a maximized tile. */
 .cp-wait { margin-left: var(--s3); background: color-mix(in srgb, var(--warn) 16%, transparent);
@@ -445,7 +443,7 @@ body.dock-open #cockpit { right: var(--dock-w); }
 .cp-range .btn.on { border-color: var(--accent); color: var(--accent); }
 
 /* ── Stats panel (overlay sibling of #cockpit) ────────────────── */
-#stats { position: fixed; top: calc(var(--topbar-h) + var(--convtabs-h)); left: var(--sidebar-w); right: var(--rail-w);
+#stats { position: fixed; top: calc(var(--topbar-h) + var(--cptoolbar-h)); left: var(--sidebar-w); right: var(--rail-w);
   bottom: 0; z-index: 25; background: var(--surface-2); display: none; overflow: auto; transition: left .2s ease, right .2s ease; }
 #stats.open { display: block; }
 .no-agent #stats { right: 0; }
@@ -733,13 +731,10 @@ body.sidebar-collapsed .restore-banner { left: 0; }
   :root { --sidebar-w: 220px; }
   .dock.open { width: 100vw; }
   /* on narrow screens the dock overlays rather than pushing content */
-  body.dock-open .main { margin-right: var(--rail-w); }
+  body.dock-open .main { right: var(--rail-w); }
+  body.dock-open .shell-cptoolbar { right: var(--rail-w); }
   body.dock-open #cockpit { right: var(--rail-w); }
-}
-@media (max-width: 720px) {
-  .thead .th[data-key="tr"], .srow .c:nth-child(5),
-  .thead .th[data-key="dur"], .srow .c:nth-child(8) { display: none; }
-  .usage-mini { display: none; }
+  body.dock-open #stats { right: var(--rail-w); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

@@ -2,7 +2,7 @@ import './app.css';
 import { render } from 'uhtml';
 import { appView } from './views.js';
 import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession } from './store.js';
-import type { SortKey, CockpitTile } from './store.js';
+import type { CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
@@ -22,6 +22,7 @@ const appRoot = document.getElementById('app')!;
 
 // ── render ───────────────────────────────────────────────────
 let prevNewSessionOpen = false;
+let prevSearchOpen = false;
 let prevViewKey = '';
 function renderApp(): void {
   const state = getState();
@@ -38,23 +39,26 @@ function renderApp(): void {
   const trBefore = document.getElementById('transcript');
   const trWasAtBottom = trBefore ? (trBefore.scrollHeight - trBefore.scrollTop - trBefore.clientHeight < 40) : true;
 
-  // Preserve scroll across the 3s poll re-render: the sidebar (project list)
-  // always; the window (main content) only when the view is unchanged, so real
+  // Preserve scroll across the 3s poll re-render: the projects zone (.side-scroll)
+  // always; the main content (.main) only when the view is unchanged, so real
   // navigation still resets to top.
-  const viewKey = (state.ui.selectedProject ?? '') + '|' + state.search.query.trim() + '|' + state.ui.cockpit.open;
-  const sidebarScroll = (document.querySelector('.sidebar') as HTMLElement | null)?.scrollTop ?? 0;
-  const winScroll = window.scrollY;
+  const viewKey = (state.ui.selectedProject ?? '') + '|' + state.search.query.trim() + '|' + state.ui.cockpit.tab;
+  const sideScroll = (document.querySelector('.side-scroll') as HTMLElement | null)?.scrollTop ?? 0;
+  const mainScroll = (document.querySelector('.main') as HTMLElement | null)?.scrollTop ?? 0;
 
   render(appRoot, appView(state) as Node);
 
-  const sb = document.querySelector('.sidebar') as HTMLElement | null;
-  if (sb && sidebarScroll) sb.scrollTop = sidebarScroll;
-  if (viewKey === prevViewKey && winScroll) window.scrollTo(0, winScroll);
+  const ss = document.querySelector('.side-scroll') as HTMLElement | null;
+  if (ss && sideScroll) ss.scrollTop = sideScroll;
+  {
+    const m = document.querySelector('.main') as HTMLElement | null;
+    // .main is a persistent fixed scroller now, so reset it to top on real
+    // navigation; only restore the prior position on a same-view poll re-render.
+    if (m) m.scrollTop = viewKey === prevViewKey ? mainScroll : 0;
+  }
   prevViewKey = viewKey;
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   document.body.classList.toggle('sidebar-collapsed', state.ui.sidebarCollapsed);
-  const home = !state.search.query.trim() && !state.ui.selectedProject;
-  document.body.classList.toggle('conv-home', home);
   syncDock();
   syncCockpit();
   syncStats();
@@ -78,6 +82,13 @@ function renderApp(): void {
     if (input) { input.focus(); input.value = state.ui.newSessionDraft; }
   }
   prevNewSessionOpen = state.ui.newSessionOpen;
+
+  // Focus the sidebar search field the moment it opens (click or "/").
+  if (state.ui.searchOpen && !prevSearchOpen) {
+    const inp = document.getElementById('search-input') as HTMLInputElement | null;
+    if (inp && document.activeElement !== inp) inp.focus();
+  }
+  prevSearchOpen = state.ui.searchOpen;
 }
 subscribe(renderApp);
 
@@ -335,7 +346,9 @@ document.addEventListener('click', async (ev) => {
   } else if (act === 'tile-close') {
     const cp = getState().ui.cockpit;
     const tiles = cp.tiles.filter((t) => t.id !== el.dataset.id);
-    setCockpit({ tiles, open: tiles.length > 0 && cp.open, maximized: cp.maximized === el.dataset.id ? null : cp.maximized });
+    // Cockpit is the always-open home surface — closing the last tile leaves an
+    // empty cockpit (with its "+ Add" prompt), it never flips the view off.
+    setCockpit({ tiles, open: true, maximized: cp.maximized === el.dataset.id ? null : cp.maximized });
   } else if (act === 'tile-max') {
     const cp = getState().ui.cockpit;
     const id = el.dataset.id!;
@@ -397,8 +410,23 @@ document.addEventListener('click', async (ev) => {
     const cur = getState().ui.collapsedGroups;
     setUi({ collapsedGroups: cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g] });
   }
-  else if (act === 'view-list') { setCockpit({ open: false }); }
-  else if (act === 'view-cockpit') { setCockpit({ open: true }); }
+  else if (act === 'nav-cockpit') {
+    const hadQuery = !!getState().search.query.trim();
+    setCockpit({ tab: 'grid' });
+    setUi({ selectedProject: null, searchOpen: false });
+    setSearch({ query: '', results: [] });
+    if (hadQuery) postBridge('', null); // tell the bridge/CTRL the search is no longer active
+    writeHash();
+  }
+  else if (act === 'nav-stats') {
+    const hadQuery = !!getState().search.query.trim();
+    setCockpit({ tab: 'stats' });
+    setUi({ selectedProject: null, searchOpen: false });
+    setSearch({ query: '', results: [] });
+    if (hadQuery) postBridge('', null);
+    writeHash();
+  }
+  else if (act === 'search-toggle') { setUi({ searchOpen: !getState().ui.searchOpen }); }
   else if (act === 'cockpit-chip') {
     const proj = el.dataset.proj!;
     const cur = getState().ui.cockpit.hiddenProjects;
@@ -457,10 +485,6 @@ document.addEventListener('click', async (ev) => {
     const res = await postLaunch({ path: el.dataset.path!, resume: el.dataset.id });
     toast(res.success ? '✓ Resumed: ' + res.project : '✗ ' + (res.error || res.message));
     (el as HTMLButtonElement).disabled = false;
-  } else if (act === 'sort') {
-    const key = el.dataset.key as SortKey;
-    if (ui.sortKey === key) setUi({ sortDir: ui.sortDir === 1 ? -1 : 1 });
-    else setUi({ sortKey: key, sortDir: 1 });
   }
 });
 
@@ -521,7 +545,22 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Enter' && (ev.target as HTMLElement).id === 'newsession-prompt') {
     (document.querySelector('[data-act="newlaunch"]') as HTMLElement | null)?.click();
   }
-  if (ev.key === 'Escape' && getState().ui.cockpit.notesOpen) { setCockpit({ notesOpen: false }); }
+  // "/" expands the sidebar search (unless typing in a field or a picker is up).
+  const typing = /^(INPUT|TEXTAREA)$/.test((ev.target as HTMLElement | null)?.tagName || '');
+  if (ev.key === '/' && !typing && !getState().ui.cockpit.addOpen && !getState().ui.cockpit.notesOpen) {
+    ev.preventDefault();
+    setUi({ searchOpen: true });
+  }
+  // Esc — ordered: notes overlay first, then the sidebar search (close + clear).
+  if (ev.key === 'Escape') {
+    if (getState().ui.cockpit.notesOpen) { setCockpit({ notesOpen: false }); }
+    else if (getState().ui.searchOpen || getState().search.query.trim()) {
+      const hadQuery = !!getState().search.query.trim();
+      setUi({ searchOpen: false });
+      setSearch({ query: '', results: [], loading: false, agentNote: null });
+      if (hadQuery) postBridge('', getState().ui.selectedProject); // keep the bridge in sync, like searchclear
+    }
+  }
 });
 
 // Reveal the branch field when "Isolated worktree" is ticked.
@@ -565,11 +604,12 @@ function restoreSession(): void {
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
-    setCockpit({ tiles, layout: p.cockpit.layout, open: p.cockpit.open, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
-    // If the cockpit was the active view, actually land on it — otherwise a project
-    // left in the URL hash (readHash set selectedProject) hides the restored tiles,
-    // so they're invisible until you manually re-open one. Mirror restore-accept.
-    if (p.cockpit.open) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+    // Force open:true — the cockpit is the always-open home surface (stale localStorage
+    // from the old List/Cockpit tab era could otherwise carry open:false).
+    setCockpit({ tiles, layout: p.cockpit.layout, open: true, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
+    // Land on the cockpit — a project left in the URL hash (readHash set
+    // selectedProject) would otherwise hide the restored tiles. Mirror restore-accept.
+    setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
   } else {
     setUi({ restoreOffer: { tiles, layout: p.cockpit.layout } });
   }

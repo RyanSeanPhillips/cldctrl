@@ -9,8 +9,6 @@ import type {
   ProjectCommit, ProjectIssue, ProjectSessionRow, FileEntry, ProjectActivity, SearchResult, NoteEntry,
 } from './types.js';
 
-export type SortKey = 'tokens' | 'share' | 'msgs' | 'tr' | 'ctx' | 'dur' | 'ago';
-
 export interface CockpitTile {
   id: string;                 // 'resume:<sessionId>' | 'new:<...>' | 'doc:<path>'
   kind: 'resume' | 'new' | 'doc';
@@ -50,6 +48,7 @@ export interface CockpitState {
 export interface UiState {
   expandedSessionId: string | null;
   selectedProject: string | null; // project path — when set, main shows project detail
+  searchOpen: boolean;             // the sidebar search field is expanded (explicit STORE state — a class toggle would snap back on the 3s poll re-render)
   detailTab: DetailTab;
   newSessionOpen: boolean;         // the "New session" prompt form in the detail header
   newSessionDraft: string;         // typed prompt, preserved across polls
@@ -57,8 +56,6 @@ export interface UiState {
   sidebarCollapsed: boolean;
   collapsedGroups: string[];       // sidebar project-groups the user has collapsed
   cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
-  sortKey: SortKey;
-  sortDir: 1 | -1;                 // 1 = desc, -1 = asc
   restoreOffer: { tiles: CockpitTile[]; layout: CockpitState['layout'] } | null; // last-session tiles to optionally restore
 }
 
@@ -100,6 +97,7 @@ const state: State = {
   ui: {
     expandedSessionId: null,
     selectedProject: null,
+    searchOpen: false,
     detailTab: 'sessions',
     newSessionOpen: false,
     newSessionDraft: '',
@@ -107,8 +105,6 @@ const state: State = {
     sidebarCollapsed: false,
     collapsedGroups: [],
     cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], attnTiles: [], addOpen: false, addQuery: '', addResults: [], notesOpen: false, notesScope: 'project', notesQuery: '', notesResults: [] },
-    sortKey: 'tokens',
-    sortDir: 1,
     restoreOffer: null,
   },
   detail: emptyDetail(null),
@@ -167,7 +163,9 @@ function schedulePersist(): void {
       const persistTiles = cp.tiles.map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
       const data: PersistedSession = {
         ts: Date.now(),
-        cockpit: { tiles: persistTiles, layout: cp.layout, open: cp.open, maximized: cp.maximized, hiddenProjects: cp.hiddenProjects },
+        // The cockpit is now always-open (it's the home surface) — persist `open:true`
+        // so stale localStorage from the old List/Cockpit tab era can't reintroduce false.
+        cockpit: { tiles: persistTiles, layout: cp.layout, open: true, maximized: cp.maximized, hiddenProjects: cp.hiddenProjects },
         sidebarCollapsed: state.ui.sidebarCollapsed,
         collapsedGroups: state.ui.collapsedGroups,
       };

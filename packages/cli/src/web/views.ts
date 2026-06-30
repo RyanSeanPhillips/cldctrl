@@ -1,20 +1,27 @@
 /** All dashboard views, rendered declaratively with uhtml from store state. */
-import { html } from 'uhtml';
-import type { OverviewPayload, SessionInfo, ProjectInfo, UsageWindow, HeatCell, TouchedFile } from './types.js';
-import type { State, SortKey } from './store.js';
-import { tok, ago, dur, turnsPerReq, clamp } from './util.js';
+import { html, svg } from 'uhtml';
+import type { OverviewPayload, SessionInfo, ProjectInfo, UsageWindow, HeatCell } from './types.js';
+import type { State } from './store.js';
+import { tok, ago, clamp } from './util.js';
 import { THEMES, currentTheme } from './theme.js';
 
 /** Anything `html\`\`` can return (a rendered node or a Tpl placeholder). */
 type Tpl = ReturnType<typeof html>;
 
 // ── icons (inline SVG, currentColor) ─────────────────────────
-const svgWrap = (path: Tpl) => html`<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+const svgWrap = (path: Tpl) => svg`<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
-const iPlay = () => svgWrap(html`<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"></polygon>`);
-const iTerminal = () => svgWrap(html`<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>`);
-const iBranch = () => svgWrap(html`<circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="7" r="2.4"></circle><path d="M6 8.4v7.2M8.4 6.4H14a3 3 0 0 1 3 3v0"></path>`);
-const iGrid = () => svgWrap(html`<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>`);
+const iPlay = () => svgWrap(svg`<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"></polygon>`);
+const iTerminal = () => svgWrap(svg`<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>`);
+const iBranch = () => svgWrap(svg`<circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="7" r="2.4"></circle><path d="M6 8.4v7.2M8.4 6.4H14a3 3 0 0 1 3 3v0"></path>`);
+const iGrid = () => svgWrap(svg`<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>`);
+const iSearch = () => svgWrap(svg`<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>`);
+const iStats = () => svgWrap(svg`<line x1="6" y1="20" x2="6" y2="11"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="18" y1="20" x2="18" y2="14"></line>`);
+const iNote = () => svgWrap(svg`<path d="M5 3h9l5 5v13H5z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line>`);
+const iAdd = () => svgWrap(svg`<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>`);
+const iHeadphones = () => svgWrap(svg`<path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="14" width="5" height="7" rx="1.5"></rect><rect x="16.5" y="14" width="5" height="7" rx="1.5"></rect>`);
+const iCols1 = () => svgWrap(svg`<rect x="4" y="4" width="16" height="16" rx="1"></rect>`);
+const iCols2 = () => svgWrap(svg`<rect x="4" y="4" width="7" height="16" rx="1"></rect><rect x="13" y="4" width="7" height="16" rx="1"></rect>`);
 
 /** Resume a conversation as a live tile in the web cockpit (the in-app surface). */
 function cockpitBtn(sessionId: string, projectPath: string, title: string): Tpl {
@@ -63,14 +70,6 @@ function usageBar(w: UsageWindow): Tpl {
     <span class="bar-val">${val}</span>`;
 }
 
-function ctxGauge(ctx: number, window?: number): Tpl | string {
-  if (!ctx || ctx <= 0) return '';
-  const CAP = window && window > 0 ? window : 200000;
-  const pct = clamp(Math.round((ctx / CAP) * 100), 0, 100);
-  const cls = pct >= 85 ? 'crit' : pct >= 60 ? 'warn' : '';
-  return html`<div class="ctx-gauge" title=${'context ' + tok(ctx) + ' / ' + tok(CAP)}><div class=${cls} style=${'width:' + pct + '%'}></div></div>`;
-}
-
 function themeSwitch(): Tpl {
   const cur = currentTheme();
   return html`<div class="theme-switch" title="Theme">
@@ -79,27 +78,27 @@ function themeSwitch(): Tpl {
   </div>`;
 }
 
-// ── usage header (sticky) ────────────────────────────────────
-function topbar(d: OverviewPayload, connError: boolean, cockpitCount: number): Tpl {
+// ── topbar (brand · Stats · live count · theme · listen · CTRL) ──
+// Usage bars moved OUT of here into the sidebar's fixed-bottom zone. Search is now
+// in the sidebar too. The Stats button is a top-level view switch.
+function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
+  const home = !state.search.query.trim() && !state.ui.selectedProject;
+  const statsActive = home && state.ui.cockpit.tab === 'stats';
   return html`<header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
       ${d.tier ? html`<span class="tier">${d.tier}</span>` : ''}
     </div>
-    <div class="usage-mini">
-      <span class="um-label">5h</span>${usageBar(d.usage.fiveHour)}
-      <span class="um-label">7d</span>${usageBar(d.usage.sevenDay)}
-    </div>
-    ${d.usage.overage ? html`<span class="overage" title=${'Paid overage · resets ' + d.usage.overage.resetIn}>
-      ⚠ EXTRA <span class="num">${d.usage.overage.percent}%</span></span>` : ''}
+    <span class="shell-spacer"></span>
+    <button class=${'statbtn' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Usage & stats">${iStats()} Stats</button>
     <div class="topbar-right">
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
-      <span class="updated">${connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
+      <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
       ${themeSwitch()}
-      <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">&#127911;</button>
+      <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
       ${d.features.agentTerminal
         ? html`<button class="btn" data-act="dockToggle" title="CTRL — mission-control agent">${iTerminal()} CTRL</button>`
         : ''}
@@ -153,187 +152,86 @@ function projectGroupSection(group: string, projects: ProjectInfo[], ui: State['
   </div>`;
 }
 
-function sidebar(d: OverviewPayload, ui: State['ui'], query: string, matchPaths: Set<string> | null): Tpl {
+// One row in the sidebar Conversations list (Live, then dimmed Recent). Clickable
+// rows (with an id) resume the conversation as a cockpit tile.
+function sideConvItem(s: SessionInfo): Tpl {
+  const cls = s.status === 'active' ? 'active' : 'idle';
+  const act = s.currentAction || (s.status === 'active' ? 'working…' : 'idle');
+  const inner = html`
+    <div class="side-conv-top"><span class=${'dot ' + s.status}></span><span class="side-conv-nm">${s.project}</span><span class="side-conv-when">${ago(s.lastActivity)}</span></div>
+    <div class="side-conv-act">${act}</div>`;
+  return s.id
+    ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
+        title="Resume this conversation in the cockpit">${inner}</div>`
+    : html`<div class=${'side-conv ' + cls}>${inner}</div>`;
+}
+
+function sideConversations(d: OverviewPayload): Tpl {
+  const liveS = d.sessions.filter((s) => s.status === 'active');
+  const recent = d.sessions.filter((s) => s.status !== 'active');
+  return html`<div class="side-sec-head">Conversations${
+    liveS.length ? html`<span class="side-sec-ct"><span class="dot active"></span>${liveS.length} live</span>` : ''}</div>
+    <div class="side-live-list">
+      ${d.sessions.length
+        ? html`${liveS.map(sideConvItem)}${recent.length ? html`<div class="side-sub-lbl">Recent</div>${recent.map(sideConvItem)}` : ''}`
+        : html`<div class="empty">No sessions in the last 5h.</div>`}
+    </div>`;
+}
+
+// Compact usage telemetry — replaces the old topbar bars and the idea of a
+// full-width bottom status bar. Pinned to the sidebar's fixed-bottom zone.
+function sideUsage(d: OverviewPayload): Tpl {
+  return html`<div class="side-usage">
+    <div class="side-usage-line">
+      ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : html`<span class="side-usage-tier"></span>`}
+      <span class="side-usage-cost">updated ${new Date(d.generatedAt).toLocaleTimeString()}</span>
+    </div>
+    <div class="side-usage-row"><span class="side-usage-lbl">5h</span>${usageBar(d.usage.fiveHour)}</div>
+    <div class="side-usage-row"><span class="side-usage-lbl">7d</span>${usageBar(d.usage.sevenDay)}</div>
+    ${d.usage.overage ? html`<div class="side-usage-row overage-row"><span class="side-usage-lbl">extra</span>
+      <span class="overage" title=${'Paid overage · resets ' + d.usage.overage.resetIn}>⚠ <span class="num">${d.usage.overage.percent}%</span></span></div>` : ''}
+  </div>`;
+}
+
+function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Set<string> | null): Tpl {
+  const ui = state.ui;
   const searching = !!query.trim();
+  const home = !searching && !ui.selectedProject;
+  const cockpitActive = home && ui.cockpit.tab !== 'stats';
+  const searchOpen = ui.searchOpen || searching;
+  const live = d.sessions.filter((s) => s.status === 'active').length;
   const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
-    <div class="search-box">
-      <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>
-      ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
+    <div class="side-top">
+      <div class="side-navrow">
+        <button class=${'side-nav-cockpit' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Cockpit">
+          ${iGrid()} <span>Cockpit</span> <span class="side-nav-cnt">${live} live</span></button>
+        <button class=${'side-qbtn' + (searchOpen ? ' on' : '')} data-act="search-toggle" title="Search (/)" aria-label="Search">${iSearch()}</button>
+      </div>
+      ${searchOpen ? html`<div class="side-search-box">
+        <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>
+        ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
+      </div>` : ''}
+      ${sideConversations(d)}
     </div>
-    <nav class="side-nav">
-      <button class=${'nav-item' + (!ui.selectedProject && !searching ? ' selected' : '')} data-act="home">Conversations</button>
-    </nav>
-    <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
-    ${d.projects.length
-      ? groups.map((g) => projectGroupSection(g, d.projects.filter((p) => (p.group || 'Ungrouped') === g), ui, matchPaths))
-      : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
+    <div class="side-scroll">
+      <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
+      ${d.projects.length
+        ? groups.map((g) => projectGroupSection(g, d.projects.filter((p) => (p.group || 'Ungrouped') === g), ui, matchPaths))
+        : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
+    </div>
+    ${sideUsage(d)}
   </aside>`;
 }
 
-// ── conversations table ──────────────────────────────────────
-const COLS: Array<{ key: SortKey; label: string; cls?: string }> = [
-  { key: 'tokens', label: 'Tokens', cls: 'r' },
-  { key: 'share', label: 'Share', cls: 'r' },
-  { key: 'msgs', label: 'Msgs', cls: 'r' },
-  { key: 'tr', label: 'T/R', cls: 'r' },
-  { key: 'ctx', label: 'Ctx', cls: 'r' },
-  { key: 'dur', label: 'Dur', cls: 'r' },
-  { key: 'ago', label: 'Active', cls: 'r' },
-];
-
-function sortValue(s: SessionInfo, key: SortKey): number {
-  switch (key) {
-    case 'tokens': return s.tokens;
-    case 'share': return s.tokens;
-    case 'msgs': return s.messages;
-    case 'tr': return s.assistantTurns / Math.max(1, s.messages);
-    case 'ctx': return s.contextSize;
-    case 'dur': return s.durationMs;
-    case 'ago': return -new Date(s.lastActivity).getTime(); // recent first when desc
-  }
-}
-
-function fileTree(files: TouchedFile[]): Tpl {
-  if (!files.length) return html`<div class="empty">No files touched yet.</div>`;
-  const dirs = new Map<string, Array<TouchedFile & { name: string }>>();
-  for (const f of files) {
-    const i = f.path.lastIndexOf('/');
-    const dir = i === -1 ? '.' : f.path.slice(0, i);
-    const name = i === -1 ? f.path : f.path.slice(i + 1);
-    if (!dirs.has(dir)) dirs.set(dir, []);
-    dirs.get(dir)!.push({ ...f, name });
-  }
-  const sorted = [...dirs.entries()].sort(
-    (a, b) => Math.max(...b[1].map((f) => f.lastTs)) - Math.max(...a[1].map((f) => f.lastTs)),
-  );
-  const now = Date.now();
-  return html`${sorted.map(([dir, fl]) => html`
-    <div class="ft-dir">${dir}/</div>
-    ${fl.sort((a, b) => b.lastTs - a.lastTs).map((f) => {
-      const hot = now - f.lastTs < 120000;
-      return html`<div class=${'ft-file' + (hot ? ' hot' : '')} title=${f.path}>
-        ${f.name}${f.writes ? html` <span class="ft-w num">✎${f.writes}</span>` : ''}${f.reads ? html` <span class="ft-r num">${f.reads}×</span>` : ''}
-      </div>`;
-    })}
-  `)}`;
-}
-
+// ── transcript (used by the project-detail Sessions tab) ─────
 function transcriptView(state: State): Tpl {
   const t = state.transcript;
   if (!t || t.id !== state.ui.expandedSessionId) return html`<div class="empty">Loading…</div>`;
   if (!t.entries.length) return html`<div class="empty">No transcript yet.</div>`;
   return html`${t.entries.map((e) => html`<div class=${'t-' + e.role}>${
     e.role === 'user' ? '❯ ' : e.role === 'tool' ? '⚙ ' : ''}${e.text}</div>`)}`;
-}
-
-function sessionDetail(s: SessionInfo, state: State): Tpl {
-  return html`<div class="detail">
-    <div class="detail-cols">
-      <div class="transcript" id="transcript">${transcriptView(state)}</div>
-      <div class="ft">
-        <div class="ft-head">Files touched</div>
-        <div class="filetree">${fileTree(s.files)}</div>
-      </div>
-    </div>
-    ${s.id ? html`<div class="detail-actions">
-      ${cockpitBtn(s.id, s.path, s.project)}
-      <button class="btn" data-act="resume" data-id=${s.id} data-path=${s.path} title="Resume in a separate terminal window">${iTerminal()} Resume in terminal</button>
-    </div>` : ''}
-  </div>`;
-}
-
-function sessionRow(s: SessionInfo, totalTokens: number, state: State): Tpl {
-  const expanded = !!s.id && s.id === state.ui.expandedSessionId;
-  const sharePct = totalTokens > 0 ? Math.round((s.tokens / totalTokens) * 100) : 0;
-  return html`<div class=${'srow' + (expanded ? ' expanded' : '')}>
-    <div class="srow-head" data-act="toggle" data-id=${s.id ?? ''}>
-      <div class="srow-id">
-        <span class=${'dot ' + s.status}></span>
-        <div class="srow-main">
-          <div class="srow-title">
-            <span class="proj-name">${s.project}</span>
-            ${s.currentAction && s.status === 'active' ? html`<span class="action">› ${s.currentAction}</span>` : ''}
-          </div>
-          <div class="share-bar"><div style=${'width:' + sharePct + '%'}></div></div>
-        </div>
-      </div>
-      <span class="c num r">${tok(s.tokens)}</span>
-      <span class="c num r">${sharePct}%</span>
-      <span class="c num r">${s.messages}</span>
-      <span class="c num r">${turnsPerReq(s.assistantTurns, s.messages)}</span>
-      <span class="c num r ctxcell">${tok(s.contextSize)}${ctxGauge(s.contextSize, s.contextWindow)}</span>
-      <span class="c num r">${dur(s.durationMs)}</span>
-      <span class="c num r ago">${ago(s.lastActivity)}</span>
-    </div>
-    ${expanded ? sessionDetail(s, state) : ''}
-  </div>`;
-}
-
-function conversations(d: OverviewPayload, state: State): Tpl {
-  const live = d.sessions.filter((s) => s.status === 'active').length;
-  const idle = d.sessions.length - live;
-  const totalTokens = d.sessions.reduce((a, s) => a + s.tokens, 0);
-  const { sortKey, sortDir } = state.ui;
-  const sorted = [...d.sessions].sort((a, b) => (sortValue(b, sortKey) - sortValue(a, sortKey)) * sortDir);
-
-  return html`<section class="card conv">
-    <div class="card-head">
-      <h2>Conversations</h2>
-      <span class="card-meta">${live} live${idle ? ' · ' + idle + ' idle' : ''}</span>
-    </div>
-    ${d.sessions.length === 0
-      ? html`<div class="empty">No sessions in the last 5h window. Launch a project from the sidebar.</div>`
-      : html`<div class="conv-table">
-          <div class="thead">
-            <span class="col-proj">Session</span>
-            ${COLS.map((c) => html`<span class=${'th ' + (c.cls ?? '') + (sortKey === c.key ? ' active' : '')}
-              data-act="sort" data-key=${c.key}>${c.label}${sortKey === c.key ? (sortDir === 1 ? ' ↓' : ' ↑') : ''}</span>`)}
-          </div>
-          ${sorted.map((s) => sessionRow(s, totalTokens, state))}
-        </div>`}
-  </section>`;
-}
-
-function heatLegend(kind: 'tok' | 'com'): Tpl {
-  return html`<div class="heat-legend"><span>less</span>${
-    [0, 1, 2, 3, 4].map((l) => html`<span class="cell" style=${'background:var(--heat-' + kind + '-' + l + ')'}></span>`)
-  }<span>more</span></div>`;
-}
-
-function kpi(value: Tpl | string, label: string): Tpl {
-  return html`<div class="kpi"><span class="kpi-v">${value}</span><span class="kpi-l">${label}</span></div>`;
-}
-
-function activityCard(d: OverviewPayload): Tpl {
-  const tokens28 = d.usage.daily.reduce((a, c) => a + c.value, 0);
-  const commits28 = d.usage.dailyCommits.reduce((a, c) => a + c.value, 0);
-  const activeDays = d.usage.daily.filter((c) => c.value > 0).length;
-  const live = d.sessions.filter((s) => s.status === 'active').length;
-  const hasCommits = commits28 > 0;
-  return html`<section class="card activity">
-    <div class="card-head"><h2>Activity</h2><span class="card-meta">last 28 days</span></div>
-    <div class="kpis">
-      ${kpi(tok(tokens28), 'tokens · 28d')}
-      ${kpi(String(commits28), 'commits · 28d')}
-      ${kpi(html`${activeDays}<small>/28</small>`, 'active days')}
-      ${kpi(String(live), 'live now')}
-      ${kpi(String(d.projects.length), 'projects')}
-    </div>
-    <div class="heat-row">
-      <div class="heat-wrap">
-        <div class="sub">Tokens</div>
-        ${heatmap(d.usage.daily, 'tok')}
-        ${heatLegend('tok')}
-      </div>
-      ${hasCommits ? html`<div class="heat-wrap">
-        <div class="sub">Commits</div>
-        ${heatmap(d.usage.dailyCommits, 'com')}
-        ${heatLegend('com')}
-      </div>` : ''}
-    </div>
-  </section>`;
 }
 
 // ── project detail (tabs: sessions / commits / issues / files) ─
@@ -603,7 +501,7 @@ function notesOverlay(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
-// ── conversations-pane tabs (List / Cockpit) ─────────────────
+// ── cockpit toolbar (slim contextual bar above the cockpit/stats) ──
 /** Per-project focus chips: one per distinct project among open tiles. Toggling
  *  a chip mutes/shows that project's tiles so you can focus on a subset. */
 function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
@@ -628,31 +526,28 @@ function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
-function convTabs(d: OverviewPayload, state: State): Tpl {
+/** The slim contextual toolbar above the cockpit (or stats) on the home view.
+ *  Holds the controls that used to live in convTabs: "N waiting" jump, focus
+ *  chips, Notes, "+ Add", the layout toggles, and the stats range buttons. */
+function cockpitToolbar(d: OverviewPayload, state: State): Tpl {
   const cp = state.ui.cockpit;
-  const live = d.sessions.filter((s) => s.status === 'active').length;
-  return html`<div class="conv-tabs">
-    <button class=${'conv-tab' + (!cp.open ? ' active' : '')} data-act="view-list">List${live ? html` <span class="num">${live} live</span>` : ''}</button>
-    <button class=${'conv-tab' + (cp.open ? ' active' : '')} data-act="view-cockpit">Cockpit${cp.tiles.length ? html` <span class="num">${cp.tiles.length}</span>` : ''}</button>
-    ${cp.open ? html`<span class="cp-subtabs">
-      <button class=${'cp-subtab' + (cp.tab !== 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="grid">Grid</button>
-      <button class=${'cp-subtab' + (cp.tab === 'stats' ? ' on' : '')} data-act="cockpit-tab" data-tab="stats">Stats</button>
-    </span>` : ''}
-    ${cp.open && (cp.attnTiles?.length ?? 0) > 0 ? html`<button class="cp-wait" data-act="cockpit-waiting"
+  const stats = cp.tab === 'stats';
+  return html`<div class="shell-cptoolbar">
+    ${!stats && (cp.attnTiles?.length ?? 0) > 0 ? html`<button class="cp-wait" data-act="cockpit-waiting"
       title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button>` : ''}
-    ${cp.open && cp.tab !== 'stats' ? cockpitChips(d, state) : ''}
-    ${cp.open && cp.tab !== 'stats' ? html`<span class="sp"></span>
-      <button class="btn" data-act="cockpit-notes" title="Browse notes — this conversation, this project, or all">&#128221; Notes</button>
-      <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">+ Add</button>
+    ${!stats ? cockpitChips(d, state) : ''}
+    <span class="sp"></span>
+    ${!stats ? html`
+      <button class="btn" data-act="cockpit-notes" title="Browse notes — this conversation, this project, or all">${iNote()} Notes</button>
+      <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">${iAdd()} Add</button>
       <div class="cp-layouts">
-        <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">&#9647;</button>
-        <button class=${'btn icon' + (cp.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">&#9707;</button>
-        <button class=${'btn icon' + (cp.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">&#9638;</button>
-      </div>` : ''}
-    ${cp.open && cp.tab === 'stats' ? html`<span class="sp"></span>
-      <div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
+        <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">${iCols1()}</button>
+        <button class=${'btn icon' + (cp.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">${iCols2()}</button>
+        <button class=${'btn icon' + (cp.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">${iGrid()}</button>
+      </div>`
+    : html`<div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
         html`<button class=${'btn icon' + (cp.statsDays === dys ? ' on' : '')} data-act="stats-days" data-days=${String(dys)}>${lbl}</button>`)}
-      </div>` : ''}
+      </div>`}
   </div>`;
 }
 
@@ -661,30 +556,28 @@ export function appView(state: State): Tpl {
   const d = state.data;
   if (!d) return html`<div class="loading">Loading dashboard…</div>`;
   const showSearch = !!state.search.query.trim();
-  const home = !showSearch && !state.ui.selectedProject;     // the Conversations pane (List or Cockpit)
+  const home = !showSearch && !state.ui.selectedProject;     // the cockpit / stats surface (cockpit + stats are imperative overlays)
   const showDetail = !showSearch && !home;
-  const showCockpit = home && state.ui.cockpit.open;
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   const ro = state.ui.restoreOffer;
   return html`
-    ${topbar(d, state.connError, state.ui.cockpit.tiles.length)}
+    ${topbar(d, state)}
     ${ro ? html`<div class="restore-banner">
       <span>↩ Pick up where you left off — restore ${ro.tiles.length} conversation${ro.tiles.length === 1 ? '' : 's'} from your last session?</span>
       <span class="sp"></span>
       <button class="btn primary" data-act="restore-accept">Restore</button>
       <button class="btn" data-act="restore-dismiss">Dismiss</button>
     </div>` : ''}
-    ${home ? convTabs(d, state) : ''}
+    ${home ? cockpitToolbar(d, state) : ''}
     <div class="body">
-      ${sidebar(d, state.ui, state.search.query, matchPaths)}
+      ${sidebar(d, state, state.search.query, matchPaths)}
       <div class="side-divider" data-act="sidebar-toggle" title=${state.ui.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
         <span class="side-handle">${state.ui.sidebarCollapsed ? '›' : '‹'}</span>
       </div>
       <main class="main">
         ${showSearch ? searchView(state)
           : showDetail ? projectDetail(d, state)
-          : showCockpit ? ''
-          : html`${activityCard(d)}${conversations(d, state)}`}
+          : ''}
       </main>
     </div>
     ${cockpitAddPanel(d, state)}
