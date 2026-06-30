@@ -10,8 +10,8 @@ import type {
 } from './types.js';
 
 export interface CockpitTile {
-  id: string;                 // 'resume:<sessionId>' | 'new:<...>' | 'doc:<path>'
-  kind: 'resume' | 'new' | 'doc';
+  id: string;                 // 'resume:<sessionId>' | 'new:<...>' | 'doc:<path>' | 'control'
+  kind: 'resume' | 'new' | 'doc' | 'control';
   sessionId?: string;         // resume only
   projectPath: string;
   title: string;
@@ -52,7 +52,6 @@ export interface UiState {
   detailTab: DetailTab;
   newSessionOpen: boolean;         // the "New session" prompt form in the detail header
   newSessionDraft: string;         // typed prompt, preserved across polls
-  dockOpen: boolean;
   sidebarCollapsed: boolean;
   collapsedGroups: string[];       // sidebar project-groups the user has collapsed
   cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
@@ -101,7 +100,6 @@ const state: State = {
     detailTab: 'sessions',
     newSessionOpen: false,
     newSessionDraft: '',
-    dockOpen: false,
     sidebarCollapsed: false,
     collapsedGroups: [],
     cockpit: { tiles: [], layout: 'cols2', open: true, tab: 'grid', statsDays: 3, maximized: null, hiddenProjects: [], attnTiles: [], addOpen: false, addQuery: '', addResults: [], notesOpen: false, notesScope: 'project', notesQuery: '', notesResults: [] },
@@ -160,7 +158,13 @@ function schedulePersist(): void {
       // `claude "<prompt>"` and re-run the original task as a fresh, divergent
       // conversation. The prompt is only needed for the very first spawn, which
       // has already happened by the time we persist.
-      const persistTiles = cp.tiles.map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
+      // The CTRL control tile is ON-DEMAND (opened from the sidebar) — never persist
+      // it, or a reload would recreate it and re-spawn `claude --continue` on load,
+      // defeating on-demand and coupling multiple windows. The sidebar row is the
+      // persistent affordance instead.
+      const persistTiles = cp.tiles
+        .filter((t) => t.kind !== 'control')
+        .map((t) => (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t);
       const data: PersistedSession = {
         ts: Date.now(),
         // The cockpit is now always-open (it's the home surface) — persist `open:true`

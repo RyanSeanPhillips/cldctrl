@@ -28,10 +28,9 @@
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   --r-sm: 6px; --r-md: 10px; --r-pill: 999px;
   --topbar-h: 54px;
-  --rail-w: 46px;
+  --rail-w: 0px; /* the agent dock is retired — cockpit/stats overlays reach the right edge */
   --sidebar-w: 264px;
   --cptoolbar-h: 44px;
-  --dock-w: 460px;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Consolas, Menlo, monospace;
   /* data-viz ramps (empty → most) */
@@ -174,7 +173,6 @@ body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
 .main { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); bottom: 0;
   overflow: auto; padding: var(--s5);
   display: flex; flex-direction: column; gap: var(--s5); transition: left .2s ease, right .2s ease; }
-body.dock-open .main { right: var(--dock-w); }
 body.no-agent .main { right: 0; }
 
 /* Cockpit toolbar — slim contextual bar fixed across the content area, above the
@@ -182,7 +180,6 @@ body.no-agent .main { right: 0; }
 .shell-cptoolbar { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w);
   height: var(--cptoolbar-h); display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s4);
   background: var(--surface-1); border-bottom: 1px solid var(--border); z-index: 26; transition: left .2s ease, right .2s ease; }
-body.dock-open .shell-cptoolbar { right: var(--dock-w); }
 .no-agent .shell-cptoolbar { right: 0; }
 .shell-cptoolbar .sp { margin-left: auto; }
 /* Per-project focus chips — kept on one row so the cockpit's top offset is stable. */
@@ -422,7 +419,6 @@ body.dock-open .shell-cptoolbar { right: var(--dock-w); }
   background: var(--surface-2); display: none; flex-direction: column; transition: left .2s ease, right .2s ease; }
 #cockpit.open { display: flex; }
 .no-agent #cockpit { right: 0; }
-body.dock-open #cockpit { right: var(--dock-w); }
 #cockpit-bar { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4);
   background: var(--surface-1); border-bottom: 1px solid var(--border); }
 #cockpit-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); font-weight: 600; }
@@ -450,7 +446,6 @@ body.dock-open #cockpit { right: var(--dock-w); }
   bottom: 0; z-index: 25; background: var(--surface-2); display: none; overflow: auto; transition: left .2s ease, right .2s ease; }
 #stats.open { display: block; }
 .no-agent #stats { right: 0; }
-body.dock-open #stats { right: var(--dock-w); }
 #stats-body { padding: 12px 16px; max-width: 1100px; }
 #stats .stats-empty { color: var(--text-muted); font-size: 13px; padding: 40px; text-align: center; }
 #stats .kpis { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; margin-bottom: 12px; }
@@ -549,7 +544,6 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .restore-banner { position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: var(--rail-w); z-index: 40;
   display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4);
   background: var(--accent-soft); border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
-body.dock-open .restore-banner { right: var(--dock-w); }
 body.sidebar-collapsed .restore-banner { left: 0; }
 .tile-head .sp { margin-left: auto; }
 /* tile body: terminal + (optional) docked notepad, side by side */
@@ -695,32 +689,26 @@ body.sidebar-collapsed .restore-banner { left: 0; }
   .cockpit-grid.cols2 { grid-template-columns: 1fr; }
 }
 
-/* ── agent dock ───────────────────────────────────────────── */
-.dock { position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: var(--rail-w);
-  background: var(--surface-1); border-left: 1px solid var(--border); z-index: 45;
-  transition: width .25s cubic-bezier(.2, .8, .2, 1); box-shadow: -12px 0 40px rgba(0, 0, 0, 0.5); }
-.dock.open { width: var(--dock-w); }
-.no-agent .dock { display: none; }
-.dock-rail { display: flex; flex-direction: column; align-items: center; gap: var(--s3);
-  width: 100%; height: 100%; padding-top: var(--s4); background: transparent; border: none;
-  color: var(--text-muted); cursor: pointer; font: inherit; }
-.dock-rail { color: var(--accent); }
-.dock-rail:hover { color: var(--accent); background: var(--surface-2); }
-.dock-rail .rail-label { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0.2em;
-  text-transform: uppercase; font-size: 11px; font-weight: 700; font-family: var(--mono); }
-.dock.open .dock-rail { display: none; }
-.dock-panel { display: none; flex-direction: column; height: 100%; }
-.dock.open .dock-panel { display: flex; }
-/* CTRL stands apart from project tiles: accent top-stripe + branded mono title */
-.dock-head { display: flex; align-items: center; gap: var(--s2); padding: var(--s3);
-  background: var(--overlay); border-bottom: 1px solid var(--border); box-shadow: inset 0 2px 0 var(--accent); }
-.dock-title { color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em;
-  font-weight: 700; font-family: var(--mono); }
-.dock-head .sp { margin-left: auto; }
-#dock-term { flex: 1; min-height: 0; padding: var(--s2) var(--s1) var(--s2) var(--s2); }
-#dock-term .xterm { height: 100%; }
-#dock-status { font-size: 11px; color: var(--text-muted); padding: 5px var(--s3); border-top: 1px solid var(--border);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ── CTRL control tile (mission-control agent, pinned first in the cockpit) ──
+   CTRL stands apart from project tiles: an accent top-stripe + branded mono header,
+   so the on-demand mission-control agent reads as a distinct, pinned surface. */
+.control-tile { box-shadow: inset 0 2px 0 var(--accent); }
+.control-tile .tile-head { background: var(--overlay); }
+.control-tile .tile-title { color: var(--accent); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.14em; font-weight: 700; font-family: var(--mono); }
+.control-tile .tile-pin { color: var(--accent); font-size: 12px; padding: 0 2px; cursor: default; }
+
+/* ── sidebar CTRL row (pinned above the conversations list) ── */
+.side-ctrl { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s2);
+  margin-bottom: var(--s2); border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent);
+  cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.side-ctrl:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.side-ctrl.open { border-color: var(--accent); }
+.side-ctrl-mark { font-size: 11px; }
+.side-ctrl-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-ctrl-state { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.side-ctrl .dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 28%, transparent); }
 
 /* ── toast ────────────────────────────────────────────────── */
 #toast { position: fixed; bottom: var(--s5); left: 50%; transform: translateX(-50%);
@@ -732,12 +720,6 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width: 1080px) {
   :root { --sidebar-w: 220px; }
-  .dock.open { width: 100vw; }
-  /* on narrow screens the dock overlays rather than pushing content */
-  body.dock-open .main { right: var(--rail-w); }
-  body.dock-open .shell-cptoolbar { right: var(--rail-w); }
-  body.dock-open #cockpit { right: var(--rail-w); }
-  body.dock-open #stats { right: var(--rail-w); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

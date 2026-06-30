@@ -9,8 +9,7 @@ import {
   fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
-import { syncDock, toggleDock, closeDock, restartDock } from './dock.js';
-import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -59,7 +58,6 @@ function renderApp(): void {
   prevViewKey = viewKey;
   document.body.classList.toggle('no-agent', !(state.data?.features.agentTerminal ?? true));
   document.body.classList.toggle('sidebar-collapsed', state.ui.sidebarCollapsed);
-  syncDock();
   syncCockpit();
   syncStats();
 
@@ -383,10 +381,18 @@ document.addEventListener('click', async (ev) => {
       term?.focus();
     }
   }
-  else if (act === 'dockToggle') { toggleDock(); }
-  else if (act === 'dockClose') { closeDock(); }
-  else if (act === 'dockRestart') { restartDock(); }
-  else if (act === 'dock-shot') { shoot('control'); }
+  else if (act === 'open-control') {
+    // CTRL → open the mission-control agent as an on-demand pinned cockpit tile.
+    // Land on the cockpit grid (clear project/search) so the tile is visible — mirror
+    // the nav-cockpit cleanup so collapsed-search + the bridge don't go stale.
+    const hadQuery = !!getState().search.query.trim();
+    setCockpit({ tab: 'grid' });
+    setUi({ selectedProject: null, searchOpen: false });
+    setSearch({ query: '', results: [], loading: false, agentNote: null });
+    if (hadQuery) postBridge('', null);
+    openControlTile();
+    writeHash();
+  }
   else if (act === 'tile-shot') { shoot(el.dataset.id!); }
   else if (act === 'tile-note') { toggleTileNote(el.dataset.id!); }
   else if (act === 'tile-reveal' || act === 'tile-code') { reveal(el.dataset.path!, act === 'tile-code' ? 'code' : 'explorer'); }
@@ -599,8 +605,10 @@ function restoreSession(): void {
   // opened directly), leaving two cp.tiles entries sharing one id. syncCockpit
   // (keyed by id) then renders one DOM tile while the focus-chip count shows two
   // — a "phantom conversation" that can't be opened or closed. Keep first.
+  // The CTRL control tile is on-demand and never persisted; defensively drop it
+  // here too (in case of stale localStorage from before this changed).
   const seen = new Set<string>();
-  const tiles = mapped.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+  const tiles = mapped.filter((t) => t.kind !== 'control' && (seen.has(t.id) ? false : (seen.add(t.id), true)));
   if (!tiles.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {

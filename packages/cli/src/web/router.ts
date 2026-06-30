@@ -5,7 +5,6 @@
  *   #/s/<sessionId>             → conversations, a session expanded
  *   #/p/<encodedPath>           → project detail (default tab)
  *   #/p/<encodedPath>/<tab>     → project detail, specific tab
- *   ...?agent=1                 → agent dock open
  */
 import { setUi, getState } from './store.js';
 import type { DetailTab } from './types.js';
@@ -17,7 +16,7 @@ let onChange: (() => void) | null = null;
 
 export function readHash(): void {
   const raw = location.hash.replace(/^#/, '');
-  const [pathPart, queryPart] = raw.split('?');
+  const pathPart = raw.split('?')[0];
   const segs = pathPart.split('/').filter(Boolean);
 
   let expandedSessionId: string | null = null;
@@ -31,8 +30,7 @@ export function readHash(): void {
     if (segs[2] && (TABS as string[]).includes(segs[2])) detailTab = segs[2] as DetailTab;
   }
 
-  const params = new URLSearchParams(queryPart || '');
-  setUi({ expandedSessionId, selectedProject, detailTab, dockOpen: params.get('agent') === '1' });
+  setUi({ expandedSessionId, selectedProject, detailTab });
 }
 
 export function writeHash(): void {
@@ -40,7 +38,6 @@ export function writeHash(): void {
   let h = '#/';
   if (ui.selectedProject) h += 'p/' + encodeURIComponent(ui.selectedProject) + '/' + ui.detailTab;
   else if (ui.expandedSessionId) h += 's/' + ui.expandedSessionId;
-  if (ui.dockOpen) h += '?agent=1';
   if (h !== location.hash) history.replaceState(null, '', h);
 }
 

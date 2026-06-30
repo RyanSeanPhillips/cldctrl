@@ -78,9 +78,10 @@ function themeSwitch(): Tpl {
   </div>`;
 }
 
-// ── topbar (brand · Stats · live count · theme · listen · CTRL) ──
+// ── topbar (brand · live count · theme · listen) ──
 // Usage bars moved OUT of here into the sidebar's fixed-bottom zone. Search is now
-// in the sidebar too. The Stats button is a top-level view switch.
+// in the sidebar too. CTRL is now a pinned row in the sidebar conversations list
+// (opens an on-demand cockpit tile) — the old topbar/dock toggle is retired.
 function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
@@ -96,9 +97,6 @@ function topbar(d: OverviewPayload, state: State): Tpl {
       <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
       ${themeSwitch()}
       <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
-      ${d.features.agentTerminal
-        ? html`<button class="btn" data-act="dockToggle" title="CTRL — mission-control agent">${iTerminal()} CTRL</button>`
-        : ''}
     </div>
   </header>`;
 }
@@ -163,10 +161,28 @@ function sideConvItem(s: SessionInfo): Tpl {
     : html`<div class=${'side-conv ' + cls}>${inner}</div>`;
 }
 
-function sideConversations(d: OverviewPayload): Tpl {
+// The CTRL mission-control agent — a special PINNED ROW at the top of the
+// conversations list. ON-DEMAND: clicking it opens a kind:'control' cockpit tile
+// (which is when `claude --continue` spawns); it doesn't auto-spawn on load.
+function ctrlRow(d: OverviewPayload, state: State): Tpl | string {
+  if (!d.features.agentTerminal) return '';
+  const cp = state.ui.cockpit;
+  const open = cp.tiles.some((t) => t.kind === 'control');
+  const waiting = (cp.attnTiles ?? []).includes('control');
+  return html`<div class=${'side-ctrl' + (open ? ' open' : '')} data-act="open-control"
+    title="CTRL — mission-control agent (opens as a cockpit tile)">
+    <span class="side-ctrl-mark">◆</span>
+    <span class="side-ctrl-nm">CTRL · mission control</span>
+    ${waiting ? html`<span class="dot waiting" title="Waiting for you"></span>`
+      : open ? html`<span class="side-ctrl-state">open</span>` : ''}
+  </div>`;
+}
+
+function sideConversations(d: OverviewPayload, state: State): Tpl {
   const liveS = d.sessions.filter((s) => s.status === 'active');
   const recent = d.sessions.filter((s) => s.status !== 'active');
-  return html`<div class="side-sec-head">Conversations${
+  return html`${ctrlRow(d, state)}
+    <div class="side-sec-head">Conversations${
     liveS.length ? html`<span class="side-sec-ct"><span class="dot active"></span>${liveS.length} live</span>` : ''}</div>
     <div class="side-live-list">
       ${d.sessions.length
@@ -211,7 +227,7 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
         <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>
         ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
       </div>` : ''}
-      ${sideConversations(d)}
+      ${sideConversations(d, state)}
     </div>
     <div class="side-scroll">
       <div class="side-head">Projects ${matchPaths ? html`<span class="hint">— ${matchPaths.size} in results</span>` : html`<span class="hint">— click to inspect</span>`}</div>
@@ -507,6 +523,7 @@ function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
   const order: string[] = [];
   const counts = new Map<string, number>();
   for (const t of cp.tiles) {
+    if (t.kind === 'control') continue; // the CTRL tile has no project — no focus chip
     if (!counts.has(t.projectPath)) order.push(t.projectPath);
     counts.set(t.projectPath, (counts.get(t.projectPath) ?? 0) + 1);
   }

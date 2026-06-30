@@ -594,24 +594,6 @@ const SHELL = `<!doctype html>
 <div id="cockpit"><div id="cockpit-grid" class="cockpit-grid cols2"></div></div>
 <div id="stats"><div id="stats-body"></div></div>
 <div id="lb"><span class="lb-close">✕</span><div id="lb-imgs"></div></div>
-<aside id="dock" class="dock">
-  <button class="dock-rail" data-act="dockToggle" title="CTRL — mission-control agent">
-    <span class="dot" id="dock-dot-rail"></span>
-    <span class="rail-label">CTRL</span>
-  </button>
-  <div class="dock-panel">
-    <div class="dock-head">
-      <span class="dot" id="dock-dot"></span>
-      <span class="dock-title">CTRL · control plane</span>
-      <span class="sp"></span>
-      <button class="btn icon" data-act="dock-shot" title="Screenshot into this session">&#128247;</button>
-      <button class="btn icon" data-act="dockRestart" title="Restart session">↻</button>
-      <button class="btn icon" data-act="dockClose" title="Close">✕</button>
-    </div>
-    <div id="dock-term"></div>
-    <div id="dock-status">disconnected</div>
-  </div>
-</aside>
 <div id="toast"></div>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>

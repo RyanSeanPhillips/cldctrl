@@ -9,7 +9,7 @@
 import { marked } from 'marked';
 import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
-import { termTheme } from './dock.js';
+import { termTheme } from './termtheme.js';
 import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, fetchNoteHistory, postRestoreNote, type NoteEntry, type NoteRevision } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
@@ -20,7 +20,7 @@ declare const FitAddon: any;
 
 interface LiveTile {
   el: HTMLElement;
-  kind: 'resume' | 'new' | 'doc';
+  kind: 'resume' | 'new' | 'doc' | 'control';
   dispose: () => void;
   fit?: () => void;
   restart?: () => void;       // terminal tiles
@@ -65,6 +65,41 @@ export function focusWaitingTile(): void {
   if (t) { try { t.el.scrollIntoView({ block: 'nearest' }); t.focus?.(); } catch { /* ignore */ } }
 }
 
+/** Scroll a tile into view and focus its terminal (used by openControlTile + the
+ *  sidebar CTRL row). */
+export function focusTile(id: string): void {
+  const t = tiles.get(id);
+  if (!t) return;
+  try { t.el.scrollIntoView({ block: 'nearest' }); t.focus?.(); } catch { /* ignore */ }
+}
+
+/** Open the CTRL mission-control agent as an ON-DEMAND pinned cockpit tile. The
+ *  control PTY (`claude --continue`) only spawns here, when the user clicks the
+ *  sidebar row — never on dashboard load. Idempotent: if it's already open, just
+ *  reveal/focus it; otherwise add the pinned `kind:'control'` tile FIRST. The
+ *  caller (main.ts) clears the project/search selection and sets tab='grid'. */
+export function openControlTile(): void {
+  const cp = getState().ui.cockpit;
+  const existing = cp.tiles.find((t) => t.kind === 'control');
+  if (existing) {
+    if (cp.maximized && cp.maximized !== existing.id) setCockpit({ maximized: null }); // un-bury it
+    setTimeout(() => focusTile(existing.id), 0);
+    return;
+  }
+  const controlTile: CockpitTile = { id: 'control', kind: 'control', projectPath: '', title: 'CTRL' };
+  setCockpit({ tiles: [controlTile, ...cp.tiles], maximized: null }); // pinned first
+  setTimeout(() => focusTile('control'), 0); // after syncCockpit mounts it
+}
+
+/** Self-contained control-terminal mount, reusable outside #cockpit-grid (a future
+ *  `?view=control` pop-out can call this directly). Returns the LiveTile so the
+ *  caller owns its lifecycle. The cockpit grid uses the same createTermTile path. */
+export function mountControlTerminal(container: HTMLElement, _opts: { chrome: 'tile' | 'standalone' } = { chrome: 'tile' }): LiveTile {
+  const t = createTermTile({ id: 'control', kind: 'control', projectPath: '', title: 'CTRL' });
+  container.appendChild(t.el);
+  return t;
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
@@ -100,6 +135,10 @@ function monogram(title: string): { initials: string; hue: number } {
 // ── terminal tiles ───────────────────────────────────────────
 function wsUrl(t: CockpitTile): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  // The CTRL control tile reuses the existing control-plane PTY endpoint (named
+  // terminal id 'control', spawned via `claude --continue`). Special-case it BEFORE
+  // the project /ws/term path, which validates a project cwd it doesn't have.
+  if (t.kind === 'control') return proto + '://' + location.host + '/ws/agent';
   const base = proto + '://' + location.host + '/ws/term?path=' + encodeURIComponent(t.projectPath);
   if (t.kind === 'new') {
     let u = base + '&kind=new&id=' + encodeURIComponent(t.id);
@@ -112,30 +151,42 @@ function wsUrl(t: CockpitTile): string {
 }
 
 function createTermTile(meta: CockpitTile): LiveTile {
+  // The CTRL control tile is a mission-control agent, not a project conversation:
+  // it has no projectPath/sessionId, so it HIDES project reveal/code, read-aloud,
+  // the docked notepad, and the drag grip; it stays pinned first. It KEEPS restart,
+  // screenshot (its terminal id is exactly 'control'), maximize, attention + theme.
+  const isControl = meta.kind === 'control';
   const el = document.createElement('div');
-  el.className = 'tile';
+  el.className = 'tile' + (isControl ? ' control-tile' : '');
   el.dataset.id = meta.id;
   const mg = monogram(meta.title);
   const feats = getState().data?.features;
   const pp = esc(meta.projectPath);
-  const locBtns =
+  const locBtns = isControl ? '' :
     (feats?.openExplorer ? `<button class="btn icon" data-act="tile-reveal" data-path="${pp}" title="Open project folder">&#128193;</button>` : '') +
     (feats?.openVscode ? `<button class="btn icon" data-act="tile-code" data-path="${pp}" title="Open in VS Code">&lt;/&gt;</button>` : '');
   // Read the latest agent reply aloud. Always rendered, but hidden until we know a
   // session id — fresh ('new') tiles only discover theirs after claude writes the
   // first JSONL, so setReadSession() reveals + binds it later (in syncCockpit).
-  const readBtn = `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId ?? '')}" title="Read the latest reply aloud"${meta.sessionId ? '' : ' style="display:none"'}>&#128266;</button>`;
+  // The control tile has no session id, so it omits read-aloud entirely.
+  const readBtn = isControl ? '' :
+    `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId ?? '')}" title="Read the latest reply aloud"${meta.sessionId ? '' : ' style="display:none"'}>&#128266;</button>`;
+  const grip = isControl ? '<span class="tile-pin" title="Pinned — mission-control agent">&#9670;</span>'
+    : '<span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>';
+  const noteBtn = isControl ? '' :
+    `<button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>`;
+  const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
-      <span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>
-      <span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>
+      ${grip}
+      ${isControl ? '' : `<span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>`}
       <span class="dot on"></span>
-      <span class="tile-title">${esc(meta.title)}</span>
+      <span class="tile-title">${title}</span>
       <span class="tile-ctx-pct" style="display:none" title=""></span>
       <span class="tile-status">connecting…</span>
       <span class="sp"></span>
       <i class="tile-ctxline" style="display:none"></i>
-      <button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>
+      ${noteBtn}
       ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
@@ -600,7 +651,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
   el.addEventListener('mousedown', () => clearAttn(meta.id));
 
   return {
-    el, kind: meta.kind === 'new' ? 'new' : 'resume', fit: doFit,
+    el, kind: meta.kind === 'new' ? 'new' : meta.kind === 'control' ? 'control' : 'resume', fit: doFit,
     toggleCompose, toggleNote, openNoteAt, setContext,
     setReadSession: (sid: string | null) => {
       const b = el.querySelector('[data-act="tile-readout"]') as HTMLElement | null;
@@ -804,6 +855,9 @@ let dndWired = false;
 let draggingId: string | null = null;
 function reorderTiles(targetId: string, before: boolean): void {
   if (!draggingId || draggingId === targetId) return;
+  // The CTRL control tile is pinned first and has no drag grip — never let a drop
+  // reorder it or land another tile ahead of it.
+  if (draggingId === 'control' || targetId === 'control') return;
   const cp = getState().ui.cockpit;
   const arr = [...cp.tiles];
   const from = arr.findIndex((t) => t.id === draggingId);
@@ -889,8 +943,9 @@ export function syncCockpit(): void {
       mb.innerHTML = maxed ? '&#10697;' : '&#8689;'; // ⧉ restore / ⤡ maximize
       mb.title = maxed ? 'Restore' : 'Maximize';
     }
-    // Focus chips: mute a project's tiles without tearing down their PTYs.
-    t.el.classList.toggle('hidden-proj', hidden.has(meta.projectPath));
+    // Focus chips: mute a project's tiles without tearing down their PTYs. The
+    // control tile has no project, so it's never muted by a focus chip.
+    t.el.classList.toggle('hidden-proj', meta.kind !== 'control' && hidden.has(meta.projectPath));
     // Reflect "needs input" so the pulse survives re-render/reorder.
     t.el.classList.toggle('attn', (cp.attnTiles ?? []).includes(meta.id));
   }
@@ -950,7 +1005,9 @@ export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.()
  *  first terminal tile. Null if there are no terminal tiles. */
 function pickActiveTermTileId(): string | null {
   const cp = getState().ui.cockpit;
-  const termTiles = cp.tiles.filter((t) => t.kind !== 'doc');
+  // Exclude the CTRL control tile — it has no project/conversation, so scratchpads
+  // and the notes library must never route into it.
+  const termTiles = cp.tiles.filter((t) => t.kind !== 'doc' && t.kind !== 'control');
   if (!termTiles.length) return null;
   const focusedId = termTiles.find((t) => tiles.get(t.id)?.el.contains(document.activeElement))?.id;
   return (cp.maximized && termTiles.some((t) => t.id === cp.maximized) ? cp.maximized : null)
