@@ -89,7 +89,6 @@ function topbar(d: OverviewPayload, state: State): Tpl {
     <div class="brand" data-act="nav-cockpit" title="Go to cockpit">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
-      ${d.tier ? html`<span class="tier">${d.tier}</span>` : ''}
     </div>
     <span class="shell-spacer"></span>
     <div class="topbar-right">
@@ -199,13 +198,29 @@ function ctrlRow(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
+// A COMPACT recent (idle) row: vendor mark + name + when only — no status dot
+// and no current-action subtitle (those are reserved for LIVE rows). Single line.
+function sideRecentItem(s: SessionInfo): Tpl {
+  const inner = html`${vendorMark(s.vendor)}
+    <span class="side-recent-nm">${s.project}</span>
+    <span class="side-recent-when">${ago(s.lastActivity)}</span>`;
+  return s.id
+    ? html`<div class="side-recent-row" data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
+        title="Resume this conversation in the cockpit">${inner}</div>`
+    : html`<div class="side-recent-row">${inner}</div>`;
+}
+
 function sideConversations(d: OverviewPayload, state: State): Tpl {
   const liveS = d.sessions.filter((s) => s.status === 'active');
   const recent = d.sessions.filter((s) => s.status !== 'active');
+  const recentCollapsed = state.ui.recentCollapsed;
   return html`${ctrlRow(d, state)}
     <div class="side-live-list">
       ${d.sessions.length
-        ? html`${liveS.map(sideConvItem)}${recent.length ? html`<div class="side-sub-lbl">Recent</div>${recent.map(sideConvItem)}` : ''}`
+        ? html`${liveS.map(sideConvItem)}${recent.length ? html`
+            <div class="side-sub-lbl side-recent-lbl" data-act="toggle-recent" title="Show/hide recent conversations">
+              <span class="side-recent-caret">${recentCollapsed ? '▸' : '▾'}</span><span>Recent</span><span class="side-recent-n num">${recent.length}</span>
+            </div>${recentCollapsed ? '' : recent.map(sideRecentItem)}` : ''}`
         : html`<div class="empty">No sessions in the last 5h.</div>`}
     </div>`;
 }
@@ -215,7 +230,10 @@ function sideConversations(d: OverviewPayload, state: State): Tpl {
 function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
   return html`<div class="side-usage">
     <div class="side-usage-line">
-      ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : html`<span class="side-usage-tier"></span>`}
+      <span class="side-usage-tierwrap">
+        ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : ''}
+        ${d.version ? html`<span class="side-usage-ver num" title="cldctrl version">v${d.version}</span>` : ''}
+      </span>
       <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>
     <div class="side-usage-row"><span class="side-usage-lbl">5h</span>${usageBar(d.usage.fiveHour)}</div>
@@ -237,11 +255,13 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
     <div class="side-top">
-      <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Conversations — click to go to the cockpit">
-        ${iGrid()}
-        <span class="side-conv-head-t">Conversations</span>
-        <span class="side-conv-head-live"><span class="dot active"></span>${live} live</span>
-        <button class=${'side-conv-head-sbtn' + (searchOpen ? ' on' : '')} data-act="search-toggle" title="Search (/)" aria-label="Search">${iSearch()}</button>
+      <div class="side-head-row">
+        <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Conversations — click to go to the cockpit">
+          ${iGrid()}
+          <span class="side-conv-head-t">Conversations</span>
+          <span class="side-conv-head-live"><span class="dot active"></span>${live} live</span>
+        </div>
+        <button class=${'side-search-btn' + (searchOpen ? ' on' : '')} data-act="search-toggle" title="Search (/)" aria-label="Search">${iSearch()}</button>
       </div>
       ${searchOpen ? html`<div class="side-search-box">
         <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>

@@ -433,6 +433,7 @@ document.addEventListener('click', async (ev) => {
     writeHash();
   }
   else if (act === 'search-toggle') { setUi({ searchOpen: !getState().ui.searchOpen }); }
+  else if (act === 'toggle-recent') { setUi({ recentCollapsed: !getState().ui.recentCollapsed }); }
   else if (act === 'cockpit-chip') {
     const proj = el.dataset.proj!;
     const cur = getState().ui.cockpit.hiddenProjects;

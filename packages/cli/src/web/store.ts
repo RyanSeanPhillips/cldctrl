@@ -49,6 +49,7 @@ export interface UiState {
   expandedSessionId: string | null;
   selectedProject: string | null; // project path — when set, main shows project detail
   searchOpen: boolean;             // the sidebar search field is expanded (explicit STORE state — a class toggle would snap back on the 3s poll re-render)
+  recentCollapsed: boolean;        // the sidebar "Recent" conversations list is collapsed (STORE state — a DOM/details toggle would snap back on the 3s poll re-render, same lesson as searchOpen)
   detailTab: DetailTab;
   newSessionOpen: boolean;         // the "New session" prompt form in the detail header
   newSessionDraft: string;         // typed prompt, preserved across polls
@@ -97,6 +98,7 @@ const state: State = {
     expandedSessionId: null,
     selectedProject: null,
     searchOpen: false,
+    recentCollapsed: false,
     detailTab: 'sessions',
     newSessionOpen: false,
     newSessionDraft: '',

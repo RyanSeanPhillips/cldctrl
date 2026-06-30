@@ -212,9 +212,11 @@ body.no-agent .main { right: 0; }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
 
-/* sidebar top zone: the merged Conversations header IS the cockpit affordance —
-   grid icon + label + single live count + an inline search magnifier. Clicking
-   the row navigates to the cockpit; the inner search button toggles search. */
+/* sidebar top zone: a header row with the merged Conversations header (the
+   cockpit affordance: grid icon + label + single live count, click → cockpit)
+   and, OUTSIDE that orange box, a separate search-magnifier button. */
+.side-head-row { display: flex; align-items: center; gap: var(--s2); }
+.side-head-row .side-conv-head { flex: 1; min-width: 0; }
 .side-conv-head { display: flex; align-items: center; gap: var(--s2); padding: 8px var(--s2);
   border-radius: var(--r-sm); cursor: pointer; color: var(--text-secondary);
   border: 1px solid transparent; transition: all .12s ease; }
@@ -225,11 +227,13 @@ body.no-agent .main { right: 0; }
 .side-conv-head-live { margin-left: auto; display: flex; align-items: center; gap: 5px;
   font-family: var(--mono); font-size: 11px; color: var(--success); flex-shrink: 0; }
 .side-conv-head-live .dot { width: 7px; height: 7px; }
-.side-conv-head-sbtn { flex: none; width: 24px; height: 24px; display: grid; place-items: center;
-  background: transparent; border: none; border-radius: var(--r-sm);
+/* the separate search button, outside the conv-head box */
+.side-search-btn { flex: none; width: 36px; height: 36px; display: grid; place-items: center;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--r-sm);
   color: var(--text-muted); cursor: pointer; transition: all .12s ease; }
-.side-conv-head-sbtn:hover { background: var(--surface-3); color: var(--text); }
-.side-conv-head-sbtn.on { color: var(--accent); }
+.side-search-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+.side-search-btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.side-search-btn svg { flex-shrink: 0; }
 .side-search-box { position: relative; margin: var(--s2) 0; }
 
 /* sidebar Conversations list (Live, then dimmed Recent) — each row carries a
@@ -248,6 +252,19 @@ body.no-agent .main { right: 0; }
 .side-conv.idle .side-conv-nm { font-weight: 500; color: var(--text-secondary); }
 .side-sub-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint);
   margin: 8px var(--s2) 4px; }
+/* collapsible "Recent" sub-label: caret + label + count, click toggles the list */
+.side-recent-lbl { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.side-recent-lbl:hover { color: var(--text-muted); }
+.side-recent-caret { font-size: 9px; line-height: 1; }
+.side-recent-n { margin-left: auto; color: var(--text-faint); }
+/* compact (single-line) recent conversation row: vendor mark + name + when */
+.side-recent-row { display: flex; align-items: center; gap: var(--s2); padding: 3px var(--s2);
+  border-radius: var(--r-sm); cursor: pointer; }
+.side-recent-row:hover { background: var(--surface-2); }
+.side-recent-row .side-vmark { width: 15px; height: 15px; font-size: 10px; margin-top: 0; }
+.side-recent-nm { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-recent-when { font-size: 10px; color: var(--text-faint); flex: none; }
 
 /* per-agent vendor mark badge (sidebar rows + the CTRL entry) */
 .side-vmark { width: 18px; height: 18px; flex: none; border-radius: 5px; margin-top: 1px;
@@ -269,7 +286,9 @@ body.no-agent .main { right: 0; }
 .side-usage-stats:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
 .side-usage-stats.nav-on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .side-usage-stats svg { width: 13px; height: 13px; flex-shrink: 0; }
+.side-usage-tierwrap { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .side-usage-tier { color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; }
+.side-usage-ver { font-size: 9.5px; color: var(--text-faint); font-family: var(--mono); letter-spacing: 0.02em; }
 .side-usage-cost { font-size: 10px; color: var(--text-faint); }
 .side-usage-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-muted); }
 .side-usage-row .side-usage-lbl { width: 18px; flex: none; color: var(--text-faint); }
