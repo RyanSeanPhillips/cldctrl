@@ -84,8 +84,6 @@ function themeSwitch(): Tpl {
 function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
-  const home = !state.search.query.trim() && !state.ui.selectedProject;
-  const statsActive = home && state.ui.cockpit.tab === 'stats';
   return html`<header class="topbar">
     <div class="brand">
       <span class="logo" aria-hidden="true"></span>
@@ -93,7 +91,6 @@ function topbar(d: OverviewPayload, state: State): Tpl {
       ${d.tier ? html`<span class="tier">${d.tier}</span>` : ''}
     </div>
     <span class="shell-spacer"></span>
-    <button class=${'statbtn' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Usage & stats">${iStats()} Stats</button>
     <div class="topbar-right">
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
@@ -180,11 +177,11 @@ function sideConversations(d: OverviewPayload): Tpl {
 
 // Compact usage telemetry — replaces the old topbar bars and the idea of a
 // full-width bottom status bar. Pinned to the sidebar's fixed-bottom zone.
-function sideUsage(d: OverviewPayload): Tpl {
+function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
   return html`<div class="side-usage">
     <div class="side-usage-line">
       ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : html`<span class="side-usage-tier"></span>`}
-      <span class="side-usage-cost">updated ${new Date(d.generatedAt).toLocaleTimeString()}</span>
+      <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>
     <div class="side-usage-row"><span class="side-usage-lbl">5h</span>${usageBar(d.usage.fiveHour)}</div>
     <div class="side-usage-row"><span class="side-usage-lbl">7d</span>${usageBar(d.usage.sevenDay)}</div>
@@ -198,6 +195,7 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const searching = !!query.trim();
   const home = !searching && !ui.selectedProject;
   const cockpitActive = home && ui.cockpit.tab !== 'stats';
+  const statsActive = home && ui.cockpit.tab === 'stats';
   const searchOpen = ui.searchOpen || searching;
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
@@ -221,7 +219,7 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
         ? groups.map((g) => projectGroupSection(g, d.projects.filter((p) => (p.group || 'Ungrouped') === g), ui, matchPaths))
         : html`<div class="empty">No projects. Run a scan in the TUI.</div>`}
     </div>
-    ${sideUsage(d)}
+    ${sideUsage(d, statsActive)}
   </aside>`;
 }
 
