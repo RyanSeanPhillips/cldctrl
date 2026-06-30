@@ -86,7 +86,7 @@ function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
   return html`<header class="topbar">
-    <div class="brand">
+    <div class="brand" data-act="nav-cockpit" title="Go to cockpit">
       <span class="logo" aria-hidden="true"></span>
       <span class="wordmark">CLD CTRL</span>
       ${d.tier ? html`<span class="tier">${d.tier}</span>` : ''}
@@ -147,34 +147,55 @@ function projectGroupSection(group: string, projects: ProjectInfo[], ui: State['
   </div>`;
 }
 
+// Per-agent vendor mark: a small rounded badge before the conversation name so
+// each row reads at a glance which CLI it belongs to. Claude is the default (the
+// server doesn't populate `vendor` yet — forward-scaffolding).
+const VENDOR_MARK: Record<string, [cls: string, glyph: string]> = {
+  claude: ['v-claude', '✻'],
+  codex: ['v-codex', '⬡'],
+  antigravity: ['v-anti', '✦'],
+  gemini: ['v-anti', '✦'],
+};
+function vendorMark(vendor?: string): Tpl {
+  const [cls, glyph] = VENDOR_MARK[vendor || 'claude'] || VENDOR_MARK.claude;
+  return html`<span class=${'side-vmark ' + cls}>${glyph}</span>`;
+}
+
 // One row in the sidebar Conversations list (Live, then dimmed Recent). Clickable
-// rows (with an id) resume the conversation as a cockpit tile.
+// rows (with an id) resume the conversation as a cockpit tile. Layout left→right:
+// [status dot] [vendor badge] [name + current-action] [when].
 function sideConvItem(s: SessionInfo): Tpl {
   const cls = s.status === 'active' ? 'active' : 'idle';
   const act = s.currentAction || (s.status === 'active' ? 'working…' : 'idle');
   const inner = html`
-    <div class="side-conv-top"><span class=${'dot ' + s.status}></span><span class="side-conv-nm">${s.project}</span><span class="side-conv-when">${ago(s.lastActivity)}</span></div>
-    <div class="side-conv-act">${act}</div>`;
+    <span class=${'dot ' + s.status}></span>
+    ${vendorMark(s.vendor)}
+    <div class="side-conv-main">
+      <div class="side-conv-nm">${s.project}</div>
+      <div class="side-conv-act">${act}</div>
+    </div>
+    <span class="side-conv-when">${ago(s.lastActivity)}</span>`;
   return s.id
     ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
         title="Resume this conversation in the cockpit">${inner}</div>`
     : html`<div class=${'side-conv ' + cls}>${inner}</div>`;
 }
 
-// The CTRL mission-control agent — a special PINNED ROW at the top of the
-// conversations list. ON-DEMAND: clicking it opens a kind:'control' cockpit tile
-// (which is when `claude --continue` spawns); it doesn't auto-spawn on load.
+// The CTRL mission-control agent — a SUBTLE pinned entry at the top of the
+// conversations list (a quiet ◆ vendor-mark, not the old orange banner).
+// ON-DEMAND: clicking it opens a kind:'control' cockpit tile (which is when
+// `claude --continue` spawns); it doesn't auto-spawn on load.
 function ctrlRow(d: OverviewPayload, state: State): Tpl | string {
   if (!d.features.agentTerminal) return '';
   const cp = state.ui.cockpit;
   const open = cp.tiles.some((t) => t.kind === 'control');
   const waiting = (cp.attnTiles ?? []).includes('control');
-  return html`<div class=${'side-ctrl' + (open ? ' open' : '')} data-act="open-control"
+  return html`<div class=${'side-ctrl-row' + (open || waiting ? ' active' : '')} data-act="open-control"
     title="CTRL — mission-control agent (opens as a cockpit tile)">
-    <span class="side-ctrl-mark">◆</span>
-    <span class="side-ctrl-nm">CTRL · mission control</span>
-    ${waiting ? html`<span class="dot waiting" title="Waiting for you"></span>`
-      : open ? html`<span class="side-ctrl-state">open</span>` : ''}
+    <span class="side-vmark v-ctrl">◆</span>
+    <span class="side-ctrl-nm">CTRL</span>
+    <span class=${'side-ctrl-tag' + (waiting ? ' waiting' : '')}>${
+      waiting ? '⚠ waiting' : open ? 'open' : 'mission control'}</span>
   </div>`;
 }
 
@@ -182,8 +203,6 @@ function sideConversations(d: OverviewPayload, state: State): Tpl {
   const liveS = d.sessions.filter((s) => s.status === 'active');
   const recent = d.sessions.filter((s) => s.status !== 'active');
   return html`${ctrlRow(d, state)}
-    <div class="side-sec-head">Conversations${
-    liveS.length ? html`<span class="side-sec-ct"><span class="dot active"></span>${liveS.length} live</span>` : ''}</div>
     <div class="side-live-list">
       ${d.sessions.length
         ? html`${liveS.map(sideConvItem)}${recent.length ? html`<div class="side-sub-lbl">Recent</div>${recent.map(sideConvItem)}` : ''}`
@@ -218,10 +237,11 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
     <div class="side-top">
-      <div class="side-navrow">
-        <button class=${'side-nav-cockpit' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Cockpit">
-          ${iGrid()} <span>Cockpit</span> <span class="side-nav-cnt">${live} live</span></button>
-        <button class=${'side-qbtn' + (searchOpen ? ' on' : '')} data-act="search-toggle" title="Search (/)" aria-label="Search">${iSearch()}</button>
+      <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Conversations — click to go to the cockpit">
+        ${iGrid()}
+        <span class="side-conv-head-t">Conversations</span>
+        <span class="side-conv-head-live"><span class="dot active"></span>${live} live</span>
+        <button class=${'side-conv-head-sbtn' + (searchOpen ? ' on' : '')} data-act="search-toggle" title="Search (/)" aria-label="Search">${iSearch()}</button>
       </div>
       ${searchOpen ? html`<div class="side-search-box">
         <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>

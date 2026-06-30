@@ -112,7 +112,7 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
   background: var(--topbar-bg); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0; cursor: pointer; }
 .logo { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
   background:
     linear-gradient(135deg, var(--accent) 0 50%, transparent 50%) 0 0/9px 9px no-repeat,
@@ -212,41 +212,52 @@ body.no-agent .main { right: 0; }
 .side-head { margin-bottom: var(--s3); }
 .side-head .hint { text-transform: none; letter-spacing: 0; color: var(--text-faint); }
 
-/* sidebar top zone: Cockpit nav button + inline search magnifier (shares the row) */
-.side-navrow { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
-.side-nav-cockpit { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: var(--s2);
-  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-secondary);
-  font: inherit; font-size: 13px; font-weight: 500; padding: 7px var(--s2); cursor: pointer; transition: all .12s ease; }
-.side-nav-cockpit:hover { background: var(--surface-2); color: var(--text); }
-.side-nav-cockpit.nav-on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
-.side-nav-cockpit svg { flex-shrink: 0; }
-.side-nav-cnt { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
-.side-qbtn { flex: none; width: 32px; height: 32px; display: grid; place-items: center;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--r-sm);
+/* sidebar top zone: the merged Conversations header IS the cockpit affordance —
+   grid icon + label + single live count + an inline search magnifier. Clicking
+   the row navigates to the cockpit; the inner search button toggles search. */
+.side-conv-head { display: flex; align-items: center; gap: var(--s2); padding: 8px var(--s2);
+  border-radius: var(--r-sm); cursor: pointer; color: var(--text-secondary);
+  border: 1px solid transparent; transition: all .12s ease; }
+.side-conv-head:hover { background: var(--surface-2); color: var(--text); }
+.side-conv-head.nav-on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
+.side-conv-head svg { flex-shrink: 0; }
+.side-conv-head-t { font-weight: 600; font-size: 13px; }
+.side-conv-head-live { margin-left: auto; display: flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 11px; color: var(--success); flex-shrink: 0; }
+.side-conv-head-live .dot { width: 7px; height: 7px; }
+.side-conv-head-sbtn { flex: none; width: 24px; height: 24px; display: grid; place-items: center;
+  background: transparent; border: none; border-radius: var(--r-sm);
   color: var(--text-muted); cursor: pointer; transition: all .12s ease; }
-.side-qbtn:hover { background: var(--surface-2); color: var(--text); }
-.side-qbtn.on { border-color: var(--accent); color: var(--accent); }
-.side-search-box { position: relative; margin-bottom: var(--s2); }
+.side-conv-head-sbtn:hover { background: var(--surface-3); color: var(--text); }
+.side-conv-head-sbtn.on { color: var(--accent); }
+.side-search-box { position: relative; margin: var(--s2) 0; }
 
-/* sidebar Conversations list (Live, then dimmed Recent) */
-.side-sec-head { display: flex; align-items: center; gap: 6px; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.1em; color: var(--text-muted); font-weight: 600; margin: var(--s2) var(--s1) 6px; }
-.side-sec-ct { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--success); }
-.side-sec-ct .dot { width: 7px; height: 7px; }
-.side-live-list { display: flex; flex-direction: column; gap: 2px; max-height: 38vh; overflow-y: auto; }
-.side-conv { padding: 6px var(--s2); border-radius: var(--r-sm); cursor: pointer; }
+/* sidebar Conversations list (Live, then dimmed Recent) — each row carries a
+   per-agent vendor mark: [status dot] [vendor badge] [name + action] [when] */
+.side-live-list { display: flex; flex-direction: column; gap: 2px; max-height: 38vh; overflow-y: auto; margin-top: 6px; }
+.side-conv { display: flex; align-items: flex-start; gap: var(--s2); padding: 6px var(--s2);
+  border-radius: var(--r-sm); cursor: pointer; }
 .side-conv:hover { background: var(--surface-2); }
-.side-conv-top { display: flex; align-items: center; gap: var(--s2); }
+.side-conv > .dot { margin-top: 5px; }
+.side-conv-main { flex: 1; min-width: 0; }
 .side-conv-nm { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.side-conv-when { margin-left: auto; font-size: 10px; color: var(--text-faint); flex-shrink: 0; }
-.side-conv-act { margin-left: 16px; margin-top: 2px; font-size: 11px; color: var(--text-muted);
+.side-conv-when { font-size: 10px; color: var(--text-faint); flex-shrink: 0; margin-top: 1px; }
+.side-conv-act { margin-top: 1px; font-size: 11px; color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-conv.active .side-conv-act { color: var(--text-secondary); }
 .side-conv.idle .side-conv-nm { font-weight: 500; color: var(--text-secondary); }
 .side-sub-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint);
   margin: 8px var(--s2) 4px; }
-/* zone color-coding: a colored marker per section so the three zones read distinctly */
-.side-sec-head::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: var(--success); flex: none; }
+
+/* per-agent vendor mark badge (sidebar rows + the CTRL entry) */
+.side-vmark { width: 18px; height: 18px; flex: none; border-radius: 5px; margin-top: 1px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.v-claude { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.v-codex { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.v-anti { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
+.v-ctrl { background: var(--surface-2); color: var(--text-muted); }
+
+/* zone color-coding: a colored marker so the Projects zone reads distinctly */
 .side-head { display: flex; align-items: center; gap: 6px; }
 .side-head::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: var(--accent); flex: none; }
 
@@ -698,17 +709,15 @@ body.sidebar-collapsed .restore-banner { left: 0; }
   letter-spacing: 0.14em; font-weight: 700; font-family: var(--mono); }
 .control-tile .tile-pin { color: var(--accent); font-size: 12px; padding: 0 2px; cursor: default; }
 
-/* ── sidebar CTRL row (pinned above the conversations list) ── */
-.side-ctrl { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s2);
-  margin-bottom: var(--s2); border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
-  border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent);
-  cursor: pointer; font-size: 12.5px; font-weight: 600; }
-.side-ctrl:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.side-ctrl.open { border-color: var(--accent); }
-.side-ctrl-mark { font-size: 11px; }
-.side-ctrl-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-ctrl-state { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
-.side-ctrl .dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 28%, transparent); }
+/* ── sidebar CTRL row — a SUBTLE entry at the top of the conversation list
+      (quiet ◆ vendor mark, not the old orange banner) ── */
+.side-ctrl-row { display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s2);
+  border-radius: var(--r-sm); cursor: pointer; }
+.side-ctrl-row:hover { background: var(--surface-2); }
+.side-ctrl-nm { font-size: 12px; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.02em; }
+.side-ctrl-tag { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+.side-ctrl-row.active .side-ctrl-nm { color: var(--text); }
+.side-ctrl-tag.waiting { color: var(--warn); }
 
 /* ── toast ────────────────────────────────────────────────── */
 #toast { position: fixed; bottom: var(--s5); left: 50%; transform: translateX(-50%);

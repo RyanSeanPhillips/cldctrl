@@ -26,6 +26,10 @@ export interface SessionInfo {
   id: string | null;
   project: string;
   path: string;
+  /** Which CLI/agent this session belongs to. Forward-scaffolding: the server
+   *  doesn't populate it yet, so the dashboard defaults to 'claude' (session
+   *  detection is currently Claude-shaped). */
+  vendor?: 'claude' | 'codex' | 'antigravity' | 'gemini';
   status: 'active' | 'idle';
   currentAction: string | null;
   lastActivity: string; // ISO
