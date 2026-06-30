@@ -316,7 +316,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
       return true;
     }
     if (mod && !e.shiftKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-      navigator.clipboard?.readText().then((t) => { if (t && !send({ type: 'input', data: t })) connect(); }).catch(() => { /* ignore */ });
+      // Let xterm's NATIVE paste (the browser 'paste' event) deliver the clipboard
+      // exactly once — it also honours bracketed-paste mode, so multi-line text the
+      // Claude TUI receives stays as one block instead of submitting line-by-line.
+      // We only return false so xterm doesn't ALSO emit a literal ^V (0x16) for this
+      // keydown. Do NOT readText()+send() here too — that's what double-pasted.
       return false;
     }
     return true;
