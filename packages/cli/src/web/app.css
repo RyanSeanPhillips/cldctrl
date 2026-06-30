@@ -295,19 +295,19 @@ body.no-agent .main { right: 0; }
 .side-usage-row .bar { flex: 1; height: 5px; }
 .side-usage-row .bar-val { font-size: 10px; flex-shrink: 0; }
 .proj-group { margin-bottom: var(--s3); }
-.group-head { display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s2); cursor: pointer;
-  border-radius: var(--r-sm); user-select: none; color: var(--text-secondary);
-  background: var(--surface-2); border-left: 3px solid var(--accent); margin-bottom: 3px; }
-.group-head:hover { background: var(--surface-3); color: var(--text); }
-.group-caret { font-size: 9px; width: 10px; color: var(--accent); }
-.group-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text); }
-.group-count { font-size: 10px; color: var(--text-muted); background: var(--surface-1);
-  border-radius: var(--r-pill); padding: 0 6px; }
+/* Groups read as collapsible LABELS (not selectable rows) — no background/edge, so
+   they don't compete with the green active-project rows nested beneath them. */
+.group-head { display: flex; align-items: center; gap: 6px; padding: 5px 4px; cursor: pointer;
+  user-select: none; color: var(--text-muted); margin-top: 2px; }
+.group-head:hover .group-name { color: var(--text-secondary); }
+.group-caret { font-size: 9px; width: 10px; color: var(--text-muted); }
+.group-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.group-count { font-size: 10px; color: var(--text-muted); }
 .group-live { display: flex; align-items: center; gap: 3px; margin-left: auto; font-size: 10px; color: var(--success); }
 .group-live .dot { width: 6px; height: 6px; }
-.proj-group.collapsed .group-head { color: var(--text-muted); border-left-color: var(--border-strong); }
-.proj-group.collapsed .group-name { color: var(--text-secondary); }
-.proj-list { display: flex; flex-direction: column; gap: 2px; }
+.proj-group.collapsed .group-name { color: var(--text-faint); }
+/* projects nest INSIDE the folder: indented with a hairline guide */
+.proj-list { display: flex; flex-direction: column; gap: 2px; margin-left: 7px; border-left: 1px solid var(--border); padding-left: 4px; }
 .proj-row { display: flex; align-items: center; gap: var(--s2); padding: 7px var(--s2); border-radius: var(--r-sm); cursor: pointer; transition: background .12s ease; }
 .proj-row:hover { background: var(--surface-2); }
 .proj.open > .proj-row { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
