@@ -88,7 +88,10 @@ export function findChromiumBrowser(): string | null {
 export function launchAppWindow(url: string, opts: { sharedProfile?: boolean } = {}): boolean {
   const browser = findChromiumBrowser();
   if (!browser) return false;
-  const args = [`--app=${url}`, '--new-window'];
+  // Tag the URL so the client can DETERMINISTICALLY know it's app mode (Chrome
+  // --app= windows don't reliably report display-mode: standalone).
+  const target = url + (url.includes('?') ? '&' : '?') + 'app=1';
+  const args = [`--app=${target}`, '--new-window'];
   if (!opts.sharedProfile) {
     const dir = path.join(getConfigDir(), 'app-profile');
     try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }

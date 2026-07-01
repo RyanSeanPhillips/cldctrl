@@ -258,8 +258,10 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
 // App mode (chromeless --app= window / installed PWA) vs a normal browser tab.
 // In app mode the OS title bar already shows "CLD CTRL", so the sidebar brand
 // drops the wordmark (logo only) to avoid the redundant name right below it.
-const IS_APP_MODE = typeof window !== 'undefined' && !!window.matchMedia
-  && !window.matchMedia('(display-mode: browser)').matches;
+const IS_APP_MODE = typeof window !== 'undefined' && (
+  new URLSearchParams(window.location.search).has('app')          // our --app launcher tags ?app=1
+  || (!!window.matchMedia && !window.matchMedia('(display-mode: browser)').matches) // installed PWA
+);
 
 function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Set<string> | null): Tpl {
   const ui = state.ui;
