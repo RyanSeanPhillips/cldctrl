@@ -72,18 +72,22 @@ async function maybeFirstRunSetup(): Promise<void> {
     if (prev && (prev.appSetupVersion ?? 0) >= SETUP_VERSION) return;
 
     const firstEver = !prev;
+    let shortcutOk = true;
     if (getPlatform() === 'windows') {
       try {
         const { installAppShortcut } = await import('./core/setup-windows.js');
-        installAppShortcut({ desktop: false }); // Start Menu only — silent
-      } catch { /* non-fatal */ }
+        shortcutOk = installAppShortcut({ desktop: false }).success; // Start Menu only — silent
+      } catch { shortcutOk = false; /* non-fatal */ }
     }
     try {
       fs.mkdirSync(getConfigDir(), { recursive: true });
-      fs.writeFileSync(marker, JSON.stringify({ appSetupVersion: SETUP_VERSION, completedAt: new Date().toISOString() }, null, 2));
+      fs.writeFileSync(marker, JSON.stringify({ appSetupVersion: SETUP_VERSION, shortcutOk, completedAt: new Date().toISOString() }, null, 2));
     } catch { /* non-fatal */ }
     if (firstEver) {
       console.log('CLD CTRL now opens the dashboard. Run `cc --tui` for the classic terminal UI.');
+      // If the automatic shortcut failed, point at the manual command rather than
+      // leaving the user with no icon and no explanation.
+      if (!shortcutOk) console.log('Tip: run `cc shortcut` to add a Start-Menu/desktop shortcut.');
     }
   } catch { /* never block launch on setup */ }
 }
@@ -93,9 +97,13 @@ async function main(): Promise<void> {
   const isMini = args.includes('--mini') || args.includes('-m');
 
   // `cc --tui` opts into the classic Ink TUI; bare `cc` now opens the web
-  // dashboard as an app window. Strip the flag so it never reaches Commander.
+  // dashboard as an app window. Strip the flag from BOTH args and process.argv so
+  // it never reaches Commander (which parses process.argv for subcommands).
   const wantsTui = args.includes('--tui');
-  if (wantsTui) { const i = args.indexOf('--tui'); if (i >= 0) args.splice(i, 1); }
+  if (wantsTui) {
+    const i = args.indexOf('--tui'); if (i >= 0) args.splice(i, 1);
+    const j = process.argv.indexOf('--tui'); if (j >= 0) process.argv.splice(j, 1);
+  }
 
   // Scrubbed crash telemetry (default ON, opt-out). Baseline surface = 'cli';
   // the TUI/mini paths refine it to 'tui' once they mount. Reads no config here

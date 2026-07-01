@@ -22,7 +22,10 @@ export function probeServer(port: number, timeoutMs = 900): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/api/overview', timeout: timeoutMs }, (res) => {
       res.resume();
-      resolve((res.statusCode ?? 500) < 500);
+      // Only treat a 200 JSON response as "CLD CTRL is here" — a foreign service
+      // on this port (404/401/an HTML app) must NOT be mistaken for our server.
+      const ct = String(res.headers['content-type'] || '');
+      resolve(res.statusCode === 200 && ct.includes('application/json'));
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
@@ -77,7 +80,9 @@ export function findChromiumBrowser(prefer: 'chrome' | 'edge' = 'chrome'): strin
   for (const c of cands) {
     try {
       if (plat === 'macos') { if (fs.existsSync(c)) return c; }
-      else { execFileSync('command', ['-v', c], { stdio: ['ignore', 'pipe', 'ignore'] }); return c; }
+      // `command` is a shell builtin, not an executable — run it via sh. The
+      // candidates are a fixed allowlist (no injection risk).
+      else { execFileSync('sh', ['-c', `command -v ${c}`], { stdio: ['ignore', 'pipe', 'ignore'] }); return c; }
     } catch { /* not present */ }
   }
   return null;
