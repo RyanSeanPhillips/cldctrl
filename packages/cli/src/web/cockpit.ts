@@ -193,38 +193,44 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // session discovery there's nothing stable to reattach to, and popping the
   // discovered id as a resume would double-spawn against the still-live 'new' PTY.
   const popBtn = meta.kind === 'resume'
-    ? `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window">&#8599;</button>`
+    ? `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window">${ICON_POPOUT}</button>`
     : '';
   const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
+  // Layout: the header belongs to the CONVERSATION pane (.tile-conv wraps head +
+  // terminal). When the notepad opens, its own header sits BESIDE the conversation
+  // header at the same height — each pane's controls live above that pane, instead
+  // of one full-width strip mixing chat and notepad actions.
   el.innerHTML = `
-    <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
-      ${grip}
-      ${isControl ? '' : `<span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>`}
-      <span class="dot on"></span>
-      <span class="tile-title">${title}</span>
-      <span class="tile-ctx-pct" style="display:none" title=""></span>
-      <span class="tile-status">connecting…</span>
-      <span class="sp"></span>
-      <i class="tile-ctxline" style="display:none"></i>
-      ${noteBtn}
-      ${readBtn}
-      ${locBtns}
-      <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
-      <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
-      ${popBtn}
-      <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
-      <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
-    </div>
     <div class="tile-main">
-      <div class="tile-term"></div>
+      <div class="tile-conv">
+        <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
+          ${grip}
+          ${isControl ? '' : `<span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>`}
+          <span class="dot on"></span>
+          <span class="tile-title">${title}</span>
+          <span class="tile-ctx-pct" style="display:none" title=""></span>
+          <span class="tile-status">connecting…</span>
+          <span class="sp"></span>
+          <i class="tile-ctxline" style="display:none"></i>
+          ${noteBtn}
+          ${readBtn}
+          ${locBtns}
+          <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
+          <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
+          ${popBtn}
+          <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
+          <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
+        </div>
+        <div class="tile-term"></div>
+      </div>
       <div class="tile-note" style="display:none">
         <div class="note-head">
           <span class="note-mark">&#128211;</span>
           <button class="note-name" data-note="menu" title="Switch note · new · open from this project"><span class="note-name-text">notepad</span> <span class="note-caret">&#9662;</span></button>
           <span class="note-status"></span>
           <span class="sp"></span>
-          <button class="btn icon" data-note="chat" title="Ask the agent to read &amp; review this draft (sends a clear instruction + the file path so it reads it directly, no searching)">&#128206;</button>
-          <button class="btn icon" data-note="read" title="Read aloud (selection, else the whole note)">&#128266;</button>
+          <button class="btn icon" data-note="chat" title="Send this draft to the agent to read &amp; review">&#128206;</button>
+          <button class="btn icon" data-note="read" title="Read this note aloud (selection, else all)">&#128266;</button>
           <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
           <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
           <div class="note-menu" style="display:none"></div>
@@ -730,7 +736,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
       <button class="btn icon" data-act="doc-toggle" data-id="${esc(meta.id)}" title="Edit / preview">&#9998;</button>
       <button class="btn icon" data-act="doc-speak" data-id="${esc(meta.id)}" title="Read aloud (selection, else whole doc)">&#128266;</button>
       <button class="btn icon" data-act="doc-save" data-id="${esc(meta.id)}" title="Save (Ctrl+S)">&#128190;</button>
-      <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
+      <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
     </div>
     <div class="doc-body">
@@ -863,6 +869,13 @@ function createTile(meta: CockpitTile): LiveTile {
   return meta.kind === 'doc' ? createDocTile(meta) : createTermTile(meta);
 }
 
+// Distinct window-action icons (SVG, not lookalike arrow glyphs): pop-out reads
+// as "window leaving", maximize as corners-out, restore as corners-in. The ⤡/↗
+// entity pair was reported as visually confusable.
+export const ICON_POPOUT = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V7"/><path d="M7.5 1.5h3v3"/><path d="M10.5 1.5 6 6"/></svg>';
+export const ICON_MAX = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4.5 1.5h-3v3M7.5 1.5h3v3M4.5 10.5h-3v-3M7.5 10.5h3v-3"/></svg>';
+export const ICON_RESTORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4.5h3v-3M10.5 4.5h-3v-3M1.5 7.5h3v3M10.5 7.5h-3v3"/></svg>';
+
 function destroyTile(id: string): void {
   const t = tiles.get(id);
   if (!t) return;
@@ -965,7 +978,7 @@ export function syncCockpit(): void {
     const mb = t.el.querySelector('[data-act="tile-max"]') as HTMLElement | null;
     if (mb && mb.dataset.maxed !== String(maxed)) {
       mb.dataset.maxed = String(maxed);
-      mb.innerHTML = maxed ? '&#10697;' : '&#8689;'; // ⧉ restore / ⤡ maximize
+      mb.innerHTML = maxed ? ICON_RESTORE : ICON_MAX;
       mb.title = maxed ? 'Restore' : 'Maximize';
     }
     // Focus chips: mute a project's tiles without tearing down their PTYs. The
