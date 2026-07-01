@@ -957,7 +957,7 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 // ── Server ───────────────────────────────────────────────────
 
-export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean } = {}): void {
+export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean; appMode?: boolean; sharedProfile?: boolean } = {}): void {
   initLogger();
   DEMO = !!opts.demo;
   // Scrubbed crash telemetry (default ON, opt-out). Browser surface.
@@ -1195,7 +1195,20 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
     const url = `http://127.0.0.1:${port}`;
     console.log(`CLD CTRL dashboard: ${url}`);
     console.log(`Bound to localhost only.${DEMO ? ' DEMO MODE (synthetic data).' : agentOk ? ' Agent terminal enabled.' : ''} Ctrl+C to stop.`);
-    if (opts.open) openUrl(url);
+    if (opts.appMode) {
+      // Chromeless standalone window (Edge/Chrome --app=). Falls back to a normal
+      // browser tab if no Chromium browser is found.
+      import('./core/app-launch.js').then(({ launchAppWindow }) => {
+        if (launchAppWindow(url, { sharedProfile: opts.sharedProfile })) {
+          console.log('Opened in app mode (chromeless window).');
+        } else {
+          console.log('App mode: no Chromium browser found — opening a normal tab.');
+          openUrl(url);
+        }
+      }).catch(() => openUrl(url));
+    } else if (opts.open) {
+      openUrl(url);
+    }
     if (DEMO) return; // demo instances stay silent — no beacon, no update check
     // Adoption ping for the browser surface: one launch hit, then a slow
     // presence heartbeat while the dashboard server stays up (same beacon as

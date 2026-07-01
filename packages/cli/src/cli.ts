@@ -673,22 +673,26 @@ export function createCli(): Command {
     .description('Serve the browser dashboard (localhost only)')
     .option('--port <port>', 'Port to listen on', '2533')
     .option('--open', 'Open the dashboard in your default browser')
+    .option('--app', 'Open as a chromeless standalone app window (Edge/Chrome --app=)')
+    .option('--shared-profile', 'App mode: reuse your main browser profile (extensions/logins) instead of an isolated one')
     .option('--demo', 'Serve synthetic demo data (well-known OSS repos) instead of your real projects')
     .action(async (opts) => {
       const { startServeServer } = await import('./serve.js');
-      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open, demo: !!opts.demo });
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile, demo: !!opts.demo });
     });
 
   // ── web (serve + open browser) ───────────────────────────
 
   program
     .command('web')
-    .description('Launch the browser dashboard (serve + open in your default browser)')
+    .description('Launch the browser dashboard (serve + open in your default browser, or --app for a standalone window)')
     .option('--port <port>', 'Port to listen on', '2533')
     .option('--no-open', "Don't auto-open the browser")
+    .option('--app', 'Open as a chromeless standalone app window (Edge/Chrome --app=) instead of a browser tab')
+    .option('--shared-profile', 'App mode: reuse your main browser profile (extensions/logins) instead of an isolated one')
     .action(async (opts) => {
       const { startServeServer } = await import('./serve.js');
-      startServeServer(parseInt(opts.port, 10) || 2533, { open: opts.open !== false });
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: opts.open !== false, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile });
     });
 
   // ── daemon ──────────────────────────────────────────────
