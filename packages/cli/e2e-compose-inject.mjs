@@ -1,7 +1,9 @@
-// E2E smoke test: compose-box mechanics + #9 inject-into-running-session prefill.
-// Drives a REAL cockpit tile but never submits to claude (compose test stops
-// before send; inject uses autoSend:false → prefill only) so it can't pollute a
-// real conversation.
+// E2E smoke test: #9 inject-into-running-session prefill via the compose box.
+// The manual compose-box BUTTON was removed (the box now only auto-opens on an
+// agent inject / notepad "→ chat"); this test asserts that removal AND that the
+// inject path still reveals + prefills the box. Drives a REAL cockpit tile but
+// never submits (inject uses autoSend:false → prefill only) so it can't pollute
+// a real conversation.
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -28,9 +30,8 @@ try {
   await page.waitForSelector('.topbar', { timeout: 10000 });
   await page.waitForTimeout(800);
 
-  // Cockpit → Add picker → first resumable conversation as a real tile.
-  await page.click('[data-act="view-cockpit"]');
-  await page.waitForTimeout(400);
+  // Cockpit is the default view. Open the Add picker → first resumable
+  // conversation as a real tile.
   await page.click('[data-act="cockpit-add-toggle"]');
   await page.waitForTimeout(600);
   const addRow = await page.$('[data-act="cockpit-add-resume"]');
@@ -43,42 +44,16 @@ try {
   const tile = await page.$('.tile[data-id^="resume:"]');
   results['tile mounted'] = !!tile;
 
-  // ── compose-box mechanics (no submit) ──
-  const composeBtn = await page.$('[data-act="tile-compose"]');
-  results['compose toggle button present'] = !!composeBtn;
-  // hidden by default
+  // ── regression: the manual compose button is GONE, box hidden by default ──
+  results['no manual compose button on tile'] =
+    (await page.$$('[data-act="tile-compose"]')).length === 0;
   results['compose bar hidden by default'] =
     await page.$eval('.tile-compose', (e) => getComputedStyle(e).display === 'none').catch(() => false);
-  await composeBtn.click();
-  await page.waitForTimeout(300);
-  results['compose bar visible after toggle'] =
-    await page.$eval('.tile-compose', (e) => getComputedStyle(e).display !== 'none').catch(() => false);
   results['textarea is spellcheck=true'] =
     await page.$eval('.compose-input', (e) => e.getAttribute('spellcheck') === 'true').catch(() => false);
-  // type a multi-line message and confirm it populates + autosizes
-  const ta = await page.$('.compose-input');
-  const h0 = await ta.evaluate((e) => e.offsetHeight);
-  await ta.click();
-  await page.keyboard.type('line one of a composed message');
-  await page.keyboard.down('Shift'); await page.keyboard.press('Enter'); await page.keyboard.up('Shift');
-  await page.keyboard.type('line two — Shift+Enter kept the newline');
-  await page.waitForTimeout(200);
-  const val = await ta.evaluate((e) => e.value);
-  results['textarea holds typed multi-line text'] = val.includes('line one') && val.includes('line two') && val.includes('\n');
-  // grow it further with several more lines to prove autosize tracks content
-  for (let i = 0; i < 4; i++) { await page.keyboard.down('Shift'); await page.keyboard.press('Enter'); await page.keyboard.up('Shift'); await page.keyboard.type('more line ' + i); }
-  await page.waitForTimeout(200);
-  const h1 = await ta.evaluate((e) => e.offsetHeight);
-  console.log('autosize debug — empty h0:', h0, '6-line h1:', h1);
-  results['textarea auto-grew with content'] = h1 > h0;
-  results['empty compose box is compact (<=40px)'] = h0 <= 40;
-  // Escape closes the bar
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-  results['Escape closes compose bar'] =
-    await page.$eval('.tile-compose', (e) => getComputedStyle(e).display === 'none').catch(() => false);
 
-  // ── #9 inject prefill (autoSend:false → no submit) ──
+  // ── #9 inject prefill (autoSend:false → no submit); this is now the ONLY way
+  //    the box opens, so it doubles as the "box still works" check. ──
   fs.mkdirSync(CONTROL_DIR, { recursive: true });
   const injectMsg = 'INJECT-TEST-' + PORT + ': please confirm you received this';
   fs.writeFileSync(INJECT_FILE, JSON.stringify([{ sessionId, text: injectMsg, autoSend: false, note: 'e2e', ts: Date.now() }]), 'utf-8');

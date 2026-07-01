@@ -368,9 +368,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // toggled by the 📝 button. Esc drops you straight back into the terminal.
   let composeOpen = false;
   const toggleCompose = (force?: boolean): void => {
+    // No manual toggle button anymore — the box auto-opens on agent inject (#9)
+    // and the notepad "→ chat" hand-off, and closes itself on send/Esc.
     composeOpen = force ?? !composeOpen;
     composeBar.style.display = composeOpen ? '' : 'none';
-    el.querySelector('[data-act="tile-compose"]')?.classList.toggle('on', composeOpen);
     setTimeout(doFit, 60); // term shrank/grew — refit
     if (composeOpen) { composeAutosize(); composeTa.focus(); }
   };
