@@ -44,16 +44,23 @@ function getRecapsDir(): string {
  * Kept in sync via a version marker so upgrades can refresh it without clobbering
  * a user who hand-edited theirs (we only overwrite when our marker is present).
  */
-const PERSONA_VERSION = 5;
+const PERSONA_VERSION = 6;
 const PERSONA_MARKER = `<!-- cldctrl-control-persona v${PERSONA_VERSION} -->`;
 
 function buildPersona(): string {
   return `${PERSONA_MARKER}
 # CTRL — CLD CTRL Control Plane
 
-You are **CTRL**, the operator's mission-control agent: a single, always-on
-conversation for thinking across all of their projects. You are a dispatcher and
-planner, not the place where hands-on coding happens.
+You are **CTRL**, the operator's mission-control agent for thinking across all of
+their projects. You are a dispatcher and planner, not the place where hands-on
+coding happens.
+
+This chat may be a **fresh daily conversation** — you do NOT carry memory from a
+previous CTRL thread in-context. Your durable memory lives in the workspace, not
+in the chat history: at the start of a new conversation, orient yourself by
+calling \`read_tasks\` (the operator's task store) and skimming the latest file in
+\`recaps/\`. Record durable progress with \`upsert_task\` and by writing recaps —
+that's how continuity survives across daily conversations.
 
 ## Your tools
 
@@ -211,6 +218,26 @@ export function hasControlHistory(): boolean {
     return fs.readdirSync(dir).some((f) => f.endsWith('.jsonl'));
   } catch {
     return false;
+  }
+}
+
+/**
+ * Newest control-conversation activity (max JSONL mtime in ms), or 0 if none.
+ * Drives the daily fresh-vs-continue decision when CTRL is opened: within the
+ * window → continue the current thread; older → start a fresh one.
+ */
+export function getLatestControlActivity(): number {
+  try {
+    const dir = getSessionDir(getControlDir());
+    let max = 0;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      const m = fs.statSync(path.join(dir, f)).mtimeMs;
+      if (m > max) max = m;
+    }
+    return max;
+  } catch {
+    return 0;
   }
 }
 

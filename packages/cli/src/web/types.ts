@@ -80,6 +80,9 @@ export interface OverviewPayload {
   cockpitInjects?: Array<{ sessionId: string; text: string; autoSend?: boolean; note?: string; ts: number }>;
   /** tileId → the sessionId its 'new' agent created (so the client can resume it after a restart). */
   terminalSessions?: Record<string, string>;
+  /** CTRL chat lifecycle. `lastActivity` (ms) drives the daily fresh-vs-continue
+   *  decision; the running control sessionId rides in terminalSessions['control']. */
+  control?: { lastActivity: number | null };
 }
 
 export interface TranscriptEntry {

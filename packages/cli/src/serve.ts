@@ -37,7 +37,7 @@ import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, op
 import { listAgents, agentCommand } from './core/agents.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
 import { launchAndTrack, getCleanEnv } from './core/launcher.js';
-import { getControlDir, hasControlHistory, ensureControlWorkspace } from './core/control.js';
+import { getControlDir, hasControlHistory, ensureControlWorkspace, getLatestControlActivity } from './core/control.js';
 import { log, initLogger } from './core/logger.js';
 import type { RateLimitInfo } from './core/claude-usage.js';
 
@@ -247,6 +247,10 @@ async function buildOverview(): Promise<unknown> {
     // and resume the SAME conversation after a restart (no manual /resume).
     terminalSessions: Object.fromEntries([...terminals.entries()].filter(([, s]) => s.discoveredSessionId).map(([id, s]) => [id, s.discoveredSessionId!])),
     scratch: readScratchOpen(),
+    // CTRL chat lifecycle: last control activity drives the daily fresh-vs-continue
+    // decision; the running control session id (once claude writes its JSONL) rides
+    // along in terminalSessions['control'] via control discovery below.
+    control: { lastActivity: getLatestControlActivity() || null },
     sessions: sessions.map(s => ({
       id: s.sessionId || null,
       project: nameMap.get(normalizePathForCompare(s.projectPath)) ?? path.basename(s.projectPath),
@@ -440,6 +444,38 @@ function pickSummary(s: { richSummary?: string; summary?: string; firstPrompt?: 
   const fp = cleanPrompt(s.firstPrompt);
   if (fp && !isWeak(fp)) return fp;
   return gist || idx || fp || '(untitled session)';
+}
+
+interface ControlSessionSummary { id: string; summary: string; firstPrompt: string | null; modified: string; tokens: number; messages: number; }
+
+/** Past CTRL conversations for the history dropdown. Registers each JSONL path
+ *  in sessionFileMap so /api/transcript + read-aloud work on historical control
+ *  chats. getRecentSessions only scans Claude session files, so the workspace's
+ *  CLAUDE.md / tasks.json / recaps never appear as conversations. */
+/** CTRL chats often open with a slash-command whose prompt is an XML-ish
+ *  caveat/command wrapper — strip those so dropdown labels read cleanly. */
+function cleanControlSummary(s: string): string {
+  // A slash-command start → label with the command name (e.g. "/compact").
+  const cmd = s.match(/<command-name>\s*\/?([^<]+?)\s*<\/command-name>/i);
+  if (cmd) return '/' + cmd[1].trim();
+  const t = s.replace(/<\/?[a-z-]+>/gi, ' ').replace(/\s+/g, ' ').trim();
+  // Local-command caveat boilerplate (possibly truncated) has no usable human
+  // summary → signal the caller to fall back to a generic date-labeled entry.
+  if (/messages below were generated|Caveat:|DO NOT respond to these messages/i.test(t)) return '';
+  return t.length > 3 ? t : '';
+}
+
+async function listControlSessions(limit = 20): Promise<ControlSessionSummary[]> {
+  const sessions = await getRecentSessions(getControlDir(), limit);
+  for (const s of sessions) { if (s.id && s.filePath) sessionFileMap.set(s.id, s.filePath); }
+  return sessions.map((s) => ({
+    id: s.id,
+    summary: cleanControlSummary(pickSummary(s, deriveGist(s.id))) || 'CTRL conversation',
+    firstPrompt: cleanControlSummary(cleanPrompt(s.firstPrompt) || '') || null,
+    modified: s.modified instanceof Date ? s.modified.toISOString() : String(s.modified),
+    tokens: s.stats?.tokens ?? 0,
+    messages: s.stats?.messages ?? 0,
+  }));
 }
 
 async function handleProjectDetail(tab: string, rawPath: string, rawDir: string): Promise<{ status: number; body: unknown }> {
@@ -703,9 +739,12 @@ function fillDiscoveredSessions(): void {
   const claimed = new Set<string>();
   for (const s of terminals.values()) if (s.discoveredSessionId) claimed.add(s.discoveredSessionId);
   for (const s of terminals.values()) {
-    if (s.meta.kind !== 'new' || s.discoveredSessionId || !s.cwd) continue;
+    const isCtrl = s.meta.kind === 'control';
+    if ((s.meta.kind !== 'new' && !isCtrl) || s.discoveredSessionId || !s.cwd) continue;
     let dir: string; try { dir = getSessionDir(s.cwd); } catch { continue; }
-    const after = (s.spawnedAt ?? 0) - 4000; // clock-skew buffer
+    // 'new' tiles match a file created at/after spawn; CTRL resumes-or-creates the
+    // NEWEST control session, so take the newest unclaimed file regardless of time.
+    const after = isCtrl ? 0 : (s.spawnedAt ?? 0) - 4000; // clock-skew buffer
     try {
       const cand = fs.readdirSync(dir)
         .filter((f) => f.endsWith('.jsonl'))
@@ -1004,6 +1043,11 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const tab = url.pathname.slice('/api/project/'.length);
         const result = await handleProjectDetail(tab, url.searchParams.get('path') ?? '', url.searchParams.get('dir') ?? '');
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'GET' && url.pathname === '/api/control/sessions') {
+        // CTRL conversation history (for the header dropdown). Registers file
+        // paths so /api/transcript + read-aloud work on historical control chats.
+        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+        sendJson(res, 200, { sessions: await listControlSessions(limit) });
       } else if (req.method === 'POST' && url.pathname === '/api/launch') {
         // CSRF guard: the custom header forces a preflight cross-origin,
         // which this server never approves (no CORS headers are sent)
