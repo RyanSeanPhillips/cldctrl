@@ -672,6 +672,7 @@ export function createCli(): Command {
     .command('shortcut')
     .description('Create a Start Menu (+ optional Desktop) shortcut that opens the dashboard as an app (Windows)')
     .option('--desktop', 'Also create a Desktop shortcut, not just Start Menu')
+    .option('--pin', 'Also try to pin CLD CTRL to the taskbar for quick launch')
     .option('--remove', 'Remove the app shortcut(s)')
     .action(async (opts) => {
       const { getPlatform } = await import('./core/platform.js');
@@ -679,9 +680,18 @@ export function createCli(): Command {
         console.log('The app shortcut is currently Windows-only. On macOS/Linux, run `cc web --app` (or wrap it in a .desktop/.app launcher).');
         process.exit(1);
       }
-      const { installAppShortcut, removeAppShortcut } = await import('./core/setup-windows.js');
-      const result = opts.remove ? removeAppShortcut() : installAppShortcut({ desktop: !!opts.desktop });
+      const { installAppShortcut, removeAppShortcut, pinAppToTaskbar } = await import('./core/setup-windows.js');
+      if (opts.remove) {
+        const r = removeAppShortcut();
+        console.log(r.message);
+        process.exit(r.success ? 0 : 1);
+      }
+      const result = installAppShortcut({ desktop: !!opts.desktop });
       console.log(result.message);
+      if (opts.pin) {
+        const pin = pinAppToTaskbar();
+        console.log(pin.message);
+      }
       process.exit(result.success ? 0 : 1);
     });
 

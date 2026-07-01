@@ -210,3 +210,48 @@ export function removeAppShortcut(): SetupResult {
   for (const p of targets) { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ } }
   return { success: true, message: 'Removed CLD CTRL app shortcut(s).' };
 }
+
+/**
+ * Best-effort "pin to taskbar" for quick launch like Chrome. Windows 10/11
+ * deliberately restrict programmatic taskbar pinning for third-party apps: the
+ * "Pin to taskbar" shell verb was hidden in Win10 1809+ and is usually absent on
+ * Win11. We ensure the shortcut exists, then try the verb (resolved from
+ * shell32.dll,-5386 so it works in any UI language). If the verb is gone we
+ * return success:false with guidance to right-click → Pin to taskbar (one click).
+ */
+export function pinAppToTaskbar(): SetupResult {
+  const appdata = process.env.APPDATA;
+  if (!appdata) return { success: false, message: 'APPDATA not set' };
+  // Make sure the Start-Menu shortcut exists to pin.
+  const install = installAppShortcut({ desktop: false });
+  if (!install.success) return install;
+  const lnk = path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs', SHORTCUT_NAME);
+  const psq = (s: string) => s.replace(/'/g, "''");
+  // Resolve the localized verb name, then invoke the matching verb on the .lnk.
+  const ps = [
+    `$ErrorActionPreference='SilentlyContinue'`,
+    `$def='[DllImport("shell32.dll",CharSet=CharSet.Unicode)] public static extern int SHLoadIndirectString(string s,System.Text.StringBuilder o,int c,System.IntPtr r);'`,
+    `$t=Add-Type -MemberDefinition $def -Name Pin -Namespace W32 -PassThru`,
+    `$sb=New-Object System.Text.StringBuilder 1024`,
+    `[void]$t::SHLoadIndirectString('@shell32.dll,-5386',$sb,$sb.Capacity,[System.IntPtr]::Zero)`,
+    `$pin=$sb.ToString()`,
+    `$sh=New-Object -ComObject Shell.Application`,
+    `$dir=Split-Path '${psq(lnk)}'`,
+    `$leaf=Split-Path '${psq(lnk)}' -Leaf`,
+    `$item=$sh.Namespace($dir).ParseName($leaf)`,
+    `$done=$false`,
+    `foreach($v in $item.Verbs()){ $n=$v.Name -replace '&','' ; if(($pin -and $n -eq $pin) -or $n -match 'taskbar'){ $v.DoIt(); $done=$true; break } }`,
+    `if($done){ Write-Output 'PINNED' } else { Write-Output 'NOVERB' }`,
+  ].join('; ');
+  const spawn = require('cross-spawn') as typeof import('cross-spawn');
+  try {
+    const r = spawn.sync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf-8' });
+    if (r.status === 0 && String(r.stdout).includes('PINNED')) {
+      return { success: true, message: 'Pinned CLD CTRL to the taskbar.' };
+    }
+  } catch { /* fall through */ }
+  return {
+    success: false,
+    message: 'Windows blocks auto-pinning on this version. Right-click the CLD CTRL Start-Menu tile → "Pin to taskbar".',
+  };
+}
