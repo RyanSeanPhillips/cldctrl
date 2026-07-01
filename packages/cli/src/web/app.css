@@ -29,10 +29,13 @@
   /* spacing / radius */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   --r-sm: 6px; --r-md: 10px; --r-pill: 999px;
-  --topbar-h: 54px;
+  /* topbar + cockpit toolbar are retired — the sidebar owns all chrome now and
+     both columns run full-height. Kept as 0 vars so the existing top: offsets
+     resolve to the viewport edge without touching every rule. */
+  --topbar-h: 0px;
   --rail-w: 0px; /* the agent dock is retired — cockpit/stats overlays reach the right edge */
   --sidebar-w: 264px;
-  --cptoolbar-h: 44px;
+  --cptoolbar-h: 0px;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Consolas, Menlo, monospace;
   /* data-viz ramps (empty → most) */
@@ -233,6 +236,13 @@ body.no-agent .main { right: 0; }
 /* sidebar top zone: a header row with the merged Conversations header (the
    cockpit affordance: grid icon + label + single live count, click → cockpit)
    and, OUTSIDE that orange box, a separate search-magnifier button. */
+/* brand moved off the (retired) topbar to the top of the sidebar */
+.side-brand { display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  height: 46px; flex: none; cursor: pointer; border-bottom: 1px solid var(--border); }
+/* floating controls over the full-height cockpit/stats (no reserved top bar) */
+.cp-float { position: fixed; top: 10px; z-index: 30; display: flex; align-items: center; gap: var(--s2); }
+.cp-float-r { right: 20px; }
+.cp-float-l { left: calc(var(--sidebar-w) + 14px); max-width: calc(100vw - var(--sidebar-w) - 120px); overflow: hidden; }
 .side-head-row { display: flex; align-items: center; gap: var(--s2); }
 .side-head-row .side-conv-head { flex: 1; min-width: 0; }
 .side-conv-head { display: flex; align-items: center; gap: var(--s2); padding: 8px var(--s2);

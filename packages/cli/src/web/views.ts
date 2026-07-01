@@ -108,22 +108,6 @@ function updatePill(d: OverviewPayload): Tpl | string {
   </span>`;
 }
 
-function topbar(d: OverviewPayload, state: State): Tpl {
-  const live = d.sessions.filter((s) => s.status === 'active').length;
-  const idle = d.sessions.length - live;
-  return html`<header class="topbar">
-    <div class="brand" data-act="nav-cockpit" title="Go to your conversations">
-      <span class="logo" aria-hidden="true"></span>
-      <span class="wordmark">CLD CTRL</span>
-    </div>
-    <span class="shell-spacer"></span>
-    <div class="topbar-right">
-      ${updatePill(d)}
-      <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
-      <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
-    </div>
-  </header>`;
-}
 
 // ── sidebar (projects) ───────────────────────────────────────
 function gitBadge(p: ProjectInfo): Tpl | string {
@@ -257,8 +241,10 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
     <div class="side-usage-line">
       <span class="side-usage-tierwrap">
         ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : ''}
-        ${d.version ? html`<span class="side-usage-ver num" title="cldctrl version">v${d.version}</span>` : ''}
+        ${d.version ? html`<span class="side-usage-ver num" title=${'cldctrl v' + d.version + ' · updated ' + new Date(d.generatedAt).toLocaleTimeString()}>v${d.version}</span>` : ''}
       </span>
+      ${updatePill(d)}
+      <span class="sp"></span>
       <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>
     <div class="side-usage-row"><span class="side-usage-lbl">5h</span>${usageBar(d.usage.fiveHour)}</div>
@@ -280,6 +266,10 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
+    <div class="side-brand" data-act="nav-cockpit" title="Go to your conversations">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="wordmark">CLD CTRL</span>
+    </div>
     <div class="side-top">
       <div class="side-head-row">
         <div class=${'side-conv-head' + (cockpitActive ? ' nav-on' : '')} data-act="nav-cockpit" title="Click to open your live conversations">
@@ -616,21 +606,23 @@ function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
-/** The slim contextual toolbar above the cockpit (or stats) on the home view.
- *  Holds the controls that used to live in convTabs: "N waiting" jump, focus
- *  chips, Notes, "+ Add", the layout toggles, and the stats range buttons. */
-function cockpitToolbar(d: OverviewPayload, state: State): Tpl {
+/** Floating controls OVER the cockpit/stats surface — they don't reserve height
+ *  (no top bar), so the cockpit runs full-height now that the topbar + the old
+ *  cockpit toolbar are gone. Cockpit: focus chips (left) + "N waiting" (right).
+ *  Stats: the range selector (right). */
+function cockpitFloat(d: OverviewPayload, state: State): Tpl {
   const cp = state.ui.cockpit;
-  const stats = cp.tab === 'stats';
-  return html`<div class="shell-cptoolbar">
-    ${!stats && (cp.attnTiles?.length ?? 0) > 0 ? html`<button class="cp-wait" data-act="cockpit-waiting"
-      title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button>` : ''}
-    ${!stats ? cockpitChips(d, state) : ''}
-    <span class="sp"></span>
-    ${stats ? html`<div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
+  if (cp.tab === 'stats') {
+    return html`<div class="cp-float cp-float-r">
+      <div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
         html`<button class=${'btn icon' + (cp.statsDays === dys ? ' on' : '')} data-act="stats-days" data-days=${String(dys)}>${lbl}</button>`)}
-      </div>` : ''}
-  </div>`;
+      </div></div>`;
+  }
+  const chips = cockpitChips(d, state);
+  const waiting = (cp.attnTiles?.length ?? 0) > 0;
+  return html`${chips ? html`<div class="cp-float cp-float-l">${chips}</div>` : ''}${
+    waiting ? html`<div class="cp-float cp-float-r"><button class="cp-wait" data-act="cockpit-waiting"
+      title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button></div>` : ''}`;
 }
 
 // ── root ─────────────────────────────────────────────────────
@@ -643,14 +635,13 @@ export function appView(state: State): Tpl {
   const matchPaths = showSearch ? new Set(state.search.results.map((r) => normPath(r.projectPath))) : null;
   const ro = state.ui.restoreOffer;
   return html`
-    ${topbar(d, state)}
     ${ro ? html`<div class="restore-banner">
       <span>↩ Pick up where you left off — restore ${ro.tiles.length} conversation${ro.tiles.length === 1 ? '' : 's'} from your last session?</span>
       <span class="sp"></span>
       <button class="btn primary" data-act="restore-accept">Restore</button>
       <button class="btn" data-act="restore-dismiss">Dismiss</button>
     </div>` : ''}
-    ${home ? cockpitToolbar(d, state) : ''}
+    ${home ? cockpitFloat(d, state) : ''}
     <div class="body">
       ${sidebar(d, state, state.search.query, matchPaths)}
       <div class="side-divider" data-act="sidebar-toggle" title=${state.ui.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
