@@ -9,10 +9,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import spawn from 'cross-spawn';
 import { getConfigDir } from '../config.js';
 import { getPlatform } from './platform.js';
+
+/** Is a cldctrl dashboard already serving on this localhost port? Lets a repeat
+ *  app-mode launch just open a new window instead of failing on port-in-use. */
+export function probeServer(port: number, timeoutMs = 900): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/api/overview', timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve((res.statusCode ?? 500) < 500);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
 
 /** Locate a Chromium-based browser that supports `--app=`. Edge first (present
  *  on most Windows machines), then Chrome. Returns an absolute path/command, or

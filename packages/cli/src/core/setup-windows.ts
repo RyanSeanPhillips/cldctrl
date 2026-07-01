@@ -5,6 +5,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { getConfigDir } from '../config.js';
 import type { SetupResult } from './setup.js';
 
 const STARTUP_FILENAME = 'CldCtrl-Hotkey.vbs';
@@ -134,4 +136,64 @@ export function removeWindows(): SetupResult {
     success: true,
     message: 'Ctrl+Up hotkey removed from startup and stopped.',
   };
+}
+
+// ── App-mode launcher shortcut ───────────────────────────────
+
+const SHORTCUT_NAME = 'CLD CTRL.lnk';
+const APP_VBS_NAME = 'cldctrl-app.vbs';
+
+/**
+ * Create a Start Menu (+ optional Desktop) shortcut that launches the dashboard
+ * as a chromeless app-mode window (`cc web --app`) via a hidden VBS wrapper so
+ * no console flashes. Requires cldctrl installed globally (`cc` on PATH).
+ */
+export function installAppShortcut(opts: { desktop?: boolean } = {}): SetupResult {
+  const appdata = process.env.APPDATA;
+  if (!appdata) return { success: false, message: 'APPDATA not set' };
+  const configDir = getConfigDir();
+  try { fs.mkdirSync(configDir, { recursive: true }); } catch { /* ignore */ }
+  // Hidden launcher: start app mode with no console window (0 = hidden).
+  const vbsPath = path.join(configDir, APP_VBS_NAME);
+  try {
+    fs.writeFileSync(vbsPath, 'Set s = CreateObject("WScript.Shell")\r\ns.Run "cmd /c cc web --app", 0, False\r\n', 'utf-8');
+  } catch (err) {
+    return { success: false, message: `Could not write launcher: ${err}` };
+  }
+
+  const startMenu = path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+  const targets = [path.join(startMenu, SHORTCUT_NAME)];
+  if (opts.desktop) targets.push(path.join(os.homedir(), 'Desktop', SHORTCUT_NAME));
+
+  const spawn = require('cross-spawn') as typeof import('cross-spawn');
+  const psq = (s: string) => s.replace(/'/g, "''"); // PowerShell single-quote escape
+  let made = 0;
+  for (const lnk of targets) {
+    const ps = [
+      `$w = New-Object -ComObject WScript.Shell`,
+      `$s = $w.CreateShortcut('${psq(lnk)}')`,
+      `$s.TargetPath = 'wscript.exe'`,
+      `$s.Arguments = '"${psq(vbsPath)}"'`,
+      `$s.Description = 'CLD CTRL dashboard (app mode)'`,
+      `$s.WorkingDirectory = '${psq(configDir)}'`,
+      `$s.Save()`,
+    ].join('; ');
+    try {
+      const r = spawn.sync('powershell', ['-NoProfile', '-Command', ps], { stdio: 'ignore' });
+      if (r.status === 0) made++;
+    } catch { /* ignore */ }
+  }
+  if (!made) return { success: false, message: 'Failed to create shortcut(s).' };
+  return { success: true, message: `Created ${made} CLD CTRL app shortcut${made === 1 ? '' : 's'} → launches "cc web --app".` };
+}
+
+export function removeAppShortcut(): SetupResult {
+  const appdata = process.env.APPDATA;
+  const targets = [
+    appdata ? path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs', SHORTCUT_NAME) : '',
+    path.join(os.homedir(), 'Desktop', SHORTCUT_NAME),
+    path.join(getConfigDir(), APP_VBS_NAME),
+  ].filter(Boolean);
+  for (const p of targets) { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ } }
+  return { success: true, message: 'Removed CLD CTRL app shortcut(s).' };
 }

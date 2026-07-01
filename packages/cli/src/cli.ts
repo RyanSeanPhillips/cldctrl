@@ -666,6 +666,25 @@ export function createCli(): Command {
       }
     });
 
+  // ── shortcut (app-mode desktop/Start Menu launcher) ──────
+
+  program
+    .command('shortcut')
+    .description('Create a Start Menu (+ optional Desktop) shortcut that opens the dashboard as an app (Windows)')
+    .option('--desktop', 'Also create a Desktop shortcut, not just Start Menu')
+    .option('--remove', 'Remove the app shortcut(s)')
+    .action(async (opts) => {
+      const { getPlatform } = await import('./core/platform.js');
+      if (getPlatform() !== 'windows') {
+        console.log('The app shortcut is currently Windows-only. On macOS/Linux, run `cc web --app` (or wrap it in a .desktop/.app launcher).');
+        process.exit(1);
+      }
+      const { installAppShortcut, removeAppShortcut } = await import('./core/setup-windows.js');
+      const result = opts.remove ? removeAppShortcut() : installAppShortcut({ desktop: !!opts.desktop });
+      console.log(result.message);
+      process.exit(result.success ? 0 : 1);
+    });
+
   // ── serve ───────────────────────────────────────────────
 
   program
@@ -691,8 +710,19 @@ export function createCli(): Command {
     .option('--app', 'Open as a chromeless standalone app window (Edge/Chrome --app=) instead of a browser tab')
     .option('--shared-profile', 'App mode: reuse your main browser profile (extensions/logins) instead of an isolated one')
     .action(async (opts) => {
+      const port = parseInt(opts.port, 10) || 2533;
+      // App mode: if a dashboard is already serving this port, just open another
+      // window against it (so relaunching the shortcut doesn't hit port-in-use).
+      if (opts.app) {
+        const { probeServer, launchAppWindow } = await import('./core/app-launch.js');
+        if (await probeServer(port)) {
+          launchAppWindow(`http://127.0.0.1:${port}`, { sharedProfile: !!opts.sharedProfile });
+          console.log(`Opened an app window against the dashboard already running on ${port}.`);
+          return;
+        }
+      }
       const { startServeServer } = await import('./serve.js');
-      startServeServer(parseInt(opts.port, 10) || 2533, { open: opts.open !== false, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile });
+      startServeServer(port, { open: opts.open !== false, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile });
     });
 
   // ── daemon ──────────────────────────────────────────────
