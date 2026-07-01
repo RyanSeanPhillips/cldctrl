@@ -632,6 +632,8 @@ const SHELL = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>⌃ CLD CTRL</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
+<link rel="shortcut icon" href="/favicon.ico">
 <link rel="stylesheet" href="/vendor/xterm.css">
 <link rel="stylesheet" href="/web/app.css">
 </head>
@@ -683,6 +685,9 @@ function serveStaticFile(res: http.ServerResponse, filePath: string | null, type
 // The bundled dashboard assets (app.js/app.css + sourcemaps) live in dist/web/,
 // a sibling of this compiled module. Served read-only with a path-traversal guard.
 const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
+// Bundled raster app icon (package root). Chrome/Edge --app windows use a raster
+// favicon for the window/taskbar icon (an SVG favicon isn't enough there).
+const ICO_PATH = path.join(WEB_DIR, '..', '..', 'cldctrl.ico');
 const WEB_TYPES: Record<string, string> = {
   '.js': 'text/javascript', '.css': 'text/css', '.map': 'application/json',
   '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
@@ -1017,7 +1022,12 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'max-age=86400' });
         res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#e87632"/><path d="M6.5 21.5 L16 11 L25.5 21.5" fill="none" stroke="#0b0e15" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
       } else if (req.method === 'GET' && url.pathname === '/favicon.ico') {
-        res.writeHead(204).end(); // legacy path; modern browsers use the linked favicon.svg
+        if (fs.existsSync(ICO_PATH)) {
+          res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'max-age=86400' });
+          fs.createReadStream(ICO_PATH).pipe(res);
+        } else {
+          res.writeHead(204).end();
+        }
       } else if (req.method === 'GET' && url.pathname.startsWith('/web/')) {
         serveWebAsset(res, url.pathname);
       } else if (req.method === 'GET' && url.pathname === '/api/overview') {

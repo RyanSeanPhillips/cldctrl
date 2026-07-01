@@ -29,6 +29,10 @@ function renderApp(): void {
   // Preserve text-input focus + caret across the re-render (typing re-renders
   // the app to show results, and uhtml may recreate the input node).
   const active = document.activeElement as HTMLInputElement | null;
+  // A native <select>'s open dropdown collapses if we re-render the tree beneath
+  // it — so a 3s poll would snap the theme menu shut mid-hover. Skip this tick
+  // while a <select> is focused/open; the next poll (or the user's change) catches up.
+  if (active && active.tagName === 'SELECT') return;
   const PRESERVE_FOCUS = ['search-input', 'cockpit-add-search', 'newsession-prompt', 'notes-search'];
   const focusedId = active?.id && PRESERVE_FOCUS.includes(active.id) ? active.id : null;
   const caret = focusedId ? active!.selectionStart : null;
