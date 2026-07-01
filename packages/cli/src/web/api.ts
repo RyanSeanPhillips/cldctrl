@@ -105,6 +105,19 @@ export async function postReveal(path: string, target: 'explorer' | 'code'): Pro
   return r.json();
 }
 
+/** Pop a conversation out into its own chromeless app window. The server
+ *  validates the tile, builds the widget URL, and opens it via launchAppWindow;
+ *  with no Chromium available it replies { fallback, url } so the client can
+ *  window.open() a plain popup instead. */
+export async function postPopout(body: { session: string; path: string; title: string }): Promise<{ ok?: boolean; fallback?: boolean; url?: string; error?: string }> {
+  const r = await fetch('/api/popout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
 /** Resolve (creating if needed) a STABLE per-conversation notepad path keyed by
  *  the conversation, so the docked notepad reopens the same draft on resume. The
  *  project/conversation association lets it surface in the project's notes list. */

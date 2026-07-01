@@ -100,6 +100,18 @@ export function mountControlTerminal(container: HTMLElement, _opts: { chrome: 't
   return t;
 }
 
+/** Mount a single conversation tile OUTSIDE the cockpit grid — the `?widget=1`
+ *  pop-out window. Unlike mountControlTerminal it REGISTERS the tile in the
+ *  module `tiles` map, so the shared data-act handlers (notepad toggle, restart,
+ *  screenshot, read-aloud) work unchanged. The widget window attaches to the SAME
+ *  server PTY (registry key = tile id, e.g. 'resume:<sessionId>') with replay. */
+export function mountTileStandalone(meta: CockpitTile, container: HTMLElement): LiveTile {
+  const t = createTile(meta);
+  tiles.set(meta.id, t);
+  container.appendChild(t.el);
+  return t;
+}
+
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
@@ -175,6 +187,14 @@ function createTermTile(meta: CockpitTile): LiveTile {
     : '<span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>';
   const noteBtn = isControl ? '' :
     `<button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>`;
+  // Pop out into its own chromeless window. RESUME tiles only: they have a stable
+  // sessionId, so the widget attaches to the same 'resume:<id>' PTY (and can even
+  // safely respawn it after an idle-kill). 'new' tiles can't pop out yet — before
+  // session discovery there's nothing stable to reattach to, and popping the
+  // discovered id as a resume would double-spawn against the still-live 'new' PTY.
+  const popBtn = meta.kind === 'resume'
+    ? `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window">&#8599;</button>`
+    : '';
   const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
   el.innerHTML = `
     <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
@@ -191,6 +211,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
+      ${popBtn}
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
     </div>

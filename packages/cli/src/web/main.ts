@@ -1,15 +1,15 @@
 import './app.css';
 import { render } from 'uhtml';
 import { appView } from './views.js';
-import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession } from './store.js';
+import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession, disablePersistence } from './store.js';
 import type { CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, fetchNotes,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
-import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -17,6 +17,11 @@ import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
 
 const appRoot = document.getElementById('app')!;
+
+// Widget mode: this window is a single popped-out conversation (?widget=1), not
+// the full dashboard. It mounts one tile full-window, never persists layout
+// state (shared localStorage with the main window!), and skips the router/poll.
+const WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 
 
 // ── render ───────────────────────────────────────────────────
@@ -92,7 +97,7 @@ function renderApp(): void {
   }
   prevSearchOpen = state.ui.searchOpen;
 }
-subscribe(renderApp);
+if (!WIDGET) subscribe(renderApp);
 
 // ── screenshot → terminal ────────────────────────────────────
 async function shoot(target: string): Promise<void> {
@@ -305,6 +310,14 @@ document.addEventListener('click', async (ev) => {
   const act = el.dataset.act;
   const ui = getState().ui;
 
+  // Widget window: close means close the WINDOW (the PTY lives server-side);
+  // maximize/pop-out are hidden by CSS but guard anyway. All other tile actions
+  // (notepad, restart, screenshot, read-aloud, reveal) fall through unchanged.
+  if (WIDGET) {
+    if (act === 'tile-close') { window.close(); return; }
+    if (act === 'tile-max' || act === 'tile-popout') return;
+  }
+
   if (act === 'theme') { applyTheme(el.dataset.theme as ThemeId); renderApp(); }
   else if (act === 'update-open') {
     const cmd = 'npm i -g cldctrl';
@@ -369,6 +382,24 @@ document.addEventListener('click', async (ev) => {
     focusWaitingTile();
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
+  } else if (act === 'tile-popout') {
+    // Pop this conversation out into its own chromeless window. Launch FIRST,
+    // remove the grid tile only once the window is confirmed — the widget then
+    // attaches to the same server PTY (10-min idle grace, replay on attach).
+    const id = el.dataset.id!;
+    const t = getState().ui.cockpit.tiles.find((x) => x.id === id);
+    if (!t || t.kind !== 'resume' || !t.sessionId) return;
+    el.setAttribute('disabled', '1'); // no double-launch on double-click
+    const r = await postPopout({ session: t.sessionId, path: t.projectPath, title: t.title });
+    const opened = r.ok || (r.fallback && r.url && window.open(r.url, '_blank', 'popup,width=980,height=720') != null);
+    if (opened) {
+      const cp = getState().ui.cockpit;
+      setCockpit({ tiles: cp.tiles.filter((x) => x.id !== id), open: true, maximized: cp.maximized === id ? null : cp.maximized });
+      toast('Popped out — click it in the sidebar to dock it back');
+    } else {
+      el.removeAttribute('disabled');
+      toast('✗ Pop-out failed' + (r.error ? ': ' + r.error : ''));
+    }
   } else if (act === 'doc-toggle') {
     docToggle(el.dataset.id!);
   } else if (act === 'doc-save') {
@@ -632,10 +663,37 @@ function restoreSession(): void {
   }
 }
 
-initTheme();
-initRouter(loadDetailIfNeeded);
-restoreSession();
-renderApp();
-loadDetailIfNeeded();
-poll();
-setInterval(poll, 3000);
+// ── widget boot (?widget=1 pop-out window) ───────────────────
+/** Mount ONE conversation tile full-window. No router, no 3s poll, no layout
+ *  persistence — this window is a viewer onto an existing server PTY. The tile
+ *  brings its own terminal + notepad + buttons; the shared click handler above
+ *  drives them (tiles-map registration via mountTileStandalone). */
+async function bootWidget(): Promise<void> {
+  disablePersistence(); // NEVER let this window overwrite the main grid's saved layout
+  initTheme();
+  document.body.classList.add('widget-mode');
+  const q = new URLSearchParams(location.search);
+  const session = q.get('session') ?? '';
+  const projectPath = q.get('path') ?? '';
+  const title = q.get('title') || projectPath.split(/[/\\]/).pop() || 'conversation';
+  document.title = title + ' — CLD CTRL';
+  const root = document.createElement('div');
+  root.className = 'widget-root';
+  appRoot.replaceChildren(root);
+  // One overview fetch for features (reveal/vscode buttons) — persistence is
+  // disabled so setData can't clobber anything; renderApp isn't subscribed.
+  try { setData(await fetchOverview()); } catch { /* tile still works without */ }
+  mountTileStandalone({ id: 'resume:' + session, kind: 'resume', sessionId: session, projectPath, title }, root);
+}
+
+if (WIDGET) {
+  bootWidget();
+} else {
+  initTheme();
+  initRouter(loadDetailIfNeeded);
+  restoreSession();
+  renderApp();
+  loadDetailIfNeeded();
+  poll();
+  setInterval(poll, 3000);
+}

@@ -790,3 +790,11 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── widget pop-out window (?widget=1): one tile, full-viewport ── */
+.widget-root { position: fixed; inset: 0; display: flex; background: var(--bg); }
+.widget-root .tile { flex: 1; border: none; border-radius: 0; }
+/* maximize/pop-out make no sense in a window that IS the tile */
+body.widget-mode [data-act="tile-max"],
+body.widget-mode [data-act="tile-popout"],
+body.widget-mode .tile-grip { display: none !important; }

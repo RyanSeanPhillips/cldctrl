@@ -1169,6 +1169,28 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const conv = url.searchParams.get('conversation') || undefined;
         const query = url.searchParams.get('q') || undefined;
         sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv, query }) });
+      } else if (req.method === 'POST' && url.pathname === '/api/popout') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        // Pop a conversation tile out into its own chromeless app window. The
+        // widget URL is built SERVER-side from validated fields only — the client
+        // never gets to launch an arbitrary URL through the browser spawn.
+        const body = await readJsonBody(req);
+        const session = typeof body.session === 'string' ? body.session : '';
+        const proj = resolveKnownProject(typeof body.path === 'string' ? body.path : '');
+        if (!SAFE_SESSION_ID.test(session) || !proj) { sendJson(res, 400, { error: 'Unknown session or project' }); return; }
+        const title = (typeof body.title === 'string' ? body.title : '').slice(0, 120);
+        const widgetUrl = `http://127.0.0.1:${dashboardPort}/?widget=1&kind=resume`
+          + `&session=${encodeURIComponent(session)}&path=${encodeURIComponent(proj.path)}&title=${encodeURIComponent(title)}`;
+        try {
+          const { launchAppWindow } = await import('./core/app-launch.js');
+          if (launchAppWindow(widgetUrl)) {
+            log('serve_popout', { session });
+            sendJson(res, 200, { ok: true });
+            return;
+          }
+        } catch { /* fall through to client-side popup fallback */ }
+        // No Chromium (or spawn failed): let the client open a plain popup itself.
+        sendJson(res, 200, { ok: false, fallback: true, url: widgetUrl });
       } else if (req.method === 'POST' && url.pathname === '/api/reveal') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

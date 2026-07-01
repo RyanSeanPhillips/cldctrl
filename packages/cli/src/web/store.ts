@@ -149,7 +149,13 @@ export interface PersistedSession {
   collapsedGroups: string[];
 }
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+// Widget windows (?widget=1 pop-outs) share the app profile's localStorage with
+// the main dashboard. They must NEVER persist their own (single-tile, empty-grid)
+// state or they'd overwrite the primary window's saved layout.
+let persistenceEnabled = true;
+export function disablePersistence(): void { persistenceEnabled = false; }
 function schedulePersist(): void {
+  if (!persistenceEnabled) return;
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
