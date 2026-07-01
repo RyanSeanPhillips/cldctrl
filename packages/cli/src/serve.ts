@@ -175,7 +175,8 @@ const sessionFileMap = new Map<string, string>(); // sessionId -> JSONL path
 // ── Overview payload ─────────────────────────────────────────
 
 async function buildOverview(): Promise<unknown> {
-  if (DEMO) { const { buildDemoOverview } = await import('./core/serve-demo.js'); return buildDemoOverview(Date.now()); }
+  // NB: demo mode is handled by the inert-guard at the router (serve-demo.ts);
+  // this real path never runs under --demo.
   fillDiscoveredSessions(); // match live 'new' tiles to the session ids their agents wrote
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
@@ -872,6 +873,7 @@ function setupAgentTerminal(server: http.Server): boolean {
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', async (req, socket, head) => {
     try {
+      if (DEMO) { socket.destroy(); return; } // no live terminals in demo mode
       if (!isLocalHost(req)) { socket.destroy(); return; }
       // WS-CSRF: reject cross-origin (drive-by) handshakes from a browser.
       if (!isLocalWsOrigin(req)) {
@@ -935,6 +937,32 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       }
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+      // Demo mode is INERT against the real machine: only static assets + a few
+      // demo-aware READ endpoints are served (synthetic data); every other
+      // endpoint — launch, file, notes, reveal, screenshot, bridge, real
+      // stats/search, WS terminals — is stubbed. No fs access, no agent launch,
+      // no real user data can leave a `--demo` instance. (core/serve-demo.ts)
+      if (DEMO) {
+        const p = url.pathname, m = req.method;
+        const staticGet = m === 'GET' && (p === '/' || p === '/index.html'
+          || p.startsWith('/vendor/') || p.startsWith('/web/') || p === '/favicon.svg' || p === '/favicon.ico');
+        if (!staticGet) {
+          const demo = await import('./core/serve-demo.js');
+          if (m === 'GET' && p === '/api/overview') { sendJson(res, 200, demo.buildDemoOverview(Date.now())); return; }
+          if (m === 'GET' && p === '/api/stats') {
+            const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 7));
+            sendJson(res, 200, demo.buildDemoStats(days, Date.now())); return;
+          }
+          if (m === 'GET' && p === '/api/search') { sendJson(res, 200, demo.buildDemoSearch(url.searchParams.get('q') ?? '')); return; }
+          if (m === 'GET' && p === '/api/conversation-image') { sendJson(res, 200, { images: [] }); return; }
+          if (m === 'GET' && p === '/api/transcript') { sendJson(res, 200, { entries: [] }); return; }
+          if (m === 'GET' && p.startsWith('/api/project/')) { sendJson(res, 200, { sessions: [], commits: [], issues: [], ghAvailable: false, tokens: [], files: [] }); return; }
+          if (m === 'GET' && p === '/api/notes') { sendJson(res, 200, { notes: [] }); return; }
+          // Everything else (all POSTs, machine-touching GETs) → inert stub.
+          sendJson(res, 200, { demo: true, disabled: true }); return;
+        }
+      }
 
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1111,16 +1139,20 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
   // Notes git backup: snapshot at startup (captures pre-existing notes), then on a
   // slow tick to catch the AGENT's direct Write/Edit to a note file (those bypass
   // /api/file, which only fires for the operator's own saves). Throttled + unref'd.
-  commitNotesSoon();
-  const notesSnap = setInterval(() => commitNotesSoon(), 90_000);
-  notesSnap.unref?.();
+  // Skipped in demo mode — a demo instance touches nothing real.
+  if (!DEMO) {
+    commitNotesSoon();
+    const notesSnap = setInterval(() => commitNotesSoon(), 90_000);
+    notesSnap.unref?.();
+  }
 
   // Localhost ONLY — transcripts, terminal, and launch must not reach the network.
   server.listen(port, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${port}`;
     console.log(`CLD CTRL dashboard: ${url}`);
-    console.log(`Bound to localhost only.${agentOk ? ' Agent terminal enabled.' : ''} Ctrl+C to stop.`);
+    console.log(`Bound to localhost only.${DEMO ? ' DEMO MODE (synthetic data).' : agentOk ? ' Agent terminal enabled.' : ''} Ctrl+C to stop.`);
     if (opts.open) openUrl(url);
+    if (DEMO) return; // demo instances stay silent — no beacon, no update check
     // Adoption ping for the browser surface: one launch hit, then a slow
     // presence heartbeat while the dashboard server stays up (same beacon as
     // the TUI, tagged client='browser' so the two surfaces can be told apart).

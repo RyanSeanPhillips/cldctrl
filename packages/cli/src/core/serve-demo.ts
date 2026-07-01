@@ -9,7 +9,8 @@
  */
 
 import { VERSION } from '../constants.js';
-import type { OverviewPayload, HeatCell } from '../web/types.js';
+import type { OverviewPayload, HeatCell, SearchResult } from '../web/types.js';
+import type { StatsPayload, StatsTurn, StatsImageGroup } from './stats.js';
 
 const DEMO_ROOT = '/home/dev/code';
 
@@ -131,3 +132,89 @@ export function buildDemoOverview(now: number): OverviewPayload {
     })),
   };
 }
+
+// ── Stats view (the usage-viz launch hook) ──────────────────────────────────
+
+const STAT_SESSIONS = [
+  { id: 'demo-next', slug: 'next-js', project: 'next.js', label: 'App Router streaming refactor' },
+  { id: 'demo-torch', slug: 'pytorch', project: 'pytorch', label: 'Autograd test triage (Codex)' },
+  { id: 'demo-whisper', slug: 'whisper', project: 'whisper', label: 'Decoder loop rewrite (Gemini)' },
+  { id: 'demo-zellij', slug: 'zellij', project: 'zellij', label: 'Plugin API wiring' },
+];
+
+/** Deterministic pseudo-random in [0,1) from an integer seed. */
+function rng(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * Synthetic `/api/stats` payload — a plausible multi-session usage timeline with
+ * cache evictions/reloads, tool + MCP usage, multi-vendor consults, and image
+ * turns. Deterministic given (days, now) so screenshots are stable.
+ */
+export function buildDemoStats(days: number, now: number): StatsPayload {
+  const span = days * 86_400_000;
+  const start = now - span;
+  const turns: StatsTurn[] = [];
+  const images: StatsImageGroup[] = [];
+  const perSessionTotal = [0, 0, 0, 0];
+  const N = Math.min(240, 24 * days); // ~a turn/hour of active work
+  for (let i = 0; i < N; i++) {
+    const r = rng(i + 1);
+    const s = Math.floor(rng(i * 3.1 + 7) * STAT_SESSIONS.length);
+    const t = Math.round(start + (i / N) * span + rng(i * 1.7) * (span / N));
+    const total = Math.round(4_000 + r * 44_000);
+    const billed = Math.round(total * (0.2 + rng(i * 2.3) * 0.5));
+    const ctx = Math.round(30_000 + rng(i * 5.9) * 160_000);
+    // ~1 in 9 turns is a cache eviction (1) or reload (2) — the cache-miss story.
+    const f: 0 | 1 | 2 = rng(i * 4.2) > 0.88 ? (rng(i * 6.1) > 0.5 ? 2 : 1) : 0;
+    turns.push({ t, s, k: total, b: billed, c: ctx, f });
+    perSessionTotal[s] += total;
+    if (rng(i * 9.3) > 0.9) images.push({ s, bucket: Math.round(t / 3_600_000) * 3_600_000, n: 1 + Math.floor(rng(i) * 6) });
+  }
+  const totalTokens = perSessionTotal.reduce((a, b) => a + b, 0);
+  const imageCount = images.reduce((a, g) => a + g.n, 0);
+  return {
+    days,
+    turns,
+    sessions: STAT_SESSIONS.map((s, i) => ({ id: s.id, slug: s.slug, project: s.project, label: s.label, total: perSessionTotal[i] })),
+    tools: [
+      { name: 'Read', calls: 214, resultTokens: 1_240_000, mcp: false },
+      { name: 'Edit', calls: 96, resultTokens: 210_000, mcp: false },
+      { name: 'Bash', calls: 73, resultTokens: 540_000, mcp: false },
+      { name: 'Grep', calls: 61, resultTokens: 180_000, mcp: false },
+      // MCP tools MUST use the real mcp__server__tool naming — the Stats view
+      // extracts the server via name.split('__')[1].
+      { name: 'mcp__cldctrl__consult_agent', calls: 18, resultTokens: 430_000, mcp: true },
+      { name: 'mcp__cldctrl__search_conversations', calls: 12, resultTokens: 95_000, mcp: true },
+    ],
+    images,
+    apiErrors: [{ t: start + span * 0.32, s: 1 }, { t: start + span * 0.71, s: 0 }],
+    toolResultTokens: 2_170_000,
+    mcpResultTokens: 525_000,
+    subagentRuns: 7,
+    // Multi-vendor council usage — the moat, visible in Stats.
+    consults: { codex: 12, gemini: 4, claude: 3 },
+    totalTokens,
+    imageCount,
+    limits: { fiveH: 5_000_000, sevenD: 70_000_000 },
+    generatedAt: now,
+  };
+}
+
+// ── Cross-vendor conversation search (the memory/search story) ───────────────
+
+export function buildDemoSearch(query: string): { results: SearchResult[]; query: string } {
+  const q = (query || 'streaming').trim();
+  const base: Array<Omit<SearchResult, 'snippet'> & { snippet: string }> = [
+    { sessionId: 'demo-next', project: 'next.js', projectPath: `${DEMO_ROOT}/next.js`, date: '2 days ago',
+      snippet: `…switched the route handler to a streaming Response so the ${q} chunks flush incrementally…`, count: 6, vendor: 'claude' },
+    { sessionId: 'demo-torch', project: 'pytorch', projectPath: `${DEMO_ROOT}/pytorch`, date: '4 hours ago',
+      snippet: `…Codex traced the ${q} regression to a stale autograd cache and proposed the guard…`, count: 4, vendor: 'codex' },
+    { sessionId: 'demo-whisper', project: 'whisper', projectPath: `${DEMO_ROOT}/whisper`, date: 'yesterday',
+      snippet: `…the ${q} decoder now yields partial transcripts every 200ms without re-running the encoder…`, count: 3, vendor: 'claude' },
+  ];
+  return { results: base, query: q };
+}
+
