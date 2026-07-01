@@ -1,13 +1,14 @@
 /**
- * Entry point: route to TUI or CLI command.
+ * Entry point: route to the dashboard app, the classic TUI, or a CLI command.
  *
- * - No args + TTY → launch TUI
+ * - No args + TTY → open the web dashboard as an app window (launchDashboardApp)
+ * - `--tui` + TTY → the classic Ink TUI dashboard
  * - No args + no TTY → run `cldctrl list` (pipeable)
  * - Subcommand → delegate to Commander
  * - Alias shortcuts: `cc <alias> [-n] [-c] [prompt...]`
  */
 
-import { isTTY } from './core/platform.js';
+import { isTTY, getPlatform } from './core/platform.js';
 import { pruneClosedSessions } from './core/tracker.js';
 import { installErrorHandlers, reportError } from './core/error-report.js';
 
@@ -53,9 +54,48 @@ async function resolveProjectAlias(alias: string): Promise<{ path: string; name:
   return null;
 }
 
+/**
+ * First-run bootstrap for the app-launcher contract. On the very first `cc`
+ * (or after the setup contract bumps) it does a best-effort SILENT setup —
+ * installs the Start-Menu shortcut on Windows — then writes a marker so it never
+ * runs again. NEVER blocks or fails the launch: any error is swallowed.
+ */
+async function maybeFirstRunSetup(): Promise<void> {
+  try {
+    const { getConfigDir } = await import('./config.js');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const SETUP_VERSION = 1;
+    const marker = path.join(getConfigDir(), 'setup.json');
+    let prev: { appSetupVersion?: number } | null = null;
+    try { prev = JSON.parse(fs.readFileSync(marker, 'utf-8')); } catch { /* first run */ }
+    if (prev && (prev.appSetupVersion ?? 0) >= SETUP_VERSION) return;
+
+    const firstEver = !prev;
+    if (getPlatform() === 'windows') {
+      try {
+        const { installAppShortcut } = await import('./core/setup-windows.js');
+        installAppShortcut({ desktop: false }); // Start Menu only — silent
+      } catch { /* non-fatal */ }
+    }
+    try {
+      fs.mkdirSync(getConfigDir(), { recursive: true });
+      fs.writeFileSync(marker, JSON.stringify({ appSetupVersion: SETUP_VERSION, completedAt: new Date().toISOString() }, null, 2));
+    } catch { /* non-fatal */ }
+    if (firstEver) {
+      console.log('CLD CTRL now opens the dashboard. Run `cc --tui` for the classic terminal UI.');
+    }
+  } catch { /* never block launch on setup */ }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isMini = args.includes('--mini') || args.includes('-m');
+
+  // `cc --tui` opts into the classic Ink TUI; bare `cc` now opens the web
+  // dashboard as an app window. Strip the flag so it never reaches Commander.
+  const wantsTui = args.includes('--tui');
+  if (wantsTui) { const i = args.indexOf('--tui'); if (i >= 0) args.splice(i, 1); }
 
   // Scrubbed crash telemetry (default ON, opt-out). Baseline surface = 'cli';
   // the TUI/mini paths refine it to 'tui' once they mount. Reads no config here
@@ -129,24 +169,34 @@ async function main(): Promise<void> {
   // If no subcommand provided
   if (args.length === 0 || (args.length === 1 && (args[0] === '--verbose' || args[0] === '--quiet'))) {
     if (isTTY()) {
-      // Single-instance guard: one TUI per virtual desktop (Windows), else one
-      // globally. Records our PID and registers exit cleanup when cleared.
-      const { acquireInstanceLock } = await import('./core/instance-guard.js');
-      const decision = acquireInstanceLock();
-      if (!decision.ok) {
-        console.log(decision.message);
-        process.exit(0);
-      }
-
-      // Launch interactive TUI
-      try {
-        const { renderApp } = await import('./tui/App.js');
-        await renderApp();
-      } catch (err) {
-        // Fallback if TUI fails (e.g., missing dependencies)
-        console.error(`TUI failed to start: ${err}`);
-        console.error('Falling back to list view...\n');
-        await (await getCli()).parseAsync(['node', 'cldctrl', 'list']);
+      if (wantsTui) {
+        // Classic Ink TUI. Single-instance guard: one TUI per virtual desktop
+        // (Windows), else one globally. Records our PID + exit cleanup.
+        const { acquireInstanceLock } = await import('./core/instance-guard.js');
+        const decision = acquireInstanceLock();
+        if (!decision.ok) {
+          console.log(decision.message);
+          process.exit(0);
+        }
+        try {
+          const { renderApp } = await import('./tui/App.js');
+          await renderApp();
+        } catch (err) {
+          // Fallback if TUI fails (e.g., missing dependencies)
+          console.error(`TUI failed to start: ${err}`);
+          console.error('Falling back to list view...\n');
+          await (await getCli()).parseAsync(['node', 'cldctrl', 'list']);
+        }
+      } else {
+        // Default: open the web dashboard as an app window.
+        await maybeFirstRunSetup();
+        try {
+          const { launchDashboardApp } = await import('./core/app-launch.js');
+          await launchDashboardApp();
+        } catch (err) {
+          console.error(`Could not open the dashboard: ${err}`);
+          console.error('Run `cc --tui` for the terminal UI, or `cc serve` to serve it manually.');
+        }
       }
     } else {
       // Non-TTY: pipe-friendly list output

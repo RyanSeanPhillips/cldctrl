@@ -444,12 +444,6 @@ document.addEventListener('click', async (ev) => {
   }
   else if (act === 'search-toggle') { setUi({ searchOpen: !getState().ui.searchOpen }); }
   else if (act === 'toggle-recent') { setUi({ recentCollapsed: !getState().ui.recentCollapsed }); }
-  else if (act === 'cockpit-chip') {
-    const proj = el.dataset.proj!;
-    const cur = getState().ui.cockpit.hiddenProjects;
-    setCockpit({ hiddenProjects: cur.includes(proj) ? cur.filter((p) => p !== proj) : [...cur, proj] });
-  }
-  else if (act === 'cockpit-chip-all') { setCockpit({ hiddenProjects: [] }); }
   else if (act === 'cockpit-tab') { setCockpit({ tab: el.dataset.tab === 'stats' ? 'stats' : 'grid' }); }
   else if (act === 'stats-days') { setCockpit({ statsDays: Number(el.dataset.days) || 3 }); }
   else if (act === 'home') { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }

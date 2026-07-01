@@ -1,15 +1,16 @@
 /**
  * App-mode launch: open the dashboard as a chromeless standalone window via a
- * Chromium browser's `--app=` flag (Edge preferred, then Chrome). This is an
- * OPTION alongside the normal browser tab (`cc web` / `--open`), not a
- * replacement — see cli.ts `web --app`. Kept in its own module (imports config)
- * so it never loads on the zero-zod TUI startup path.
+ * Chromium browser's `--app=` flag (Chrome preferred, then Edge). This is the
+ * DEFAULT `cc` experience (`launchDashboardApp`), with a normal browser tab
+ * (`cc web`/`--open`) and the classic TUI (`cc --tui`) as alternatives. Kept in
+ * its own module (imports config) so it never loads on the zero-zod TUI path.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import spawn from 'cross-spawn';
 import { getConfigDir } from '../config.js';
@@ -106,5 +107,69 @@ export function launchAppWindow(url: string, opts: { sharedProfile?: boolean; br
     return true;
   } catch {
     return false;
+  }
+}
+
+/** True when there's no GUI to open a window into (SSH/CI, or headless Linux). */
+function isHeadless(): boolean {
+  if (process.env.SSH_CONNECTION || process.env.SSH_TTY || process.env.CI) return true;
+  if (getPlatform() === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return true;
+  return false;
+}
+
+/**
+ * The default `cc` action: open the dashboard as an app-mode window, starting a
+ * background server first if one isn't already running.
+ *
+ * - Server already up  → open another app window against it (fast path).
+ * - Not up + GUI       → spawn a DETACHED background `cc serve --app` (which
+ *                        serves AND opens the window), then let `cc` exit so the
+ *                        terminal is freed.
+ * - Headless / no      → serve in the foreground and print the URL (nothing to
+ *   Chromium             open a window into; the process stays up like `cc serve`).
+ */
+export async function launchDashboardApp(opts: { port?: number; browser?: 'chrome' | 'edge' } = {}): Promise<void> {
+  const port = opts.port ?? 2533;
+  const url = `http://127.0.0.1:${port}`;
+  const headless = isHeadless();
+  const browser = findChromiumBrowser(opts.browser);
+
+  if (await probeServer(port)) {
+    if (!headless && browser && launchAppWindow(url, { browser: opts.browser })) {
+      console.log(`Opened CLD CTRL (already running at ${url}).`);
+    } else {
+      console.log(`CLD CTRL is running at ${url}`);
+    }
+    return;
+  }
+
+  // No server yet and no window we can open → serve in the foreground + print URL.
+  if (headless || !browser) {
+    if (!browser && !headless) {
+      console.log('No Chrome/Edge found for app mode — opening in your default browser instead.');
+    }
+    const { startServeServer } = await import('../serve.js');
+    startServeServer(port, { open: !headless }); // keeps the process alive (foreground)
+    return;
+  }
+
+  // GUI available: spawn a detached background server that serves + opens the app
+  // window, then return so this CLI exits and frees the terminal. Resolve the CLI
+  // entry from THIS module's location (dist/index.js sits next to the bundle) so
+  // it works regardless of how the process was launched (bin shim, node, etc.).
+  let entry = process.argv[1];
+  try {
+    const here = fileURLToPath(new URL('./index.js', import.meta.url));
+    if (fs.existsSync(here)) entry = here;
+  } catch { /* fall back to argv[1] */ }
+  const childArgs = [entry, 'serve', '--app', '--port', String(port)];
+  if (opts.browser) childArgs.push('--browser', opts.browser);
+  try {
+    spawn(process.execPath, childArgs, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    console.log(`Opening CLD CTRL…  (running at ${url} — run \`cc --tui\` for the terminal UI)`);
+  } catch {
+    // Last resort: serve in the foreground.
+    const { startServeServer } = await import('../serve.js');
+    startServeServer(port, { open: true });
   }
 }

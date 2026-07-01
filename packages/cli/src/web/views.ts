@@ -588,37 +588,12 @@ function notesOverlay(d: OverviewPayload, state: State): Tpl | string {
   </div>`;
 }
 
-// ── cockpit toolbar (slim contextual bar above the cockpit/stats) ──
-/** Per-project focus chips: one per distinct project among open tiles. Toggling
- *  a chip mutes/shows that project's tiles so you can focus on a subset. */
-function cockpitChips(d: OverviewPayload, state: State): Tpl | string {
-  const cp = state.ui.cockpit;
-  const order: string[] = [];
-  const counts = new Map<string, number>();
-  for (const t of cp.tiles) {
-    if (t.kind === 'control') continue; // the CTRL tile has no project — no focus chip
-    if (!counts.has(t.projectPath)) order.push(t.projectPath);
-    counts.set(t.projectPath, (counts.get(t.projectPath) ?? 0) + 1);
-  }
-  if (order.length < 2) return ''; // chips only help once tiles span 2+ projects
-  const nameOf = (path: string) => d.projects.find((p) => p.path === path)?.name || path.split(/[/\\]/).pop() || path;
-  const hidden = new Set(cp.hiddenProjects);
-  const anyHidden = cp.hiddenProjects.length > 0;
-  return html`<div class="cp-chips">
-    <button class=${'cp-chip all' + (anyHidden ? '' : ' on')} data-act="cockpit-chip-all" title="Show all conversations">All</button>
-    ${order.map((path) => html`<button
-      class=${'cp-chip' + (hidden.has(path) ? '' : ' on')}
-      data-act="cockpit-chip" data-proj=${path}
-      title=${hidden.has(path) ? 'Show ' + nameOf(path) : 'Hide ' + nameOf(path)}>
-      ${nameOf(path)} <span class="num">${counts.get(path)}</span></button>`)}
-  </div>`;
-}
-
 /** Floating controls OVER the cockpit/stats surface — they don't reserve height
  *  (no top bar), so the cockpit runs full-height now that the topbar + the old
- *  cockpit toolbar are gone. Cockpit: focus chips (left) + "N waiting" (right).
- *  Stats: the range selector (right). */
-function cockpitFloat(d: OverviewPayload, state: State): Tpl {
+ *  cockpit toolbar are gone. Cockpit: "N waiting" (right). Stats: the range
+ *  selector (right). Project focus is driven by the sidebar conversation list —
+ *  there's no separate chip row. */
+function cockpitFloat(state: State): Tpl {
   const cp = state.ui.cockpit;
   if (cp.tab === 'stats') {
     return html`<div class="cp-float cp-float-r">
@@ -626,10 +601,8 @@ function cockpitFloat(d: OverviewPayload, state: State): Tpl {
         html`<button class=${'btn icon' + (cp.statsDays === dys ? ' on' : '')} data-act="stats-days" data-days=${String(dys)}>${lbl}</button>`)}
       </div></div>`;
   }
-  const chips = cockpitChips(d, state);
   const waiting = (cp.attnTiles?.length ?? 0) > 0;
-  return html`${chips ? html`<div class="cp-float cp-float-l">${chips}</div>` : ''}${
-    waiting ? html`<div class="cp-float cp-float-r"><button class="cp-wait" data-act="cockpit-waiting"
+  return html`${waiting ? html`<div class="cp-float cp-float-r"><button class="cp-wait" data-act="cockpit-waiting"
       title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button></div>` : ''}`;
 }
 
@@ -649,7 +622,7 @@ export function appView(state: State): Tpl {
       <button class="btn primary" data-act="restore-accept">Restore</button>
       <button class="btn" data-act="restore-dismiss">Dismiss</button>
     </div>` : ''}
-    ${home ? cockpitFloat(d, state) : ''}
+    ${home ? cockpitFloat(state) : ''}
     <div class="body">
       ${sidebar(d, state, state.search.query, matchPaths)}
       <div class="side-divider" data-act="sidebar-toggle" title=${state.ui.sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
