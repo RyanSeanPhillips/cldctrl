@@ -24,6 +24,40 @@ const appRoot = document.getElementById('app')!;
 const WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 
 
+// ── window identity: live title + favicon attention badge ───
+// In app mode the OS titlebar and taskbar ARE the app's chrome — carry live
+// status there: "● 2 waiting — CLD CTRL" plus an amber dot on the caret icon,
+// so a backgrounded/minimized window still shows conversations need input.
+let lastWaiting = -1;
+let iconBase: HTMLImageElement | null = null;
+function updateWindowIdentity(waiting: number): void {
+  if (waiting === lastWaiting) return;
+  lastWaiting = waiting;
+  document.title = waiting > 0 ? `● ${waiting} waiting — CLD CTRL` : '⌃ CLD CTRL';
+  const draw = () => {
+    if (!iconBase || !iconBase.complete || !iconBase.naturalWidth) return;
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const g = c.getContext('2d');
+    if (!g) return;
+    g.drawImage(iconBase, 0, 0, 64, 64);
+    if (waiting > 0) {
+      g.beginPath(); g.arc(50, 50, 12, 0, Math.PI * 2);
+      g.fillStyle = '#f59e0b'; g.fill();
+      g.lineWidth = 3; g.strokeStyle = '#070a10'; g.stroke();
+    }
+    let link = document.getElementById('dyn-icon') as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.id = 'dyn-icon'; link.rel = 'icon'; (link as any).type = 'image/png';
+      document.head.appendChild(link);
+    }
+    link.href = c.toDataURL('image/png');
+  };
+  if (!iconBase) { iconBase = new Image(); iconBase.src = '/icon-192.png'; iconBase.onload = draw; }
+  else draw();
+}
+
 // ── render ───────────────────────────────────────────────────
 let prevNewSessionOpen = false;
 let prevSearchOpen = false;
@@ -55,6 +89,7 @@ function renderApp(): void {
   const mainScroll = (document.querySelector('.main') as HTMLElement | null)?.scrollTop ?? 0;
 
   render(appRoot, appView(state) as Node);
+  updateWindowIdentity(state.ui.cockpit.attnTiles?.length ?? 0);
 
   const ss = document.querySelector('.side-scroll') as HTMLElement | null;
   if (ss && sideScroll) ss.scrollTop = sideScroll;

@@ -22,6 +22,13 @@ export function applyTheme(id: ThemeId): void {
   if (id === 'midnight') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', id);
   localStorage.setItem(KEY, id);
+  // Tint the OS titlebar to match: Chromium app windows (and installed PWAs)
+  // read the theme-color meta LIVE, so the window chrome melds with the active
+  // theme instead of staying a mismatched default gray.
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#070a10';
+  let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+  if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.appendChild(meta); }
+  meta.content = bg;
   window.dispatchEvent(new CustomEvent('themechange'));
 }
 
