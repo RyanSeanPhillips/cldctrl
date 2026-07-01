@@ -38,6 +38,7 @@
     "desktop-probe.ps1",
     "screenshot.ps1",
     "cldctrl.ico",
+    "assets",
     "LICENSE"
   ],
   "main": "./dist/index.js",

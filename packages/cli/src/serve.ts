@@ -634,6 +634,8 @@ const SHELL = `<!doctype html>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
 <link rel="shortcut icon" href="/favicon.ico">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="/vendor/xterm.css">
 <link rel="stylesheet" href="/web/app.css">
 </head>
@@ -688,6 +690,17 @@ const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 // Bundled raster app icon (package root). Chrome/Edge --app windows use a raster
 // favicon for the window/taskbar icon (an SVG favicon isn't enough there).
 const ICO_PATH = path.join(WEB_DIR, '..', '..', 'cldctrl.ico');
+const ASSETS_DIR = path.join(WEB_DIR, '..', '..', 'assets'); // brand PNGs for the manifest
+// Web app manifest → gives Chrome/Edge --app (and PWA install) a real cldctrl
+// identity + icon, instead of inheriting the browser's taskbar icon.
+const MANIFEST = JSON.stringify({
+  name: 'CLD CTRL', short_name: 'CLD CTRL', start_url: '/?app=1', scope: '/',
+  display: 'standalone', background_color: '#070a10', theme_color: '#e87632',
+  icons: [
+    { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+  ],
+});
 const WEB_TYPES: Record<string, string> = {
   '.js': 'text/javascript', '.css': 'text/css', '.map': 'application/json',
   '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
@@ -705,7 +718,9 @@ function serveWebAsset(res: http.ServerResponse, pathname: string): void {
     return;
   }
   const type = WEB_TYPES[path.extname(resolved)] ?? 'application/octet-stream';
-  res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'max-age=3600' });
+  // no-cache (revalidate every load) so a rebuilt bundle shows up without a hard
+  // refresh — these are tiny localhost fetches, so the cost is negligible.
+  res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-cache' });
   fs.createReadStream(resolved).pipe(res);
 }
 
@@ -990,7 +1005,8 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       if (DEMO) {
         const p = url.pathname, m = req.method;
         const staticGet = m === 'GET' && (p === '/' || p === '/index.html'
-          || p.startsWith('/vendor/') || p.startsWith('/web/') || p === '/favicon.svg' || p === '/favicon.ico');
+          || p.startsWith('/vendor/') || p.startsWith('/web/') || p === '/favicon.svg' || p === '/favicon.ico'
+          || p === '/manifest.webmanifest' || p === '/icon-192.png' || p === '/icon-512.png');
         if (!staticGet) {
           const demo = await import('./core/serve-demo.js');
           if (m === 'GET' && p === '/api/overview') { sendJson(res, 200, demo.buildDemoOverview(Date.now())); return; }
@@ -1019,11 +1035,22 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         serveStaticFile(res, FIT_JS, 'text/javascript');
       } else if (req.method === 'GET' && url.pathname === '/favicon.svg') {
         // branded favicon so the tab stands out: accent-orange tile + the ⌃ Ctrl caret
-        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'max-age=86400' });
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' });
         res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#e87632"/><path d="M6.5 21.5 L16 11 L25.5 21.5" fill="none" stroke="#0b0e15" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      } else if (req.method === 'GET' && url.pathname === '/manifest.webmanifest') {
+        res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(MANIFEST);
+      } else if (req.method === 'GET' && (url.pathname === '/icon-192.png' || url.pathname === '/icon-512.png')) {
+        const f = path.join(ASSETS_DIR, path.basename(url.pathname));
+        if (fs.existsSync(f)) {
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+          fs.createReadStream(f).pipe(res);
+        } else {
+          res.writeHead(404).end();
+        }
       } else if (req.method === 'GET' && url.pathname === '/favicon.ico') {
         if (fs.existsSync(ICO_PATH)) {
-          res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'max-age=86400' });
+          res.writeHead(200, { 'Content-Type': 'image/x-icon', 'Cache-Control': 'no-cache' });
           fs.createReadStream(ICO_PATH).pipe(res);
         } else {
           res.writeHead(204).end();

@@ -10,18 +10,24 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.dirname(dir); // packages/cli
 const svg = fs.readFileSync(path.join(pkg, 'assets', 'brand.svg'), 'utf-8')
   .replace(/<!--[\s\S]*?-->/g, '').trim();
-const SIZES = [16, 32, 48, 64, 128, 256];
+const SIZES = [16, 32, 48, 64, 128, 256];   // packed into the .ico
+const PNG_SIZES = [192, 512];               // standalone PNGs for the web manifest
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME });
-const pngs = [];
-for (const size of SIZES) {
+const render = async (size) => {
   const page = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
   await page.setContent(`<style>*{margin:0;padding:0}svg{display:block}</style>${svg.replace('<svg', `<svg width="${size}" height="${size}"`)}`);
   const buf = await page.screenshot({ omitBackground: true }); // transparent outside the tile
-  pngs.push({ size, png: buf });
   await page.close();
+  return buf;
+};
+const pngs = [];
+for (const size of SIZES) pngs.push({ size, png: await render(size) });
+for (const size of PNG_SIZES) {
+  fs.writeFileSync(path.join(pkg, 'assets', `icon-${size}.png`), await render(size));
 }
 await browser.close();
+console.log(`Wrote assets/icon-192.png + icon-512.png (manifest icons).`);
 
 // Pack the PNGs into a multi-resolution .ico (PNG-compressed entries).
 const count = pngs.length;
