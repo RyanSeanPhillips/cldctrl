@@ -239,6 +239,8 @@ body.no-agent .main { right: 0; }
 /* brand moved off the (retired) topbar to the top of the sidebar */
 .side-brand { display: flex; align-items: center; justify-content: center; gap: var(--s2);
   height: 46px; flex: none; cursor: pointer; border-bottom: 1px solid var(--border); }
+/* app mode: OS title bar already names the app, so show just the logo, shorter */
+.side-brand.compact { height: 38px; }
 /* floating controls over the full-height cockpit/stats (no reserved top bar) */
 .cp-float { position: fixed; top: 10px; z-index: 30; display: flex; align-items: center; gap: var(--s2); }
 .cp-float-r { right: 20px; }
@@ -247,12 +249,14 @@ body.no-agent .main { right: 0; }
 .side-head-row .side-conv-head { flex: 1; min-width: 0; }
 .side-conv-head { display: flex; align-items: center; gap: var(--s2); padding: 8px var(--s2);
   border-radius: var(--r-sm); cursor: pointer; color: var(--text-secondary);
-  border: 1px solid transparent; transition: all .12s ease; }
+  border: 1px solid transparent; transition: all .12s ease; overflow: hidden; }
 .side-conv-head:hover { background: var(--surface-2); color: var(--text); }
 .side-conv-head.nav-on { background: var(--accent-soft); color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
 .side-conv-head svg { flex-shrink: 0; }
-.side-conv-head-t { font-weight: 600; font-size: 13px; }
-.side-conv-head-live { margin-left: auto; display: flex; align-items: center; gap: 5px;
+/* title truncates so the live badge never spills out of the box at narrow widths */
+.side-conv-head-t { font-weight: 600; font-size: 13px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-conv-head-live { display: flex; align-items: center; gap: 5px;
   font-family: var(--mono); font-size: 11px; color: var(--success); flex-shrink: 0; }
 .side-conv-head-live .dot { width: 7px; height: 7px; }
 /* the separate search button, outside the conv-head box */

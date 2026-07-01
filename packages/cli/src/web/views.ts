@@ -255,6 +255,12 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
   </div>`;
 }
 
+// App mode (chromeless --app= window / installed PWA) vs a normal browser tab.
+// In app mode the OS title bar already shows "CLD CTRL", so the sidebar brand
+// drops the wordmark (logo only) to avoid the redundant name right below it.
+const IS_APP_MODE = typeof window !== 'undefined' && !!window.matchMedia
+  && !window.matchMedia('(display-mode: browser)').matches;
+
 function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Set<string> | null): Tpl {
   const ui = state.ui;
   const searching = !!query.trim();
@@ -266,9 +272,9 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
-    <div class="side-brand" data-act="nav-cockpit" title="Go to your conversations">
+    <div class="side-brand${IS_APP_MODE ? ' compact' : ''}" data-act="nav-cockpit" title="CLD CTRL — go to your conversations">
       <span class="logo" aria-hidden="true"></span>
-      <span class="wordmark">CLD CTRL</span>
+      ${IS_APP_MODE ? '' : html`<span class="wordmark">CLD CTRL</span>`}
     </div>
     <div class="side-top">
       <div class="side-head-row">
