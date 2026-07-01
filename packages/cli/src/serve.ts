@@ -18,6 +18,7 @@ import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
 import { loadConfig } from './config.js';
+import { installErrorHandlers } from './core/error-report.js';
 import { buildProjectListFast, projectGroup, getSessionDir } from './core/projects.js';
 import { getActiveClaudeProcesses } from './core/processes.js';
 import { getActiveSessionInfo } from './core/activity.js';
@@ -909,6 +910,11 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 export function startServeServer(port: number, opts: { open?: boolean } = {}): void {
   initLogger();
+  // Scrubbed crash telemetry (default ON, opt-out). Browser surface.
+  try {
+    const { config } = loadConfig();
+    installErrorHandlers('browser', config.error_reporting?.enabled !== false);
+  } catch { installErrorHandlers('browser'); }
   dashboardPort = port; // stamped into PTY env so nested MCP servers know they're in the web surface
 
   const server = http.createServer(async (req, res) => {

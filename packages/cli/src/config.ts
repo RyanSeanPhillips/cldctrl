@@ -66,6 +66,12 @@ const ConfigSchema = z.object({
   // Manual project→group overrides (normalized path → group name). Absent paths
   // fall back to auto-categorization. Edited conversationally via CTRL.
   project_groups: z.record(z.string(), z.string()).default({}),
+  // Scrubbed, PII-free crash telemetry (error name + stack-signature hash +
+  // version/OS only). Default ON; opt out here or via CLDCTRL_NO_TELEMETRY /
+  // DO_NOT_TRACK. See core/error-report.ts.
+  error_reporting: z.object({
+    enabled: z.boolean().default(true),
+  }).default({}),
 });
 
 // ── Feature flag helper ────────────────────────────────────
@@ -189,6 +195,7 @@ export function createDefaultConfig(): Config {
       github_issues: { enabled: true, poll_interval_minutes: 5 },
       usage_stats: { enabled: true, show_tooltip: true },
     },
+    error_reporting: { enabled: true },
   };
 }
 

@@ -53,6 +53,7 @@ const ClockDisplay = React.memo(function ClockDisplay() {
 });
 import { GameScreen } from './games/GameScreen.js';
 import { isFeatureEnabled, loadConfig } from '../config.js';
+import { installErrorHandlers } from '../core/error-report.js';
 import { addOrCreateProject } from '../core/create-project.js';
 import { focusWindowByTitle } from '../core/platform.js';
 import { DEFAULTS, INK_COLORS, APP_NAME, VERSION } from '../constants.js';
@@ -93,6 +94,12 @@ export function App() {
     stdout?.on('resize', onResize);
     return () => { stdout?.off('resize', onResize); };
   }, [stdout]);
+
+  // Refine crash-telemetry surface to 'tui' and keep the opt-out flag live as
+  // it's toggled in Settings (index.ts already installed a baseline handler).
+  useEffect(() => {
+    installErrorHandlers('tui', state.config.error_reporting?.enabled !== false);
+  }, [state.config.error_reporting?.enabled]);
 
 
   // Background refresh: run full project list (with git name extraction)

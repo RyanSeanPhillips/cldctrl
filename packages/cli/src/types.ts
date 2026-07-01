@@ -73,6 +73,8 @@ export interface Config {
   /** Manual project→group overrides, keyed by normalized path. Absent paths
    *  fall back to auto-categorization. Set conversationally via CTRL. */
   project_groups?: Record<string, string>;
+  /** Scrubbed, PII-free crash telemetry. Default ON; opt out here. */
+  error_reporting?: { enabled: boolean };
 }
 
 // ── Runtime ─────────────────────────────────────────────────

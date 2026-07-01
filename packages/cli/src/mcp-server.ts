@@ -25,6 +25,7 @@ import {
 
 import { VERSION } from './constants.js';
 import { loadConfig, saveConfig } from './config.js';
+import { installErrorHandlers } from './core/error-report.js';
 import { buildProjectListFast, buildProjectList, projectGroup, autoCategorizeProject } from './core/projects.js';
 import { getRecentSessions } from './core/sessions.js';
 import { getGitStatus, getRecentCommits } from './core/git.js';
@@ -498,6 +499,12 @@ async function handleUpsertTask(args: {
 
 async function main(): Promise<void> {
   initLogger();
+  // Scrubbed crash telemetry (default ON, opt-out). MCP surface. Must never
+  // write to stdout (that's the MCP transport) — the beacon only uses the net.
+  try {
+    const { config } = loadConfig();
+    installErrorHandlers('mcp', config.error_reporting?.enabled !== false);
+  } catch { installErrorHandlers('mcp'); }
 
   const server = new Server(
     { name: 'cldctrl', version: VERSION },

@@ -9,6 +9,7 @@
 
 import { isTTY } from './core/platform.js';
 import { pruneClosedSessions } from './core/tracker.js';
+import { installErrorHandlers, reportError } from './core/error-report.js';
 
 // Set console window title early (Windows uses process.title for the titlebar)
 process.title = 'CLD CTRL';
@@ -55,6 +56,13 @@ async function resolveProjectAlias(alias: string): Promise<{ path: string; name:
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isMini = args.includes('--mini') || args.includes('-m');
+
+  // Scrubbed crash telemetry (default ON, opt-out). Baseline surface = 'cli';
+  // the TUI/mini paths refine it to 'tui' once they mount. Reads no config here
+  // (cheap raw opt-out read happens lazily only if a crash actually fires), so
+  // it doesn't touch the zero-zod fast startup path.
+  const noSub = args.length === 0 || args.every((a) => a.startsWith('-'));
+  installErrorHandlers(isTTY() && (isMini || noSub) ? 'tui' : 'cli');
 
   // Prune stale tracked sessions (skip for mini mode — adds ~50ms startup latency)
   if (!isMini) {
@@ -202,6 +210,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  reportError(err, 'cli', 'main');
   console.error(`Fatal error: ${err.message ?? err}`);
   process.exit(1);
 });

@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import pLimit from 'p-limit';
 import { loadConfig, getConfigDir } from './config.js';
+import { installErrorHandlers } from './core/error-report.js';
 import { buildProjectList } from './core/projects.js';
 import { getGitStatus, getRecentCommits, getCommitDailyActivity } from './core/git.js';
 import { getIssues, isGhAvailable } from './core/github.js';
@@ -221,6 +222,11 @@ async function pollOnce(): Promise<void> {
 
 export async function startDaemon(): Promise<void> {
   initLogger({ verbose: process.argv.includes('--verbose') });
+  // Scrubbed crash telemetry (default ON, opt-out). Daemon surface.
+  try {
+    const { config } = loadConfig();
+    installErrorHandlers('daemon', config.error_reporting?.enabled !== false);
+  } catch { installErrorHandlers('daemon'); }
 
   if (checkExistingDaemon()) {
     console.error('Daemon is already running. Kill the existing process first.');

@@ -144,6 +144,13 @@ export const Welcome = React.memo(function Welcome() {
 
       <Text> </Text>
       <Text color={INK_COLORS.textDim}>
+        Anonymous crash reports are on (error type + version only — no paths,
+      </Text>
+      <Text color={INK_COLORS.textDim}>
+        names, or prompts). Turn off any time in Settings (press ,).
+      </Text>
+      <Text> </Text>
+      <Text color={INK_COLORS.textDim}>
         Press q to quit
       </Text>
     </Box>

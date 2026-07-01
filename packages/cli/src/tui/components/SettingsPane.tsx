@@ -93,6 +93,15 @@ function flattenConfig(config: Config): SettingItem[] {
   });
 
   items.push({
+    key: 'error_reporting.enabled',
+    label: 'Anonymous error reporting',
+    value: config.error_reporting?.enabled ?? true,
+    type: 'boolean',
+    path: ['error_reporting', 'enabled'],
+    description: 'Send scrubbed crash reports (error type + app version + OS only — never paths, project names, prompts, or tokens). Helps fix crashes. Opt-out.',
+  });
+
+  items.push({
     key: 'icon_color',
     label: 'Icon color',
     value: config.icon_color,
