@@ -272,7 +272,7 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
   const names = new Set(d.projects.map((p) => p.group || 'Ungrouped'));
   const groups = orderedGroups(names);
   return html`<aside class="sidebar">
-    <div class="side-brand${IS_APP_MODE ? ' compact' : ''}" data-act="nav-cockpit" title="CLD CTRL — go to your conversations">
+    <div class=${'side-brand' + (IS_APP_MODE ? ' compact' : '')} data-act="nav-cockpit" title="CLD CTRL — go to your conversations">
       <span class="logo" aria-hidden="true"></span>
       ${IS_APP_MODE ? '' : html`<span class="wordmark">CLD CTRL</span>`}
     </div>
