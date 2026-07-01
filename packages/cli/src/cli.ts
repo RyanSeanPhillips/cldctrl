@@ -673,9 +673,10 @@ export function createCli(): Command {
     .description('Serve the browser dashboard (localhost only)')
     .option('--port <port>', 'Port to listen on', '2533')
     .option('--open', 'Open the dashboard in your default browser')
+    .option('--demo', 'Serve synthetic demo data (well-known OSS repos) instead of your real projects')
     .action(async (opts) => {
       const { startServeServer } = await import('./serve.js');
-      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open });
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open, demo: !!opts.demo });
     });
 
   // ── web (serve + open browser) ───────────────────────────

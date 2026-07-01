@@ -52,6 +52,9 @@ let lastProbe: RateLimitInfo | null = null;
 // Newer published version (or null) from the startup/heartbeat update check;
 // surfaced in the overview payload as an "update available" pill.
 let latestUpdate: string | null = null;
+// Demo mode (`cc serve --demo`) — synthetic data (well-known OSS repos) instead
+// of the user's real projects; for marketing/screenshots. Set at startup.
+let DEMO = false;
 
 async function getRateLimits(): Promise<RateLimitInfo | null> {
   const cached = getCachedRateLimits();
@@ -172,6 +175,7 @@ const sessionFileMap = new Map<string, string>(); // sessionId -> JSONL path
 // ── Overview payload ─────────────────────────────────────────
 
 async function buildOverview(): Promise<unknown> {
+  if (DEMO) { const { buildDemoOverview } = await import('./core/serve-demo.js'); return buildDemoOverview(Date.now()); }
   fillDiscoveredSessions(); // match live 'new' tiles to the session ids their agents wrote
   const { config } = loadConfig();
   const projects = buildProjectListFast(config);
@@ -912,8 +916,9 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 // ── Server ───────────────────────────────────────────────────
 
-export function startServeServer(port: number, opts: { open?: boolean } = {}): void {
+export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean } = {}): void {
   initLogger();
+  DEMO = !!opts.demo;
   // Scrubbed crash telemetry (default ON, opt-out). Browser surface.
   try {
     const { config } = loadConfig();
