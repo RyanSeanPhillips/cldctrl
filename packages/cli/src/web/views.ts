@@ -615,7 +615,6 @@ function cockpitToolbar(d: OverviewPayload, state: State): Tpl {
     ${!stats ? cockpitChips(d, state) : ''}
     <span class="sp"></span>
     ${!stats ? html`
-      <button class="btn" data-act="cockpit-notes" title="Browse notes — this conversation, this project, or all">${iNote()} Notes</button>
       <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">${iAdd()} Add</button>
       <div class="cp-layouts">
         <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">${iCols1()}</button>

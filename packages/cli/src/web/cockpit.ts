@@ -190,7 +190,6 @@ function createTermTile(meta: CockpitTile): LiveTile {
       ${readBtn}
       ${locBtns}
       <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
-      <button class="btn icon" data-act="tile-compose" data-id="${esc(meta.id)}" title="Compose box — spellcheck, edit, paste &amp; multi-line (the terminal stays primary)">&#128221;</button>
       <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
       <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">&#8689;</button>
       <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
@@ -996,7 +995,6 @@ export function syncCockpit(): void {
 function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
 
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
-export function toggleTileCompose(id: string): void { tiles.get(id)?.toggleCompose?.(); }
 export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.(); }
 /**
  * Route an agent-opened scratchpad into a conversation's docked notepad (the single

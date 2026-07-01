@@ -9,7 +9,7 @@ import {
   fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
-import { syncCockpit, restartTile, toggleTileCompose, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -365,8 +365,6 @@ document.addEventListener('click', async (ev) => {
     focusWaitingTile();
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
-  } else if (act === 'tile-compose') {
-    toggleTileCompose(el.dataset.id!);
   } else if (act === 'doc-toggle') {
     docToggle(el.dataset.id!);
   } else if (act === 'doc-save') {
