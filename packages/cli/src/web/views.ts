@@ -71,11 +71,16 @@ function usageBar(w: UsageWindow): Tpl {
     <span class="bar-val">${val}</span>`;
 }
 
-function themeSwitch(): Tpl {
+// Sidebar-footer controls (moved out of the top-right so the topbar stays clean
+// and the sidebar is a self-contained unit — the basis for the future widget):
+// a compact theme dropdown + the listen-mode toggle.
+function sideControls(): Tpl {
   const cur = currentTheme();
-  return html`<div class="theme-switch" title="Theme">
-    ${THEMES.map((t) => html`<button class=${'sw sw-' + t.id + (cur === t.id ? ' on' : '')}
-      data-act="theme" data-theme=${t.id} title=${t.label} aria-label=${t.label}></button>`)}
+  return html`<div class="side-controls">
+    <select class="theme-select" data-act="theme-select" title="Theme" aria-label="Theme">
+      ${THEMES.map((t) => html`<option value=${t.id} ?selected=${cur === t.id}>${t.label}</option>`)}
+    </select>
+    <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
   </div>`;
 }
 
@@ -116,8 +121,6 @@ function topbar(d: OverviewPayload, state: State): Tpl {
       ${updatePill(d)}
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
-      ${themeSwitch()}
-      <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
     </div>
   </header>`;
 }
@@ -262,6 +265,7 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
     <div class="side-usage-row"><span class="side-usage-lbl">7d</span>${usageBar(d.usage.sevenDay)}</div>
     ${d.usage.overage ? html`<div class="side-usage-row overage-row"><span class="side-usage-lbl">extra</span>
       <span class="overage" title=${'Paid overage · resets ' + d.usage.overage.resetIn}>⚠ <span class="num">${d.usage.overage.percent}%</span></span></div>` : ''}
+    ${sideControls()}
   </div>`;
 }
 
@@ -289,6 +293,15 @@ function sidebar(d: OverviewPayload, state: State, query: string, matchPaths: Se
         <input id="search-input" class="search" placeholder="Search conversations…" .value=${query}>
         ${searching ? html`<button class="search-clear" data-act="searchclear" title="Clear">✕</button>` : ''}
       </div>` : ''}
+      <div class="side-conv-actions">
+        <button class="btn primary" data-act="cockpit-add-toggle" title="Add a conversation">${iAdd()} Add</button>
+        <span class="sp"></span>
+        <div class="cp-layouts" title="Cockpit layout">
+          <button class=${'btn icon' + (ui.cockpit.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">${iCols1()}</button>
+          <button class=${'btn icon' + (ui.cockpit.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">${iCols2()}</button>
+          <button class=${'btn icon' + (ui.cockpit.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">${iGrid()}</button>
+        </div>
+      </div>
       ${sideConversations(d, state)}
     </div>
     <div class="side-scroll">
@@ -614,16 +627,9 @@ function cockpitToolbar(d: OverviewPayload, state: State): Tpl {
       title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button>` : ''}
     ${!stats ? cockpitChips(d, state) : ''}
     <span class="sp"></span>
-    ${!stats ? html`
-      <button class="btn primary" data-act="cockpit-add-toggle" title="Add a session">${iAdd()} Add</button>
-      <div class="cp-layouts">
-        <button class=${'btn icon' + (cp.layout === 'cols1' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols1" title="Single column">${iCols1()}</button>
-        <button class=${'btn icon' + (cp.layout === 'cols2' ? ' on' : '')} data-act="cockpit-layout" data-layout="cols2" title="Two columns">${iCols2()}</button>
-        <button class=${'btn icon' + (cp.layout === 'grid' ? ' on' : '')} data-act="cockpit-layout" data-layout="grid" title="Grid">${iGrid()}</button>
-      </div>`
-    : html`<div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
+    ${stats ? html`<div class="cp-range">${([[1, '24h'], [3, '3d'], [7, '7d'], [30, '30d']] as Array<[number, string]>).map(([dys, lbl]) =>
         html`<button class=${'btn icon' + (cp.statsDays === dys ? ' on' : '')} data-act="stats-days" data-days=${String(dys)}>${lbl}</button>`)}
-      </div>`}
+      </div>` : ''}
   </div>`;
 }
 

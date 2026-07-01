@@ -578,9 +578,13 @@ document.addEventListener('keydown', (ev) => {
 
 // Reveal the branch field when "Isolated worktree" is ticked.
 document.addEventListener('change', (ev) => {
-  if ((ev.target as HTMLElement).id === 'cockpit-new-worktree') {
+  const t = ev.target as HTMLElement;
+  if (t.id === 'cockpit-new-worktree') {
     const branch = document.getElementById('cockpit-new-branch') as HTMLInputElement | null;
-    if (branch) branch.style.display = (ev.target as HTMLInputElement).checked ? '' : 'none';
+    if (branch) branch.style.display = (t as unknown as HTMLInputElement).checked ? '' : 'none';
+  } else if (t.dataset?.act === 'theme-select') {
+    applyTheme((t as unknown as HTMLSelectElement).value as ThemeId);
+    renderApp();
   }
 });
 

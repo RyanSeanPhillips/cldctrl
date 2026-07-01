@@ -109,12 +109,16 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 /* ── topbar (sticky usage header) ─────────────────────────── */
 .topbar {
   position: sticky; top: 0; z-index: 40;
-  display: flex; align-items: center; gap: var(--s5);
-  height: var(--topbar-h); padding: 0 var(--s5);
+  display: flex; align-items: center; gap: 0;
+  height: var(--topbar-h); padding: 0;
   background: var(--topbar-bg); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0; cursor: pointer; }
+/* Brand spans the sidebar width and is centered within it, so the logo sits
+   centered over the left panel (which is becoming the self-contained widget). */
+.brand { display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  width: var(--sidebar-w); flex-shrink: 0; cursor: pointer;
+  border-right: 1px solid var(--border); }
 .logo { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
   background:
     linear-gradient(135deg, var(--accent) 0 50%, transparent 50%) 0 0/9px 9px no-repeat,
@@ -125,7 +129,7 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 .tier { font-size: 11px; color: var(--text-muted); border: 1px solid var(--border-strong);
   padding: 1px 6px; border-radius: var(--r-pill); }
 .shell-spacer { flex: 1; }
-.topbar-right { display: flex; align-items: center; gap: var(--s4); flex-shrink: 0; }
+.topbar-right { display: flex; align-items: center; gap: var(--s4); flex-shrink: 0; padding-right: var(--s5); }
 .live-count { display: flex; align-items: center; gap: var(--s2); font-size: 12px; color: var(--text-secondary); }
 .updated { font-size: 11.5px; color: var(--text-muted); }
 .update-pill { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;
@@ -137,14 +141,17 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 .update-x { background: none; border: none; color: currentColor; opacity: 0.7; cursor: pointer;
   font-size: 11px; line-height: 1; padding: 0 0 0 2px; }
 .update-x:hover { opacity: 1; }
-.theme-switch { display: flex; align-items: center; gap: 5px; }
-.theme-switch .sw { width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--border-strong);
-  cursor: pointer; padding: 0; position: relative; transition: transform .12s ease; }
-.theme-switch .sw:hover { transform: scale(1.15); }
-.theme-switch .sw.on { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
-.theme-switch .sw-midnight { background: linear-gradient(135deg, #0d121d 50%, #e87632 50%); }
-.theme-switch .sw-daylight { background: linear-gradient(135deg, #ffffff 50%, #e0651f 50%); }
-.theme-switch .sw-paper { background: linear-gradient(135deg, #fffdf8 50%, #c8581a 50%); }
+/* sidebar-footer controls: theme dropdown + listen toggle (moved from topbar) */
+.side-controls { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.side-controls .theme-select { flex: 1; min-width: 0; height: 24px; padding: 0 6px; font: inherit; font-size: 11px;
+  color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); cursor: pointer; }
+.side-controls .theme-select:hover { border-color: var(--border-strong); color: var(--text); }
+.side-controls .hands-free { flex: none; }
+/* action row under the Conversations header: + Add + cockpit layout toggles */
+.side-conv-actions { display: flex; align-items: center; gap: var(--s2); margin: 2px 0 6px; }
+.side-conv-actions .btn.primary { flex: none; padding: 3px 10px; font-size: 12px; }
+.side-conv-actions .cp-layouts { flex: none; display: flex; gap: 2px; }
 
 /* ── bars / gauges ────────────────────────────────────────── */
 .bar { height: 8px; background: var(--surface-2); border-radius: var(--r-pill); overflow: hidden; position: relative; }
