@@ -49,6 +49,9 @@ declare const require: NodeRequire;
 const RATE_PROBE_TTL_MS = 5 * 60_000;
 let lastProbeAt = 0;
 let lastProbe: RateLimitInfo | null = null;
+// Newer published version (or null) from the startup/heartbeat update check;
+// surfaced in the overview payload as an "update available" pill.
+let latestUpdate: string | null = null;
 
 async function getRateLimits(): Promise<RateLimitInfo | null> {
   const cached = getCachedRateLimits();
@@ -201,6 +204,7 @@ async function buildOverview(): Promise<unknown> {
 
   return {
     version: VERSION,
+    updateAvailable: latestUpdate,
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
     features: {
@@ -1115,9 +1119,14 @@ export function startServeServer(port: number, opts: { open?: boolean } = {}): v
     // Adoption ping for the browser surface: one launch hit, then a slow
     // presence heartbeat while the dashboard server stays up (same beacon as
     // the TUI, tagged client='browser' so the two surfaces can be told apart).
+    // checkForUpdate also returns a newer version (or null) → surfaced in the
+    // dashboard as an "update available" pill via the overview payload.
     import('./core/update-check.js').then((m) => {
-      m.checkForUpdate(false, 'browser').catch(() => { /* ignore */ });
-      const hb = setInterval(() => m.pingHeartbeat('browser'), 300000);
+      m.checkForUpdate(false, 'browser').then((v) => { latestUpdate = v; }).catch(() => { /* ignore */ });
+      const hb = setInterval(() => {
+        m.pingHeartbeat('browser');
+        m.checkForUpdate(false, 'browser').then((v) => { latestUpdate = v; }).catch(() => { /* ignore */ });
+      }, 300000);
       hb.unref?.();
     }).catch(() => { /* offline / blocked — ignore */ });
   });

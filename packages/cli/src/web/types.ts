@@ -56,6 +56,7 @@ export interface ProjectInfo {
 
 export interface OverviewPayload {
   version: string;
+  updateAvailable?: string | null; // newer published version, or null
   generatedAt: string; // ISO
   tier: string | null;
   features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; openExplorer?: boolean; openVscode?: boolean };

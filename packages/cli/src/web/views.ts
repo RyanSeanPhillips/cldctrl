@@ -20,6 +20,7 @@ const iStats = () => svgWrap(svg`<line x1="6" y1="20" x2="6" y2="11"></line><lin
 const iNote = () => svgWrap(svg`<path d="M5 3h9l5 5v13H5z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line>`);
 const iAdd = () => svgWrap(svg`<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>`);
 const iHeadphones = () => svgWrap(svg`<path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="14" width="5" height="7" rx="1.5"></rect><rect x="16.5" y="14" width="5" height="7" rx="1.5"></rect>`);
+const iUp = () => svgWrap(svg`<line x1="12" y1="19" x2="12" y2="5"></line><polyline points="6 11 12 5 18 11"></polyline>`);
 const iCols1 = () => svgWrap(svg`<rect x="4" y="4" width="16" height="16" rx="1"></rect>`);
 const iCols2 = () => svgWrap(svg`<rect x="4" y="4" width="7" height="16" rx="1"></rect><rect x="13" y="4" width="7" height="16" rx="1"></rect>`);
 
@@ -82,6 +83,26 @@ function themeSwitch(): Tpl {
 // Usage bars moved OUT of here into the sidebar's fixed-bottom zone. Search is now
 // in the sidebar too. CTRL is now a pinned row in the sidebar conversations list
 // (opens an on-demand cockpit tile) — the old topbar/dock toggle is retired.
+// "Update available" pill — shown when the server reports a newer published
+// version and the user hasn't dismissed THAT version. Dismissal persists in
+// localStorage (the 3s poll re-renders the tree, so a class toggle wouldn't
+// stick — same lesson as the search-open state).
+function updatePill(d: OverviewPayload): Tpl | string {
+  const v = d.updateAvailable;
+  if (!v) return '';
+  let dismissed = '';
+  try { dismissed = localStorage.getItem('cldctrl-dismissed-update') || ''; } catch { /* ignore */ }
+  if (dismissed === v) return '';
+  // NB: build the title in JS — a µhtml template hole embedded *inside* a quoted
+  // attribute string (text before AND after ${...}) mis-parses and leaks into
+  // visible content; a whole-value hole (title=${str}) is required.
+  const tip = `A newer cldctrl (v${v}) is available — click to copy the update command`;
+  return html`<span class="update-pill" data-act="update-open" title=${tip}>
+    ${iUp()}<span class="up-ver">v${v}</span>
+    <button class="update-x" data-act="update-dismiss" data-ver=${v} title="Dismiss until the next release" aria-label="Dismiss">✕</button>
+  </span>`;
+}
+
 function topbar(d: OverviewPayload, state: State): Tpl {
   const live = d.sessions.filter((s) => s.status === 'active').length;
   const idle = d.sessions.length - live;
@@ -92,6 +113,7 @@ function topbar(d: OverviewPayload, state: State): Tpl {
     </div>
     <span class="shell-spacer"></span>
     <div class="topbar-right">
+      ${updatePill(d)}
       <span class="live-count"><span class="dot active"></span>${live} live${idle ? html` · ${idle} idle` : ''}</span>
       <span class="updated">${state.connError ? 'reconnecting…' : 'updated ' + new Date(d.generatedAt).toLocaleTimeString()}</span>
       ${themeSwitch()}

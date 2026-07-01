@@ -302,6 +302,14 @@ document.addEventListener('click', async (ev) => {
   const ui = getState().ui;
 
   if (act === 'theme') { applyTheme(el.dataset.theme as ThemeId); renderApp(); }
+  else if (act === 'update-open') {
+    const cmd = 'npm i -g cldctrl';
+    navigator.clipboard?.writeText(cmd).then(() => toast('Copied: ' + cmd + ' — run it to update'))
+      .catch(() => toast('To update, run:  ' + cmd));
+  } else if (act === 'update-dismiss') {
+    try { localStorage.setItem('cldctrl-dismissed-update', el.dataset.ver || ''); } catch { /* ignore */ }
+    renderApp();
+  }
   else if (act === 'openincockpit') {
     addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, true);
   } else if (act === 'cockpit-add-toggle') {
