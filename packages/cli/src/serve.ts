@@ -977,7 +977,7 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 // ── Server ───────────────────────────────────────────────────
 
-export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean; appMode?: boolean; sharedProfile?: boolean } = {}): void {
+export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean; appMode?: boolean; sharedProfile?: boolean; browser?: 'chrome' | 'edge' } = {}): void {
   initLogger();
   DEMO = !!opts.demo;
   // Scrubbed crash telemetry (default ON, opt-out). Browser surface.
@@ -1236,7 +1236,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       // Chromeless standalone window (Edge/Chrome --app=). Falls back to a normal
       // browser tab if no Chromium browser is found.
       import('./core/app-launch.js').then(({ launchAppWindow }) => {
-        if (launchAppWindow(url, { sharedProfile: opts.sharedProfile })) {
+        if (launchAppWindow(url, { sharedProfile: opts.sharedProfile, browser: opts.browser })) {
           console.log('Opened in app mode (chromeless window).');
         } else {
           console.log('App mode: no Chromium browser found — opening a normal tab.');

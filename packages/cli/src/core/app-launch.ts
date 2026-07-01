@@ -28,26 +28,31 @@ export function probeServer(port: number, timeoutMs = 900): Promise<boolean> {
   });
 }
 
-/** Locate a Chromium-based browser that supports `--app=`. Edge first (present
- *  on most Windows machines), then Chrome. Returns an absolute path/command, or
- *  null if none found. */
-export function findChromiumBrowser(): string | null {
+/** Locate a Chromium-based browser that supports `--app=`. Prefers CHROME by
+ *  default — Chrome gives an --app window its own taskbar entry + the site
+ *  favicon, whereas Edge tends to group it under Edge's identity. Pass
+ *  prefer:'edge' to flip. Returns an absolute path/command, or null. */
+export function findChromiumBrowser(prefer: 'chrome' | 'edge' = 'chrome'): string | null {
   const plat = getPlatform();
   if (plat === 'windows') {
     const pf = process.env.ProgramFiles || 'C:\\Program Files';
     const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     const lad = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-    const known = [
-      path.join(pfx86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(pf, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-      path.join(lad, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    const chrome = [
       path.join(pf, 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(pfx86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(lad, 'Google', 'Chrome', 'Application', 'chrome.exe'),
     ];
+    const edge = [
+      path.join(pfx86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      path.join(pf, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      path.join(lad, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    ];
+    const known = prefer === 'edge' ? [...edge, ...chrome] : [...chrome, ...edge];
     for (const c of known) { try { if (fs.existsSync(c)) return c; } catch { /* ignore */ } }
     // Registry App Paths fallback (handles non-standard install locations).
-    for (const exe of ['msedge.exe', 'chrome.exe']) {
+    const exes = prefer === 'edge' ? ['msedge.exe', 'chrome.exe'] : ['chrome.exe', 'msedge.exe'];
+    for (const exe of exes) {
       for (const root of ['HKCU', 'HKLM']) {
         try {
           const out = execFileSync('reg', ['query',
@@ -61,19 +66,18 @@ export function findChromiumBrowser(): string | null {
     }
     return null;
   }
-  if (plat === 'macos') {
-    const known = [
-      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ];
-    for (const c of known) { try { if (fs.existsSync(c)) return c; } catch { /* ignore */ } }
-    return null;
-  }
-  // Linux: resolve by name on PATH.
-  for (const c of ['microsoft-edge', 'google-chrome', 'chromium', 'chromium-browser']) {
-    try { execFileSync('command', ['-v', c], { stdio: ['ignore', 'pipe', 'ignore'] }); return c; }
-    catch { /* not on PATH */ }
+  const chrome = plat === 'macos'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium']
+    : ['google-chrome', 'chromium', 'chromium-browser'];
+  const edge = plat === 'macos'
+    ? ['/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge']
+    : ['microsoft-edge'];
+  const cands = prefer === 'edge' ? [...edge, ...chrome] : [...chrome, ...edge];
+  for (const c of cands) {
+    try {
+      if (plat === 'macos') { if (fs.existsSync(c)) return c; }
+      else { execFileSync('command', ['-v', c], { stdio: ['ignore', 'pipe', 'ignore'] }); return c; }
+    } catch { /* not present */ }
   }
   return null;
 }
@@ -85,8 +89,8 @@ export function findChromiumBrowser(): string | null {
  * hijacking of the user's main browser session); pass sharedProfile to reuse the
  * default profile (extensions/logins, but no separate window identity).
  */
-export function launchAppWindow(url: string, opts: { sharedProfile?: boolean } = {}): boolean {
-  const browser = findChromiumBrowser();
+export function launchAppWindow(url: string, opts: { sharedProfile?: boolean; browser?: 'chrome' | 'edge' } = {}): boolean {
+  const browser = findChromiumBrowser(opts.browser);
   if (!browser) return false;
   // Tag the URL so the client can DETERMINISTICALLY know it's app mode (Chrome
   // --app= windows don't reliably report display-mode: standalone).
