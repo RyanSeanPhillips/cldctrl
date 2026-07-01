@@ -793,8 +793,17 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 
 /* ── widget pop-out window (?widget=1): one tile, full-viewport ── */
 .widget-root { position: fixed; inset: 0; display: flex; background: var(--bg); }
-.widget-root .tile { flex: 1; border: none; border-radius: 0; }
-/* maximize/pop-out make no sense in a window that IS the tile */
+.widget-root .tile { flex: 1; border: none; border-radius: 0; box-shadow: none; }
+/* maximize/pop-out/drag make no sense in a window that IS the tile, and the OS
+   titlebar already provides close — hide ours so the strip reads as chrome. */
 body.widget-mode [data-act="tile-max"],
 body.widget-mode [data-act="tile-popout"],
+body.widget-mode [data-act="tile-close"],
 body.widget-mode .tile-grip { display: none !important; }
+/* Style the tile head as a slim TITLEBAR extension rather than a panel header:
+   flatter, tighter, muted title (the OS titlebar carries the real title). */
+body.widget-mode .tile-head { padding: 3px var(--s2); gap: var(--s2); cursor: default;
+  background: var(--surface-1); border-bottom: 1px solid var(--border); }
+body.widget-mode .tile-head .tile-title { font-size: 11.5px; font-weight: 500; color: var(--text-secondary); }
+body.widget-mode .tile-head .btn.icon { padding: 1px 6px; font-size: 12px; }
+body.widget-mode .tile-head .tile-ava { width: 15px; height: 15px; font-size: 8px; }
