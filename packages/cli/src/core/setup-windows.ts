@@ -143,6 +143,17 @@ export function removeWindows(): SetupResult {
 const SHORTCUT_NAME = 'CLD CTRL.lnk';
 const APP_VBS_NAME = 'cldctrl-app.vbs';
 
+/** Find the bundled cldctrl.ico (package root, shipped via package.json files). */
+function getIconPath(): string | null {
+  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, 'cldctrl.ico');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
 /**
  * Create a Start Menu (+ optional Desktop) shortcut that launches the dashboard
  * as a chromeless app-mode window (`cc web --app`) via a hidden VBS wrapper so
@@ -167,6 +178,7 @@ export function installAppShortcut(opts: { desktop?: boolean } = {}): SetupResul
 
   const spawn = require('cross-spawn') as typeof import('cross-spawn');
   const psq = (s: string) => s.replace(/'/g, "''"); // PowerShell single-quote escape
+  const icon = getIconPath();
   let made = 0;
   for (const lnk of targets) {
     const ps = [
@@ -176,6 +188,7 @@ export function installAppShortcut(opts: { desktop?: boolean } = {}): SetupResul
       `$s.Arguments = '"${psq(vbsPath)}"'`,
       `$s.Description = 'CLD CTRL dashboard (app mode)'`,
       `$s.WorkingDirectory = '${psq(configDir)}'`,
+      ...(icon ? [`$s.IconLocation = '${psq(icon)},0'`] : []),
       `$s.Save()`,
     ].join('; ');
     try {

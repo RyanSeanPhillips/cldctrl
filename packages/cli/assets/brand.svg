@@ -1,0 +1,8 @@
+<!-- Canonical CLD CTRL brand mark. SINGLE SOURCE OF TRUTH for the app icons.
+     Edit this when the branding changes, then run `node scripts/gen-icons.mjs`
+     to regenerate cldctrl.ico. Keep serve.ts's inline favicon SVG in sync. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#e87632"/>
+  <path d="M6.5 21.5 L16 11 L25.5 21.5" fill="none" stroke="#0b0e15"
+        stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

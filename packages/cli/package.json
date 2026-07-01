@@ -37,6 +37,7 @@
     "hotkey.ps1",
     "desktop-probe.ps1",
     "screenshot.ps1",
+    "cldctrl.ico",
     "LICENSE"
   ],
   "main": "./dist/index.js",
@@ -46,6 +47,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "gen-icons": "node scripts/gen-icons.mjs",
     "prepublishOnly": "npm run build",
     "postinstall": "node -e \"console.log('\\n  Tip: Run cldctrl setup to enable global hotkey\\n')\""
   },
