@@ -630,7 +630,21 @@ const SHELL = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#070a10">
+<meta name="theme-color" content="#f4f6fa">
+<script>
+// Pre-paint theme: apply the SAVED theme before first render so (a) there's no
+// flash of the wrong theme and (b) Chromium samples the CORRECT theme-color at
+// window creation — app-window titlebars read it at birth, so setting it only
+// after boot left light-theme windows with a black titlebar (and vice versa).
+// The bg values MUST match the per-theme --bg in web/app.css.
+(function(){try{
+  var t=localStorage.getItem('cldctrl-theme')||'daylight';
+  var bg={midnight:'#070a10',daylight:'#f4f6fa',paper:'#f3efe7'}[t]||'#f4f6fa';
+  if(t==='midnight')document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme',t);
+  document.querySelector('meta[name="theme-color"]').setAttribute('content',bg);
+}catch(e){}})();
+</script>
 <title>⌃ CLD CTRL</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any">
