@@ -13,8 +13,10 @@
   --text: #e4e8ef;
   --text-bright: #ffffff;
   --text-secondary: #aab4c2;
-  --text-muted: #6b7686;
-  --text-faint: #49525f;
+  /* muted/faint lifted for readability on the near-black canvas — the old
+     #6b7686/#49525f sat at ~4:1 / ~2.4:1 (below the 4.5:1 floor). */
+  --text-muted: #848ea0;
+  --text-faint: #6a7488;
   /* brand + semantic */
   --accent: #e87632;
   --accent-hover: #f08945;
