@@ -72,6 +72,12 @@ const ConfigSchema = z.object({
   error_reporting: z.object({
     enabled: z.boolean().default(true),
   }).default({}),
+  // Conversation search options. `semantic` enables the local-embedding re-rank
+  // (core/semantic-rerank.ts) — default OFF; requires an optional local embedder
+  // install (@huggingface/transformers). Missing dep ⇒ silent keyword fallback.
+  search: z.object({
+    semantic: z.boolean().default(false),
+  }).default({}),
 });
 
 // ── Feature flag helper ────────────────────────────────────

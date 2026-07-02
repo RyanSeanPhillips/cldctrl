@@ -1134,7 +1134,11 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         sendJson(res, result.status, result.body);
       } else if (req.method === 'GET' && url.pathname === '/api/search') {
         const q = url.searchParams.get('q') ?? '';
-        sendJson(res, 200, { results: searchConversations(q), query: q });
+        // Optional semantic re-rank (config search.semantic, default off) —
+        // same results shape; extra `semantic` field says whether it applied.
+        const { searchConversationsSmart } = await import('./core/semantic-rerank.js');
+        const smart = await searchConversationsSmart(q);
+        sendJson(res, 200, { results: smart.results, query: q, semantic: smart.semantic });
       } else if (req.method === 'GET' && url.pathname === '/api/stats') {
         const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 3));
         const { computeStats } = await import('./core/stats.js');

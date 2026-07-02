@@ -75,6 +75,9 @@ export interface Config {
   project_groups?: Record<string, string>;
   /** Scrubbed, PII-free crash telemetry. Default ON; opt out here. */
   error_reporting?: { enabled: boolean };
+  /** Conversation search options. `semantic` (default false) turns on the local
+   *  embedding re-rank — needs an optional @huggingface/transformers install. */
+  search?: { semantic?: boolean };
 }
 
 // ── Runtime ─────────────────────────────────────────────────

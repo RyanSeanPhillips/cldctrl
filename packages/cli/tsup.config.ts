@@ -10,7 +10,10 @@ export default defineConfig({
   sourcemap: true,
   dts: false, // Skip declaration files for the build
   // node-pty is native and must not be bundled; ws is required at runtime too.
-  external: ['react', 'ink', 'yoga-wasm-web', 'node-pty', 'ws'],
+  // The transformers packages are OPTIONAL (semantic search) and usually not
+  // installed — keep them external so the lazy import resolves (or fails soft)
+  // at runtime instead of breaking the build.
+  external: ['react', 'ink', 'yoga-wasm-web', 'node-pty', 'ws', '@huggingface/transformers', '@xenova/transformers'],
   banner: {
     // Needed for ESM + __dirname
     js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,

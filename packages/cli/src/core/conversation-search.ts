@@ -339,6 +339,15 @@ function buildIndex(): Map<string, IndexEntry & { docLower: string }> {
   return entries;
 }
 
+/**
+ * Indexed doc text for a session (empty string if unknown). Wiring point for the
+ * optional semantic re-rank layer (semantic-rerank.ts) — additive, no behavior
+ * change to keyword search.
+ */
+export function getSessionDoc(sessionId: string): string {
+  return buildIndex().get(sessionId)?.doc ?? '';
+}
+
 function countOccurrences(haystack: string, needle: string): number {
   let c = 0, p = haystack.indexOf(needle);
   while (p >= 0) { c++; p = haystack.indexOf(needle, p + needle.length); }

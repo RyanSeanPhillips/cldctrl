@@ -340,11 +340,15 @@ async function handleReadTasks(): Promise<unknown> {
   return { tasks: store.tasks };
 }
 
-function handleSearchConversations(args: { query: string; limit?: number; project?: string }): unknown {
+async function handleSearchConversations(args: { query: string; limit?: number; project?: string }): Promise<unknown> {
   const query = (args.query ?? '').trim();
   if (!query) return { query: '', count: 0, results: [], note: 'Provide a non-empty query.' };
   const limit = Math.min(Math.max(1, args.limit ?? 20), 50);
-  const results = searchConversations(query, limit, args.project).map((r) => ({
+  // Optional semantic re-rank (config search.semantic, default off) — identical
+  // recall set, meaning-aware ordering; silently keyword-only when unavailable.
+  const { searchConversationsSmart } = await import('./core/semantic-rerank.js');
+  const smart = await searchConversationsSmart(query, limit, args.project);
+  const results = smart.results.map((r) => ({
     project: r.project,
     sessionId: r.sessionId,
     vendor: r.vendor,
@@ -355,6 +359,7 @@ function handleSearchConversations(args: { query: string; limit?: number; projec
   return {
     query,
     count: results.length,
+    ranking: smart.semantic ? 'keyword+semantic' : 'keyword',
     results,
     hint: 'Claude results resume with launch_session({ project, resume: sessionId }). Codex results (vendor:"codex") resume from the Codex CLI, e.g. `codex resume <sessionId>`.',
   };
@@ -954,7 +959,7 @@ async function main(): Promise<void> {
           result = await handleUnhideProject(args as { project: string });
           break;
         case 'search_conversations':
-          result = handleSearchConversations(args as { query: string; limit?: number; project?: string });
+          result = await handleSearchConversations(args as { query: string; limit?: number; project?: string });
           break;
         case 'list_agents':
           result = { agents: listAgents() };
