@@ -202,7 +202,9 @@ export function listNotes(filter?: { project?: string; conversation?: string; qu
 }
 
 // ── Cockpit launch (agent/CTRL → dashboard: open a new session as a tile) ─
-export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; ts: number; }
+// sessionId set = RESUME that conversation as a tile (web-first launch_session
+// routing); absent = spawn a fresh session tile.
+export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; sessionId?: string; ts: number; }
 
 /** Ask the dashboard to open a new conversation as a cockpit tile (instead of a
  *  separate terminal window). Used when the launch originates inside the web UI.

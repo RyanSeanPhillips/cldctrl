@@ -310,7 +310,10 @@ async function poll(): Promise<void> {
     for (const cl of data.cockpitLaunches ?? []) {
       if (cl.ts <= lastCockpitLaunchTs) continue;
       lastCockpitLaunchTs = cl.ts;
-      if (Date.now() - cl.ts < 60_000) addLaunchTile(cl.projectPath, cl.project, cl.prompt);
+      if (Date.now() - cl.ts >= 60_000) continue;
+      // sessionId = resume that conversation as a tile; else spawn a fresh one.
+      if (cl.sessionId) addResumeTile(cl.sessionId, cl.projectPath, cl.project || cl.projectPath.split(/[/\\]/).pop() || 'conversation', true);
+      else addLaunchTile(cl.projectPath, cl.project, cl.prompt);
     }
     // Message-in (#9): inject a message into a running cockpit session. Match by the
     // tile's sessionId (resume) or the sessionId its 'new' agent created. Prefills

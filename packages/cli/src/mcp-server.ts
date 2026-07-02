@@ -229,17 +229,29 @@ async function handleLaunchSession(args: {
     return { error: `Project not found: "${args.project}". Use list_projects to see available projects.` };
   }
 
-  // Surface-aware default: when this MCP server is running inside the web
-  // dashboard (the dock/cockpit PTYs set CLDCTRL_DASHBOARD_PORT), open new
-  // sessions as a cockpit TILE in the same browser rather than spawning a
-  // separate terminal window. Resumes already have an "Open here" path; route
-  // new launches. The dashboard adopts the signal on its next poll.
-  if (process.env.CLDCTRL_DASHBOARD_PORT && !args.resume) {
-    writeCockpitLaunch({ projectPath: project.path, project: project.name, prompt: args.prompt, ts: Date.now() });
+  // Web-first routing: open sessions as cockpit TILES whenever a dashboard is
+  // available — either this MCP server runs inside a cockpit PTY (the PTYs set
+  // CLDCTRL_DASHBOARD_PORT) or a dashboard is simply RUNNING on this machine
+  // (probed on the default port; requires our 200+JSON signature). Resumes route
+  // to the cockpit too (a resume tile attaches/spawns `claude --resume`). Only
+  // when no dashboard is up does this fall back to a separate terminal window.
+  const envPort = Number(process.env.CLDCTRL_DASHBOARD_PORT) || 0;
+  let dashboardUp = envPort > 0;
+  if (!dashboardUp) {
+    try {
+      const { probeServer } = await import('./core/app-launch.js');
+      dashboardUp = await probeServer(2533);
+    } catch { /* probe unavailable → terminal fallback */ }
+  }
+  if (dashboardUp) {
+    writeCockpitLaunch({ projectPath: project.path, project: project.name, prompt: args.prompt, sessionId: args.resume, ts: Date.now() });
     return {
       success: true,
       surface: 'cockpit',
-      message: `Opening a new session for "${project.name}" in the dashboard cockpit.`,
+      message: (args.resume
+        ? `Resuming that conversation as a cockpit tile in the dashboard.`
+        : `Opening a new session for "${project.name}" in the dashboard cockpit.`)
+        + (envPort ? '' : ' If no dashboard window is visible, `cc` opens one.'),
       project: project.name,
       path: project.path,
     };
@@ -258,6 +270,20 @@ async function handleLaunchSession(args: {
     project: project.name,
     path: project.path,
   };
+}
+
+async function handleConvertToLatex(args: { path: string }): Promise<unknown> {
+  const { convertMarkdownToLatex } = await import('./core/latex.js');
+  const r = convertMarkdownToLatex(typeof args.path === 'string' ? args.path : '');
+  if (r.pandocMissing) {
+    return {
+      ok: false,
+      pandocMissing: true,
+      guidance:
+        'pandoc is not installed on this machine — write the .tex yourself: read the markdown file and write a COMPLETE compilable LaTeX document beside it (same basename, .tex extension) with \\documentclass{article} and a proper preamble, preserving headings, emphasis, lists, citations and math. If the user has an existing LaTeX project, match its conventions instead of a generic preamble.',
+    };
+  }
+  return r;
 }
 
 async function handleRescanProjects(): Promise<unknown> {
@@ -563,7 +589,7 @@ async function main(): Promise<void> {
       {
         name: 'launch_session',
         description:
-          'Launch a new Claude Code session in a separate terminal window for a project. Optionally pass a prompt to start the session with context (e.g., an implementation plan from this conversation).',
+          'Launch (or resume) a Claude Code session for a project. When the cldctrl web dashboard is running, the session opens as a conversation tile IN the dashboard cockpit (web-first); otherwise it opens a separate terminal window. Optionally pass a prompt to start the session with context (e.g., an implementation plan from this conversation).',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -581,6 +607,21 @@ async function main(): Promise<void> {
             },
           },
           required: ['project'],
+        },
+      },
+      {
+        name: 'convert_to_latex',
+        description:
+          "Convert a markdown note/draft (.md/.markdown/.txt) into a compilable LaTeX document written BESIDE it (same basename, .tex). Uses pandoc when installed. If the result has pandocMissing:true, write the .tex yourself following the returned guidance instead. Typical use: the user's docked notepad draft (its path was announced to this conversation) or any project markdown they want in LaTeX for an Overleaf project.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Absolute path to the markdown file to convert',
+            },
+          },
+          required: ['path'],
         },
       },
       {
@@ -969,6 +1010,9 @@ async function main(): Promise<void> {
           break;
         case 'read_tasks':
           result = await handleReadTasks();
+          break;
+        case 'convert_to_latex':
+          result = await handleConvertToLatex(args as { path: string });
           break;
         case 'upsert_task':
           result = await handleUpsertTask(
