@@ -77,6 +77,23 @@ The whole point is that typing the command *opens the app*. Pattern:
    **print the URL**. Keep the contract "the command shows me the app" even when a
    window is impossible.
 
+## 3½. Titlebar integration (what a raw `--app` window CAN do)
+
+You can't put buttons in the OS titlebar without an installed PWA (Window
+Controls Overlay), but three levers work today:
+
+- **Titlebar tint:** Chromium colors the `--app` window titlebar from
+  `<meta name="theme-color">`. CRITICAL: it samples the meta **at window
+  creation** — set it **pre-paint** with a tiny inline `<head>` script that reads
+  the saved theme from localStorage and writes both the `data-theme` attribute
+  and the matching theme-color (also kills the flash-of-wrong-theme). A value
+  set later by your bundle is too late; a hardcoded dark default gives
+  light-theme users a black titlebar (we shipped that bug).
+- **Live `document.title`:** carry app status into the titlebar/taskbar
+  (e.g. "● 2 waiting — MyApp") — visible while minimized.
+- **Favicon badge:** canvas-draw a status dot over your icon PNG and swap a
+  dynamic `<link rel=icon>` — shows in the titlebar + taskbar.
+
 ## 4. Window + taskbar identity (icon)
 
 A raw `--app=` window is still a *browser process*, so the OS's sense of its
@@ -180,6 +197,51 @@ When the web app becomes the product, make the bare command open it:
 - Non-TTY / piped → machine-readable output (e.g. `list --json`).
 - Strip your routing flag (`--tui`) from **both** your arg array **and**
   `process.argv` so the CLI framework (Commander/yargs) doesn't choke on it.
+
+## 11. Multi-window: pop-outs that stay live (the widget pattern)
+
+Once the app is a chromeless window, the next "native" feel is popping a piece of
+it (a conversation, a chart, a live view) into ITS OWN window. What made this
+nearly free in CLD CTRL, and generalizes to any app:
+
+- **State lives on the SERVER; windows are views.** Anything a pop-out shows must
+  be server-owned and multi-client (CLD CTRL: named PTYs with attach + replay).
+  If state lives in the page, a pop-out is a fork; if it lives server-side, a
+  pop-out is just another subscriber.
+- **A widget URL mode** (`?widget=1&<what-to-show>`): the client boots a minimal
+  shell — no router, no global polling loop, mounts ONE component full-window.
+  Build the URL **server-side from validated fields** and open it via the same
+  `--app` launcher; fall back to `window.open(...,'popup')` without Chromium.
+- **Guard shared localStorage.** All your windows share the app profile's origin
+  storage — a widget that runs the normal persistence path will OVERWRITE the
+  main window's saved layout with its own single-view state. Gate persistence
+  off in widget mode FIRST, before any state code runs.
+- **Window-to-window messaging = the localStorage bridge.** `storage` events fire
+  in every OTHER same-origin window on a write — request/ack keys with
+  timestamps give you "dock this back into the main window" with no server hop.
+  (Same trick works for focus-this, broadcast-theme-change, etc.)
+- **Testing gotcha:** Playwright's `browser.newPage()` gives each page an
+  ISOLATED context — no shared localStorage, so the bridge silently does nothing
+  in tests. Use ONE `browser.newContext()` and open pages from it.
+- **Style the pop-out's header as a titlebar extension** (slim strip, hide your
+  own close button — the OS titlebar has one) so it reads as window chrome.
+
+## 12. Checklist — applying this to a new app (physiometrics etc.)
+
+1. Serve the app on localhost from your CLI (`myapp serve`), localhost-bound.
+2. `launchAppWindow`: find Chrome (fallback Edge) → `--app=URL?app=1` +
+   isolated `--user-data-dir`. Probe the port first; reuse a running server.
+3. Make the bare command open the window via a DETACHED background server;
+   headless/no-Chromium → foreground serve + print URL.
+4. Brand: one canonical SVG → gen multi-size `.ico` + 192/512 PNGs; serve
+   `favicon.ico` + `manifest.webmanifest` (+ `<link rel=manifest>`).
+5. Pre-paint inline script: saved theme + matching `theme-color` (titlebar tint).
+6. `?app=1` detection → drop the in-page logo/title (the OS titlebar carries it).
+7. Shortcut: `.lnk` → hidden VBS → `myapp web --app`, icon = your `.ico`;
+   first-run marker for silent setup. Pin = one manual right-click (or PWA).
+8. `Cache-Control: no-cache` on the entry JS/CSS bundle.
+9. Later: PWA install (+ Window Controls Overlay for buttons in the titlebar);
+   pop-out widget windows per §11; Tauri only if you outgrow all this.
 
 ---
 
