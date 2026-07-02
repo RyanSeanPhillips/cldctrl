@@ -686,6 +686,12 @@ function resolvePkgFile(spec: string, rel: string): string | null {
 const XTERM_JS = resolvePkgFile('@xterm/xterm', 'lib/xterm.js');
 const XTERM_CSS = resolvePkgFile('@xterm/xterm', 'css/xterm.css');
 const FIT_JS = resolvePkgFile('@xterm/addon-fit', 'lib/addon-fit.js');
+// KaTeX (math in the notepad/doc previews) — lazy-loaded by the client only when
+// a preview actually contains $…$ math, so normal dashboards never fetch it.
+const KATEX_JS = resolvePkgFile('katex', 'dist/katex.min.js');
+const KATEX_AUTO = resolvePkgFile('katex', 'dist/contrib/auto-render.min.js');
+const KATEX_CSS = resolvePkgFile('katex', 'dist/katex.min.css');
+const KATEX_FONTS = resolvePkgFile('katex', 'dist/fonts');
 // node-pty is an OPTIONAL native dep: if its prebuilt binary isn't available for
 // this platform/Node, the rest of the dashboard still works — only live terminals
 // are disabled. Probe once so the client (features.agentTerminal) hides terminal
@@ -1072,6 +1078,23 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         serveStaticFile(res, XTERM_CSS, 'text/css');
       } else if (req.method === 'GET' && url.pathname === '/vendor/addon-fit.js') {
         serveStaticFile(res, FIT_JS, 'text/javascript');
+      } else if (req.method === 'GET' && url.pathname === '/vendor/katex.js') {
+        serveStaticFile(res, KATEX_JS, 'text/javascript');
+      } else if (req.method === 'GET' && url.pathname === '/vendor/katex-auto.js') {
+        serveStaticFile(res, KATEX_AUTO, 'text/javascript');
+      } else if (req.method === 'GET' && url.pathname === '/vendor/katex.css') {
+        serveStaticFile(res, KATEX_CSS, 'text/css');
+      } else if (req.method === 'GET' && url.pathname.startsWith('/vendor/fonts/')) {
+        // KaTeX webfonts (katex.min.css references url(fonts/…) relative to itself).
+        const name = url.pathname.slice('/vendor/fonts/'.length);
+        if (!KATEX_FONTS || !/^[A-Za-z0-9_.-]+$/.test(name)) { res.writeHead(404).end(); return; }
+        const ext = path.extname(name);
+        const mime = ext === '.woff2' ? 'font/woff2' : ext === '.woff' ? 'font/woff' : ext === '.ttf' ? 'font/ttf' : '';
+        if (!mime) { res.writeHead(404).end(); return; }
+        const f = path.join(KATEX_FONTS, name);
+        if (!fs.existsSync(f)) { res.writeHead(404).end(); return; }
+        res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'max-age=86400' });
+        fs.createReadStream(f).pipe(res);
       } else if (req.method === 'GET' && url.pathname === '/favicon.svg') {
         // branded favicon so the tab stands out: accent-orange tile + the ⌃ Ctrl caret
         res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' });

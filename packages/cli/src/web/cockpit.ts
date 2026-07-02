@@ -116,6 +116,77 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
 
+// ── math in previews (KaTeX, lazy) ───────────────────────────
+// Papers are drafted in the notepad, so $x_i$ / $$…$$ must render. KaTeX is
+// vendored server-side and loaded ONLY when a preview actually contains math.
+// Markdown eats math syntax ($x_i * y_i$ → italics), so math segments are
+// swapped for private-use placeholders before marked runs, then restored into
+// the rendered DOM as plain text (TreeWalker — escaping stays automatic) and
+// typeset with auto-render.
+const MATH_L = '', MATH_R = '';
+let katexReady: Promise<boolean> | null = null;
+function ensureKatex(): Promise<boolean> {
+  if ((window as any).renderMathInElement) return Promise.resolve(true);
+  if (!katexReady) {
+    katexReady = new Promise((resolve) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = '/vendor/katex.css';
+      document.head.appendChild(css);
+      const s1 = document.createElement('script');
+      s1.src = '/vendor/katex.js';
+      s1.onload = () => {
+        const s2 = document.createElement('script');
+        s2.src = '/vendor/katex-auto.js';
+        s2.onload = () => resolve(!!(window as any).renderMathInElement);
+        s2.onerror = () => resolve(false);
+        document.head.appendChild(s2);
+      };
+      s1.onerror = () => resolve(false);
+      document.head.appendChild(s1);
+    });
+  }
+  return katexReady;
+}
+/** Replace math segments with placeholders (skipping code spans/fences). */
+function protectMath(src: string): { text: string; chunks: string[] } {
+  const chunks: string[] = [];
+  const parts = src.split(/(```[\s\S]*?```|`[^`\n]*`)/);
+  const text = parts.map((part, i) => {
+    if (i % 2 === 1) return part; // inside code — leave untouched
+    return part
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => { chunks.push('$$' + m + '$$'); return MATH_L + (chunks.length - 1) + MATH_R; })
+      .replace(/\$([^$\n]+?)\$/g, (_, m) => { chunks.push('$' + m + '$'); return MATH_L + (chunks.length - 1) + MATH_R; });
+  }).join('');
+  return { text, chunks };
+}
+/** Restore placeholders inside the rendered DOM, then typeset. */
+function typesetMath(el: HTMLElement, chunks: string[]): void {
+  if (!chunks.length) return;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const hits: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if ((n as Text).data.includes(MATH_L)) hits.push(n as Text);
+  }
+  const re = new RegExp(MATH_L + '(\\d+)' + MATH_R, 'g');
+  for (const t of hits) t.data = t.data.replace(re, (_, i) => chunks[Number(i)] ?? '');
+  ensureKatex().then((ok) => {
+    if (!ok) return;
+    try {
+      (window as any).renderMathInElement(el, {
+        delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
+        throwOnError: false,
+      });
+    } catch { /* leave the raw $…$ text */ }
+  });
+}
+/** marked + math: the drop-in replacement for `el.innerHTML = marked.parse(src)`. */
+export function renderMarkdownWithMath(el: HTMLElement, src: string, parse: (s: string) => string): void {
+  if (!/\$[^\s$]/.test(src)) { el.innerHTML = parse(src); return; } // no math — zero overhead
+  const { text, chunks } = protectMath(src);
+  el.innerHTML = parse(text);
+  typesetMath(el, chunks);
+}
+
 // ── context-window meter ─────────────────────────────────────
 // Per-tile "how full is this conversation's context" gauge (the thing Claude Code
 // itself shows). The size is the last assistant turn's prompt tokens
@@ -432,7 +503,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
   let notePoll: ReturnType<typeof setInterval> | null = null;
   let noteSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const noteRenderPreview = () => { try { notePreview.innerHTML = marked.parse(noteContent) as string; } catch { notePreview.textContent = noteContent; } };
+  const noteRenderPreview = () => { try { renderMarkdownWithMath(notePreview, noteContent, (s) => marked.parse(s) as string); } catch { notePreview.textContent = noteContent; } };
 
   // ── read-aloud karaoke view ───────────────────────────────
   // While reading, the preview pane shows the SPOKEN text with every word in a
@@ -559,7 +630,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // Read the note aloud (selection if any, else the whole thing) via the browser's
   // Web Speech API — no server, no key. Toggles off. (Ported from the doc tile;
   // the docked notepad is now the single notepad system.)
-  const noteStripMd = (s: string) => s.replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const noteStripMd = (s: string) => s
+    .replace(/\$\$[\s\S]+?\$\$/g, ' (equation) ')   // don't read LaTeX soup aloud
+    .replace(/\$[^$\n]+?\$/g, ' (math) ')
+    .replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
   const noteReadBtn = el.querySelector('[data-note="read"]') as HTMLButtonElement;
   const setNoteSpeaking = (on: boolean) => {
     noteReadBtn.innerHTML = on ? '&#9209;' : '&#128266;'; // ⏹ stop / 🔊 speaker
@@ -833,7 +907,7 @@ function createDocTile(meta: CockpitTile): LiveTile {
   // tiles (e.g. a project .md from the Files tab) open in preview.
   let content = '', mtime = 0, mode: 'preview' | 'edit' = meta.scratch ? 'edit' : 'preview', dirty = false;
   let reading = false; // karaoke read-aloud view is up
-  const renderPreview = () => { try { previewEl.innerHTML = marked.parse(content) as string; } catch { previewEl.textContent = content; } };
+  const renderPreview = () => { try { renderMarkdownWithMath(previewEl, content, (s) => marked.parse(s) as string); } catch { previewEl.textContent = content; } };
 
   const load = async () => {
     if (reading) return; // don't re-render the doc while the karaoke view is up
