@@ -718,7 +718,16 @@ async function bootWidget(): Promise<void> {
   // One overview fetch for features (reveal/vscode buttons) — persistence is
   // disabled so setData can't clobber anything; renderApp isn't subscribed.
   try { setData(await fetchOverview()); } catch { /* tile still works without */ }
-  mountTileStandalone({ id: 'resume:' + session, kind: 'resume', sessionId: session, projectPath, title }, root);
+  const t = mountTileStandalone({ id: 'resume:' + session, kind: 'resume', sessionId: session, projectPath, title }, root);
+  // Slim poll: the main window feeds the context-window meter via syncCockpit's
+  // 3s render loop, which the widget doesn't run — poll just the session row and
+  // push it into the tile directly (a failed tick only leaves the meter stale).
+  const applyUsage = (d: ReturnType<typeof getState>['data']) => {
+    const s = d?.sessions.find((x) => x.id === session);
+    t.setContext?.(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
+  };
+  applyUsage(getState().data);
+  setInterval(async () => { try { setData(await fetchOverview()); applyUsage(getState().data); } catch { /* offline tick */ } }, 5000);
 }
 
 if (WIDGET) {
