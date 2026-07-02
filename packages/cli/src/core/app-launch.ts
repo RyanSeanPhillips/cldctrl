@@ -167,7 +167,9 @@ export async function launchDashboardApp(opts: { port?: number; browser?: 'chrom
     const here = fileURLToPath(new URL('./index.js', import.meta.url));
     if (fs.existsSync(here)) entry = here;
   } catch { /* fall back to argv[1] */ }
-  const childArgs = [entry, 'serve', '--app', '--port', String(port)];
+  // --idle-exit: this background server drains itself ~15 min after the last
+  // window closes and the last PTY dies, instead of running forever.
+  const childArgs = [entry, 'serve', '--app', '--idle-exit', '--port', String(port)];
   if (opts.browser) childArgs.push('--browser', opts.browser);
   try {
     spawn(process.execPath, childArgs, { detached: true, stdio: 'ignore', windowsHide: true }).unref();

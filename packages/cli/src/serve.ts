@@ -881,6 +881,16 @@ function killTerm(id: string): void {
   try { s.term.kill(); } catch { /* ignore */ }
 }
 
+/** Kill every live PTY. Called on graceful shutdown so agent processes don't
+ *  outlive the server as orphans (node-pty conpty children are NOT reliably
+ *  killed when this process dies externally — this covers the paths we control:
+ *  Ctrl+C, SIGTERM, and idle-exit). */
+function shutdownTerminals(reason: string): void {
+  if (!terminals.size) return;
+  log('serve_term', { event: 'shutdown_sweep', reason, count: terminals.size });
+  for (const id of [...terminals.keys()]) killTerm(id);
+}
+
 /** Attach a browser WebSocket to the (lazily-spawned) terminal `id`. */
 function attachTerm(ws: any, id: string, meta: TermMeta): void {
   let session = terminals.get(id);
@@ -1000,7 +1010,12 @@ function setupAgentTerminal(server: http.Server): boolean {
 
 // ── Server ───────────────────────────────────────────────────
 
-export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean; appMode?: boolean; sharedProfile?: boolean; browser?: 'chrome' | 'edge' } = {}): void {
+// Last time a local client touched us (HTTP request from a dashboard window —
+// open windows poll /api/overview every 3s, so this stays fresh while any window
+// exists). Drives idle-exit for background-spawned servers.
+let lastHttpActivity = Date.now();
+
+export function startServeServer(port: number, opts: { open?: boolean; demo?: boolean; appMode?: boolean; sharedProfile?: boolean; browser?: 'chrome' | 'edge'; idleExit?: boolean } = {}): void {
   initLogger();
   DEMO = !!opts.demo;
   // Scrubbed crash telemetry (default ON, opt-out). Browser surface.
@@ -1017,6 +1032,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         sendJson(res, 403, { error: 'Forbidden' });
         return;
       }
+      lastHttpActivity = Date.now(); // a real local client — resets the idle-exit clock
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
 
@@ -1281,6 +1297,35 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
     commitNotesSoon();
     const notesSnap = setInterval(() => commitNotesSoon(), 90_000);
     notesSnap.unref?.();
+  }
+
+  // Graceful shutdown: kill live PTYs so agent processes don't outlive us as
+  // orphans, then exit. Covers Ctrl+C (foreground `cc serve`) and SIGTERM;
+  // nothing can run on an external force-kill (Stop-Process) — that path is
+  // mitigated by idle-exit draining the server when it's no longer used.
+  const shutdown = (sig: string) => {
+    shutdownTerminals(sig);
+    try { server.close(); } catch { /* ignore */ }
+    setTimeout(() => process.exit(0), 250).unref?.();
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // Idle-exit (opt-in — the DETACHED background server that bare `cc` spawns):
+  // once every window is closed (no HTTP polls) and every PTY has drained (the
+  // 10-min clientless kill), exit so cldctrl doesn't run forever in the
+  // background. The next `cc` just starts fresh. Explicit `cc serve` (foreground,
+  // possibly kept up on purpose) never idle-exits.
+  const IDLE_EXIT_MS = Number(process.env.CLDCTRL_IDLE_EXIT_MS) || 15 * 60_000; // env override for tests
+  if (opts.idleExit) {
+    const idleTick = setInterval(() => {
+      if (terminals.size === 0 && Date.now() - lastHttpActivity > IDLE_EXIT_MS) {
+        log('serve', { event: 'idle_exit', idleMinutes: Math.round((Date.now() - lastHttpActivity) / 60000) });
+        clearInterval(idleTick);
+        shutdown('idle');
+      }
+    }, Math.min(60_000, Math.max(1000, Math.floor(IDLE_EXIT_MS / 3))));
+    idleTick.unref?.();
   }
 
   // Localhost ONLY — transcripts, terminal, and launch must not reach the network.

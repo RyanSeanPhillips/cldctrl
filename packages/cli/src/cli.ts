@@ -706,9 +706,10 @@ export function createCli(): Command {
     .option('--shared-profile', 'App mode: reuse your main browser profile (extensions/logins) instead of an isolated one')
     .option('--browser <name>', 'App mode: which browser to use — chrome (default) or edge')
     .option('--demo', 'Serve synthetic demo data (well-known OSS repos) instead of your real projects')
+    .option('--idle-exit', 'Exit once no windows/terminals have been active for ~15 min (used by the background server bare `cc` spawns)')
     .action(async (opts) => {
       const { startServeServer } = await import('./serve.js');
-      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile, browser: opts.browser === 'edge' ? 'edge' : 'chrome', demo: !!opts.demo });
+      startServeServer(parseInt(opts.port, 10) || 2533, { open: !!opts.open, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile, browser: opts.browser === 'edge' ? 'edge' : 'chrome', demo: !!opts.demo, idleExit: !!opts.idleExit });
     });
 
   // ── web (serve + open browser) ───────────────────────────
