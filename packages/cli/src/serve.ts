@@ -973,6 +973,14 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'new') {
           const id = url.searchParams.get('id') ?? '';
           if (!/^new:.{1,400}$/.test(id)) { socket.destroy(); return; }
+          // Reattach fallback: a popped-out/docked-back 'new' tile reconnecting
+          // AFTER its PTY idle-died — the terminal is gone but the session it
+          // created is known, so RESUME that instead of spawning a fresh agent.
+          const fb = url.searchParams.get('session') ?? '';
+          if (!terminals.has(id) && fb && SAFE_SESSION_ID.test(fb)) {
+            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: proj.path }));
+            return;
+          }
           const agent = url.searchParams.get('agent') ?? 'claude';
           let cwd = proj.path;
           if (url.searchParams.get('worktree') === '1') {
@@ -1189,13 +1197,24 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         // Pop a conversation tile out into its own chromeless app window. The
         // widget URL is built SERVER-side from validated fields only — the client
         // never gets to launch an arbitrary URL through the browser spawn.
+        // kind 'resume' needs a session; kind 'new' needs its terminal id (the
+        // widget attaches to the same live 'new:<id>' PTY) + optionally the
+        // discovered session as a reattach fallback.
         const body = await readJsonBody(req);
+        const kind = body.kind === 'new' ? 'new' : 'resume';
         const session = typeof body.session === 'string' ? body.session : '';
+        const tileId = typeof body.id === 'string' ? body.id : '';
+        const agent = typeof body.agent === 'string' && /^[a-z0-9-]{1,20}$/i.test(body.agent) ? body.agent : '';
         const proj = resolveKnownProject(typeof body.path === 'string' ? body.path : '');
-        if (!SAFE_SESSION_ID.test(session) || !proj) { sendJson(res, 400, { error: 'Unknown session or project' }); return; }
+        const sessionOk = kind === 'resume' ? SAFE_SESSION_ID.test(session) : (!session || SAFE_SESSION_ID.test(session));
+        const idOk = kind === 'resume' || /^new:.{1,400}$/.test(tileId);
+        if (!proj || !sessionOk || !idOk) { sendJson(res, 400, { error: 'Unknown session or project' }); return; }
         const title = (typeof body.title === 'string' ? body.title : '').slice(0, 120);
-        const widgetUrl = `http://127.0.0.1:${dashboardPort}/?widget=1&kind=resume`
-          + `&session=${encodeURIComponent(session)}&path=${encodeURIComponent(proj.path)}&title=${encodeURIComponent(title)}`;
+        const params = new URLSearchParams({ widget: '1', kind, path: proj.path, title });
+        if (session) params.set('session', session);
+        if (kind === 'new') params.set('id', tileId);
+        if (agent) params.set('agent', agent);
+        const widgetUrl = `http://127.0.0.1:${dashboardPort}/?` + params.toString();
         try {
           const { launchAppWindow } = await import('./core/app-launch.js');
           if (launchAppWindow(widgetUrl)) {

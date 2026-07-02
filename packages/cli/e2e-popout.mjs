@@ -8,9 +8,13 @@ const srv = spawn(process.execPath, ['dist/index.js', 'serve', '--demo', '--port
 await new Promise((r) => setTimeout(r, 2000));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME });
+// ONE shared context: real app windows share the app-profile localStorage, and the
+// dock-back bridge rides on cross-window storage events. (browser.newPage() would
+// give each page an ISOLATED context — no shared storage, bridge silently dead.)
+const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 }, deviceScaleFactor: 2 });
 const errors = [];
 const mkPage = async () => {
-  const p = await browser.newPage({ viewport: { width: 1100, height: 720 }, deviceScaleFactor: 2 });
+  const p = await ctx.newPage();
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   p.on('pageerror', (e) => errors.push(String(e)));
   return p;
@@ -42,6 +46,18 @@ const widget = {
 };
 console.log('widget:', JSON.stringify(widget, null, 1));
 await w.screenshot({ path: 'C:/Users/rphil2/Dropbox/CLDCTRL/e2e-popout-widget.png' });
+
+// 3) Dock-back bridge: widget's dock button → main window adopts the tile.
+//    (Same browser context = shared localStorage; storage events cross windows.)
+const dockBtnVisible = await w.$eval('[data-act="tile-dock"]', (b) => getComputedStyle(b).display !== 'none').catch(() => false);
+await page.evaluate(() => { // clear any tile with this id first
+  localStorage.removeItem('cldctrl.dock.v1'); localStorage.removeItem('cldctrl.dock.ack.v1');
+});
+await w.click('[data-act="tile-dock"]');
+await page.waitForTimeout(700);
+const docked = await page.$$eval('.tile', (els) => els.map((e) => e.dataset.id));
+const acked = await page.evaluate(() => localStorage.getItem('cldctrl.dock.ack.v1'));
+console.log('dock:', JSON.stringify({ dockBtnVisible, mainTiles: docked, acked: !!acked }));
 
 console.log('console errors:', errors.length ? errors.slice(0, 5) : 'none');
 await browser.close();

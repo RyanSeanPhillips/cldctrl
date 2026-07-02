@@ -802,7 +802,10 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 .widget-root { position: fixed; inset: 0; display: flex; background: var(--bg); }
 .widget-root .tile { flex: 1; border: none; border-radius: 0; box-shadow: none; }
 /* maximize/pop-out/drag make no sense in a window that IS the tile, and the OS
-   titlebar already provides close — hide ours so the strip reads as chrome. */
+   titlebar already provides close — hide ours so the strip reads as chrome. The
+   dock-back button is the inverse: widget-only. */
+[data-act="tile-dock"] { display: none; }
+body.widget-mode [data-act="tile-dock"] { display: inline-flex; }
 body.widget-mode [data-act="tile-max"],
 body.widget-mode [data-act="tile-popout"],
 body.widget-mode [data-act="tile-close"],

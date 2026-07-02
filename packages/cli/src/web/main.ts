@@ -346,10 +346,12 @@ document.addEventListener('click', async (ev) => {
   const ui = getState().ui;
 
   // Widget window: close means close the WINDOW (the PTY lives server-side);
-  // maximize/pop-out are hidden by CSS but guard anyway. All other tile actions
-  // (notepad, restart, screenshot, read-aloud, reveal) fall through unchanged.
+  // dock hands the conversation back to the main window; maximize/pop-out are
+  // hidden by CSS but guard anyway. All other tile actions (notepad, restart,
+  // screenshot, read-aloud, reveal) fall through unchanged.
   if (WIDGET) {
     if (act === 'tile-close') { window.close(); return; }
+    if (act === 'tile-dock') { requestDockBack(); return; }
     if (act === 'tile-max' || act === 'tile-popout') return;
   }
 
@@ -423,14 +425,18 @@ document.addEventListener('click', async (ev) => {
     // attaches to the same server PTY (10-min idle grace, replay on attach).
     const id = el.dataset.id!;
     const t = getState().ui.cockpit.tiles.find((x) => x.id === id);
-    if (!t || t.kind !== 'resume' || !t.sessionId) return;
+    if (!t || (t.kind !== 'resume' && t.kind !== 'new')) return;
+    // 'new' tiles pop out by their own terminal key; the discovered session rides
+    // along as the reattach fallback + usage-meter id.
+    const session = t.kind === 'new' ? getState().data?.terminalSessions?.[id] : t.sessionId;
+    if (!session) { toast('One moment — this session is still initializing'); return; }
     el.setAttribute('disabled', '1'); // no double-launch on double-click
-    const r = await postPopout({ session: t.sessionId, path: t.projectPath, title: t.title });
+    const r = await postPopout({ kind: t.kind, id: t.id, session, path: t.projectPath, title: t.title, agent: t.agent });
     const opened = r.ok || (r.fallback && r.url && window.open(r.url, '_blank', 'popup,width=980,height=720') != null);
     if (opened) {
       const cp = getState().ui.cockpit;
       setCockpit({ tiles: cp.tiles.filter((x) => x.id !== id), open: true, maximized: cp.maximized === id ? null : cp.maximized });
-      toast('Popped out — click it in the sidebar to dock it back');
+      toast('Popped out — dock it back with the tile’s ⇘ button (or the sidebar)');
     } else {
       el.removeAttribute('disabled');
       toast('✗ Pop-out failed' + (r.error ? ': ' + r.error : ''));
@@ -698,6 +704,61 @@ function restoreSession(): void {
   }
 }
 
+// ── dock-back bridge (widget → main window) ──────────────────
+// Both windows share the app profile's localStorage (same origin), and 'storage'
+// events fire in every OTHER window on a write — so the widget can hand its
+// conversation to the main window without any server round-trip. Request/ack
+// keys carry a timestamp so stale requests are ignored.
+const DOCK_KEY = 'cldctrl.dock.v1';
+const DOCK_ACK = 'cldctrl.dock.ack.v1';
+let widgetTile: CockpitTile | null = null; // set by bootWidget
+
+function requestDockBack(): void {
+  if (!widgetTile) return;
+  const req = { ts: Date.now(), tile: widgetTile };
+  let done = false;
+  const onAck = (e: StorageEvent) => {
+    try {
+      if (e.key === DOCK_ACK && e.newValue && JSON.parse(e.newValue).ts === req.ts) {
+        done = true;
+        window.removeEventListener('storage', onAck);
+        window.close();
+      }
+    } catch { /* malformed ack */ }
+  };
+  window.addEventListener('storage', onAck);
+  try { localStorage.setItem(DOCK_KEY, JSON.stringify(req)); } catch { /* quota */ }
+  setTimeout(() => {
+    if (!done) { window.removeEventListener('storage', onAck); toast('Main window not open — keeping the conversation here'); }
+  }, 900);
+}
+
+// Main-window side: adopt a docked-back conversation. The PTY keeps running
+// throughout — the new grid tile just attaches to it (replay included).
+if (!WIDGET) {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== DOCK_KEY || !e.newValue) return;
+    try {
+      const req = JSON.parse(e.newValue) as { ts: number; tile: CockpitTile };
+      if (!req?.tile || Date.now() - req.ts > 5000) return; // stale request
+      const t = req.tile;
+      if (t.kind === 'resume' && t.sessionId) {
+        addResumeTile(t.sessionId, t.projectPath, t.title, true);
+      } else if (t.kind === 'new' && t.id) {
+        const cp = getState().ui.cockpit;
+        if (!cp.tiles.some((x) => x.id === t.id)) {
+          setCockpit({
+            tiles: [...cp.tiles, { id: t.id, kind: 'new', projectPath: t.projectPath, title: t.title, agent: t.agent, sessionId: t.sessionId }],
+            open: true, maximized: null,
+          });
+        }
+        setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
+      } else return;
+      localStorage.setItem(DOCK_ACK, JSON.stringify({ ts: req.ts }));
+    } catch { /* malformed request */ }
+  });
+}
+
 // ── widget boot (?widget=1 pop-out window) ───────────────────
 /** Mount ONE conversation tile full-window. No router, no 3s poll, no layout
  *  persistence — this window is a viewer onto an existing server PTY. The tile
@@ -708,9 +769,15 @@ async function bootWidget(): Promise<void> {
   initTheme();
   document.body.classList.add('widget-mode');
   const q = new URLSearchParams(location.search);
+  const kind = q.get('kind') === 'new' ? 'new' as const : 'resume' as const;
   const session = q.get('session') ?? '';
   const projectPath = q.get('path') ?? '';
   const title = q.get('title') || projectPath.split(/[/\\]/).pop() || 'conversation';
+  // 'new' widgets attach by their original terminal key (same live PTY); resume
+  // widgets by session. Both carry sessionId for the usage meter + reattach fallback.
+  const id = kind === 'new' ? (q.get('id') ?? '') : 'resume:' + session;
+  const agent = q.get('agent') || undefined;
+  widgetTile = { id, kind, sessionId: session || undefined, projectPath, title, agent };
   document.title = title + ' — CLD CTRL';
   const root = document.createElement('div');
   root.className = 'widget-root';
@@ -718,13 +785,15 @@ async function bootWidget(): Promise<void> {
   // One overview fetch for features (reveal/vscode buttons) — persistence is
   // disabled so setData can't clobber anything; renderApp isn't subscribed.
   try { setData(await fetchOverview()); } catch { /* tile still works without */ }
-  const t = mountTileStandalone({ id: 'resume:' + session, kind: 'resume', sessionId: session, projectPath, title }, root);
+  const t = mountTileStandalone(widgetTile, root);
   // Slim poll: the main window feeds the context-window meter via syncCockpit's
   // 3s render loop, which the widget doesn't run — poll just the session row and
   // push it into the tile directly (a failed tick only leaves the meter stale).
   const applyUsage = (d: ReturnType<typeof getState>['data']) => {
-    const s = d?.sessions.find((x) => x.id === session);
+    const sid = session || (d?.terminalSessions ?? {})[id];
+    const s = sid ? d?.sessions.find((x) => x.id === sid) : undefined;
     t.setContext?.(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
+    t.setReadSession?.(sid ?? null);
   };
   applyUsage(getState().data);
   setInterval(async () => { try { setData(await fetchOverview()); applyUsage(getState().data); } catch { /* offline tick */ } }, 5000);

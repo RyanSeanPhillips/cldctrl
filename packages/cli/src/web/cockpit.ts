@@ -157,6 +157,10 @@ function wsUrl(t: CockpitTile): string {
     if (t.agent) u += '&agent=' + encodeURIComponent(t.agent);
     if (t.worktree) u += '&worktree=1&branch=' + encodeURIComponent(t.branch ?? '');
     if (t.prompt) u += '&prompt=' + encodeURIComponent(t.prompt);
+    // Discovered session as a reattach fallback: if the 'new:<id>' PTY has been
+    // idle-killed (e.g. a popped-out widget reloading later), the server resumes
+    // the session instead of spawning a fresh, unrelated agent.
+    if (t.sessionId) u += '&session=' + encodeURIComponent(t.sessionId);
     return u;
   }
   return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '');
@@ -187,14 +191,19 @@ function createTermTile(meta: CockpitTile): LiveTile {
     : '<span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>';
   const noteBtn = isControl ? '' :
     `<button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>`;
-  // Pop out into its own chromeless window. RESUME tiles only: they have a stable
-  // sessionId, so the widget attaches to the same 'resume:<id>' PTY (and can even
-  // safely respawn it after an idle-kill). 'new' tiles can't pop out yet — before
-  // session discovery there's nothing stable to reattach to, and popping the
-  // discovered id as a resume would double-spawn against the still-live 'new' PTY.
-  const popBtn = meta.kind === 'resume'
-    ? `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window">${ICON_POPOUT}</button>`
-    : '';
+  // Pop out into its own chromeless window. Resume tiles always can (stable
+  // sessionId → the widget attaches to the same 'resume:<id>' PTY). 'new' tiles
+  // start HIDDEN and are revealed by syncCockpit once their sessionId is
+  // discovered — the widget then attaches by the SAME 'new:<id>' terminal key
+  // (never as a resume while that PTY lives — that would double-spawn), with the
+  // discovered session as a server-side reattach fallback after an idle-kill.
+  const popBtn = isControl ? '' :
+    `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window"${meta.kind === 'new' ? ' style="display:none"' : ''}>${ICON_POPOUT}</button>`;
+  // Dock a popped-out conversation BACK into the main window. Rendered always,
+  // shown only in widget mode (CSS) — the widget signals the main window over the
+  // shared-origin localStorage bridge and closes itself on ack.
+  const dockBtn = isControl ? '' :
+    `<button class="btn icon" data-act="tile-dock" data-id="${esc(meta.id)}" title="Dock back into the main window">${ICON_DOCK}</button>`;
   const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
   // Layout: the header belongs to the CONVERSATION pane (.tile-conv wraps head +
   // terminal). When the notepad opens, its own header sits BESIDE the conversation
@@ -218,6 +227,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
           <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
           <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
           ${popBtn}
+          ${dockBtn}
           <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
           <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
         </div>
@@ -875,6 +885,7 @@ function createTile(meta: CockpitTile): LiveTile {
 export const ICON_POPOUT = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V7"/><path d="M7.5 1.5h3v3"/><path d="M10.5 1.5 6 6"/></svg>';
 export const ICON_MAX = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4.5 1.5h-3v3M7.5 1.5h3v3M4.5 10.5h-3v-3M7.5 10.5h3v-3"/></svg>';
 export const ICON_RESTORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4.5h3v-3M10.5 4.5h-3v-3M1.5 7.5h3v3M10.5 7.5h-3v3"/></svg>';
+export const ICON_DOCK = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5h2.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V7"/><path d="M4.5 1.5h-3v3"/><path d="M1.5 1.5 6 6"/></svg>';
 
 function destroyTile(id: string): void {
   const t = tiles.get(id);
@@ -1021,6 +1032,12 @@ export function syncCockpit(): void {
       const s = sid ? byId.get(sid) : undefined;
       t.setContext(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
       t.setReadSession?.(sid ?? null); // reveal/bind the read-aloud button once the id is known
+      // 'new' tiles: reveal the pop-out button once the session is discovered
+      // (before that there's nothing stable for a widget window to reattach to).
+      if (meta.kind === 'new') {
+        const pb = t.el.querySelector('[data-act="tile-popout"]') as HTMLElement | null;
+        if (pb) pb.style.display = sid ? '' : 'none';
+      }
     }
   }
 
