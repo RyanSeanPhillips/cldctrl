@@ -663,6 +663,15 @@ body.sidebar-collapsed .restore-banner { left: 0; }
 .note-item .ni-ago { color: var(--text-faint); font-size: 10px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .note-edit { flex: 1; min-height: 0; resize: none; border: none; outline: none; background: transparent;
   color: var(--text); padding: var(--s2) var(--s3); font-size: 13.5px; line-height: 1.6; }
+/* read-aloud karaoke view: the preview pane shows the spoken text; the current
+   word lights up as speech progresses; a selection-read soft-highlights the
+   whole passage and dims everything around it */
+.note-preview.karaoke { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+.karaoke .ka-dim { opacity: 0.35; }
+.karaoke .ka-passage { background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border-radius: 3px; box-decoration-break: clone; }
+.karaoke .ka-w.on { background: var(--accent); color: #fff; border-radius: 3px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
 .note-edit::placeholder { color: var(--text-faint); }
 .note-preview { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s2) var(--s3); font-size: 13.5px; }
 /* narrow tiles: stack the notepad under the terminal instead of squeezing both */

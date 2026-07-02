@@ -433,7 +433,64 @@ function createTermTile(meta: CockpitTile): LiveTile {
   let noteSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   const noteRenderPreview = () => { try { notePreview.innerHTML = marked.parse(noteContent) as string; } catch { notePreview.textContent = noteContent; } };
+
+  // ── read-aloud karaoke view ───────────────────────────────
+  // While reading, the preview pane shows the SPOKEN text with every word in a
+  // span: utterance 'boundary' events (charIndex into the spoken string) light
+  // the current word; a selection-read additionally soft-highlights the whole
+  // passage (dimming the text around it). Display text === utterance text, so
+  // offsets map 1:1 — no stripped-vs-raw bookkeeping. Chrome only fires boundary
+  // events for LOCAL voices; without them the passage highlight still shows.
+  const ka = { active: false, prevMode: 'edit' as 'edit' | 'preview', spans: [] as HTMLElement[], cur: -1 };
+  const kaClear = () => {
+    if (!ka.active) return;
+    ka.active = false; ka.spans = []; ka.cur = -1;
+    notePreview.classList.remove('karaoke');
+  };
+  const kaStop = () => { const prev = ka.prevMode; if (!ka.active) return; kaClear(); noteSetMode(prev); };
+  const kaStart = (spoken: string, opts: { passage?: boolean; before?: string; after?: string } = {}) => {
+    ka.prevMode = noteMode;
+    ka.active = true; ka.cur = -1;
+    const frag = document.createDocumentFragment();
+    const dim = (s: string) => { const d = document.createElement('span'); d.className = 'ka-dim'; d.textContent = s; return d; };
+    if (opts.before) frag.appendChild(dim(opts.before));
+    const wrap = document.createElement('span');
+    if (opts.passage) wrap.className = 'ka-passage';
+    const spans: HTMLElement[] = [];
+    const re = /\S+/g; let last = 0; let m: RegExpExecArray | null;
+    while ((m = re.exec(spoken))) {
+      if (m.index > last) wrap.appendChild(document.createTextNode(spoken.slice(last, m.index)));
+      const w = document.createElement('span');
+      w.className = 'ka-w'; w.dataset.off = String(m.index); w.textContent = m[0];
+      wrap.appendChild(w); spans.push(w);
+      last = m.index + m[0].length;
+    }
+    if (last < spoken.length) wrap.appendChild(document.createTextNode(spoken.slice(last)));
+    frag.appendChild(wrap);
+    if (opts.after) frag.appendChild(dim(opts.after));
+    notePreview.replaceChildren(frag);
+    notePreview.classList.add('karaoke');
+    noteEdit.style.display = 'none'; notePreview.style.display = '';
+    ka.spans = spans;
+    // Selection-reads: bring the passage into view before speech starts.
+    if (opts.passage) wrap.scrollIntoView({ block: 'center' });
+  };
+  const kaMark = (charIndex: number) => {
+    const spans = ka.spans;
+    if (!ka.active || !spans.length) return;
+    // binary-search the last word starting at/before charIndex
+    let lo = 0, hi = spans.length - 1, best = 0;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (Number(spans[mid].dataset.off) <= charIndex) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+    if (best === ka.cur) return;
+    ka.spans[ka.cur]?.classList.remove('on');
+    spans[best].classList.add('on');
+    ka.cur = best;
+    spans[best].scrollIntoView({ block: 'nearest' });
+  };
+
   const noteSetMode = (m: 'edit' | 'preview') => {
+    // Switching modes while reading cancels the read (the karaoke view owns the pane).
+    if (ka.active) { try { window.speechSynthesis?.cancel(); } catch { /* ignore */ } setNoteSpeaking(false); kaClear(); }
     noteMode = m;
     noteEdit.style.display = m === 'edit' ? '' : 'none';
     notePreview.style.display = m === 'edit' ? 'none' : '';
@@ -446,7 +503,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (noteDirty) { if (r.mtime !== noteMtime) noteStatus.textContent = 'agent edited — Ctrl+S keeps yours'; return; } // don't clobber edits
     if (r.content === noteContent) return; // unchanged — don't reset the caret every poll
     noteContent = r.content; noteMtime = r.mtime; noteEdit.value = noteContent;
-    if (noteMode === 'preview') noteRenderPreview();
+    if (noteMode === 'preview' && !ka.active) noteRenderPreview(); // don't clobber the karaoke view mid-read
     noteStatus.textContent = '';
   };
   const noteSave = async () => {
@@ -513,16 +570,25 @@ function createTermTile(meta: CockpitTile): LiveTile {
     try {
       const synth = window.speechSynthesis;
       if (!synth) return;
-      if (synth.speaking || synth.pending) { synth.cancel(); setNoteSpeaking(false); return; } // toggle off
-      const sel = noteEdit.value.substring(noteEdit.selectionStart ?? 0, noteEdit.selectionEnd ?? 0);
-      const text = (sel.trim() || noteStripMd(noteEdit.value)).slice(0, 32000).trim();
-      if (!text) return;
+      if (synth.speaking || synth.pending) { synth.cancel(); setNoteSpeaking(false); kaStop(); return; } // toggle off
+      const raw = noteEdit.value;
+      const s0 = noteEdit.selectionStart ?? 0, s1 = noteEdit.selectionEnd ?? 0;
+      const isSel = s1 > s0 && !!raw.substring(s0, s1).trim();
+      // Display text must EQUAL the utterance text (boundary charIndex maps 1:1),
+      // so don't trim — leading whitespace just speaks as nothing.
+      const spoken = (isSel ? raw.substring(s0, s1) : noteStripMd(raw)).slice(0, 32000);
+      if (!spoken.trim()) return;
       setNoteSpeaking(true);
-      const u = new SpeechSynthesisUtterance(text);
-      u.onend = () => setNoteSpeaking(false);
-      u.onerror = () => setNoteSpeaking(false);
+      // Karaoke view: selection-reads keep the surrounding text (dimmed) with the
+      // passage soft-highlighted; whole-note reads show the stripped text.
+      if (isSel) kaStart(spoken, { passage: true, before: raw.slice(0, s0), after: raw.slice(s0 + spoken.length) });
+      else kaStart(spoken);
+      const u = new SpeechSynthesisUtterance(spoken);
+      u.onboundary = (e) => kaMark(e.charIndex ?? 0);
+      u.onend = () => { setNoteSpeaking(false); kaStop(); };
+      u.onerror = () => { setNoteSpeaking(false); kaStop(); };
       synth.speak(u);
-    } catch { setNoteSpeaking(false); }
+    } catch { setNoteSpeaking(false); kaStop(); }
   };
   noteReadBtn.addEventListener('click', noteReadAloud);
 
