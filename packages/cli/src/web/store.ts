@@ -24,6 +24,7 @@ export interface CockpitTile {
   noteOpen?: boolean;         // term tiles: the docked notepad panel is open (persists with the conversation)
   notePath?: string;          // term tiles: resolved docked-notepad file — persisted so resume reopens the SAME draft (not a fresh empty one)
   noteAnnounced?: boolean;    // term tiles: the one-time "a notepad is linked" notice has been sent to the agent
+  handoffFrom?: { sessionId: string; vendor: string }; // this tile continues another conversation's work (backlink)
   discoveredSessionId?: string; // 'new' tiles: the sessionId claude created → resume it (not re-spawn) on restore
 }
 

@@ -105,6 +105,19 @@ export async function postReveal(path: string, target: 'explorer' | 'code'): Pro
   return r.json();
 }
 
+/** Build a handoff brief from a conversation's on-disk state (transcript tail,
+ *  touched files, git status, notepad) so its work can continue on another agent
+ *  — works even when the original agent is dead. Returns the brief + resolved
+ *  project so the caller can open a new sibling tile prefilled with it. */
+export async function postHandoffBrief(session: string): Promise<{ ok?: boolean; sessionId?: string; projectPath?: string; project?: string; vendor?: string; brief?: string; error?: string }> {
+  const r = await fetch('/api/handoff-brief', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ session }),
+  });
+  return r.json();
+}
+
 /** Convert a markdown note to LaTeX server-side (pandoc). pandocMissing:true
  *  means the machine has no pandoc — the caller falls back to asking the
  *  conversation's agent to write the .tex instead. */

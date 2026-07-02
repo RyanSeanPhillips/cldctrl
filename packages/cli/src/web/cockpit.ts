@@ -275,6 +275,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // shared-origin localStorage bridge and closes itself on ack.
   const dockBtn = isControl ? '' :
     `<button class="btn icon" data-act="tile-dock" data-id="${esc(meta.id)}" title="Dock back into the main window">${ICON_DOCK}</button>`;
+  // Hand off this conversation's work to another agent (Codex/Antigravity) — e.g.
+  // when a provider runs low on tokens. Needs a stable sessionId (resume tiles
+  // have one; 'new' tiles reveal it after discovery, like popout).
+  const handoffBtn = isControl ? '' :
+    `<button class="btn icon" data-act="tile-handoff" data-id="${esc(meta.id)}" title="Hand off this conversation to another agent"${meta.kind === 'new' ? ' style="display:none"' : ''}>${ICON_HANDOFF}</button>`;
   const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
   // Layout: the header belongs to the CONVERSATION pane (.tile-conv wraps head +
   // terminal). When the notepad opens, its own header sits BESIDE the conversation
@@ -297,6 +302,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
           ${locBtns}
           <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
           <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
+          ${handoffBtn}
           ${popBtn}
           ${dockBtn}
           <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
@@ -1098,6 +1104,13 @@ export const ICON_POPOUT = '<svg width="11" height="11" viewBox="0 0 12 12" fill
 export const ICON_MAX = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4.5 1.5h-3v3M7.5 1.5h3v3M4.5 10.5h-3v-3M7.5 10.5h3v-3"/></svg>';
 export const ICON_RESTORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4.5h3v-3M10.5 4.5h-3v-3M1.5 7.5h3v3M10.5 7.5h-3v3"/></svg>';
 export const ICON_DOCK = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5h2.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V7"/><path d="M4.5 1.5h-3v3"/><path d="M1.5 1.5 6 6"/></svg>';
+export const ICON_HANDOFF = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M6 1.5 8.5 4 6 6.5"/><path d="M10 8H4M6 10.5 3.5 8 6 5.5"/></svg>';
+
+// A new tile can arrive with a pending brief to prefill (agent handoff): the tile
+// isn't mounted when the handoff is triggered, so the brief waits here and is
+// dropped into the compose box the moment syncCockpit mounts the tile.
+const pendingPrefills = new Map<string, string>();
+export function queueTilePrefill(id: string, text: string): void { pendingPrefills.set(id, text); }
 
 function destroyTile(id: string): void {
   const t = tiles.get(id);
@@ -1206,7 +1219,13 @@ export function syncCockpit(): void {
   const hidden = new Set(cp.hiddenProjects);
   for (const meta of cp.tiles) {
     let t = tiles.get(meta.id);
-    if (!t) { t = createTile(meta); tiles.set(meta.id, t); grid.appendChild(t.el); }
+    if (!t) {
+      t = createTile(meta); tiles.set(meta.id, t); grid.appendChild(t.el);
+      // Agent handoff: this tile launched with a pending brief → drop it into the
+      // compose box for review once the terminal + compose box exist.
+      const pend = pendingPrefills.get(meta.id);
+      if (pend) { pendingPrefills.delete(meta.id); const id = meta.id; setTimeout(() => { tiles.get(id)?.inject?.(pend, false); }, 150); }
+    }
     const maxed = cp.maximized === meta.id;
     t.el.classList.toggle('maxed', maxed);
     // Swap the maximize button to a "restore" affordance while this tile is full-bleed.
@@ -1261,6 +1280,8 @@ export function syncCockpit(): void {
       if (meta.kind === 'new') {
         const pb = t.el.querySelector('[data-act="tile-popout"]') as HTMLElement | null;
         if (pb) pb.style.display = sid ? '' : 'none';
+        const hb = t.el.querySelector('[data-act="tile-handoff"]') as HTMLElement | null;
+        if (hb) hb.style.display = sid ? '' : 'none';
       }
     }
   }

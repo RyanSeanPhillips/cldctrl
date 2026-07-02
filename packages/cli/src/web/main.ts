@@ -6,10 +6,10 @@ import type { CockpitTile } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, fetchNotes,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, postHandoffBrief, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
-import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone, queueTilePrefill } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
@@ -337,8 +337,58 @@ async function poll(): Promise<void> {
   await refreshTranscript();
 }
 
+// ── agent handoff ────────────────────────────────────────────
+function closeHandoffMenu(): void { document.getElementById('handoff-menu')?.remove(); }
+/** Show a small menu of the OTHER available agents anchored under the ⇄ button. */
+function openHandoffMenu(btn: HTMLElement): void {
+  closeHandoffMenu();
+  const id = btn.dataset.id!;
+  const tile = getState().ui.cockpit.tiles.find((t) => t.id === id);
+  if (!tile) return;
+  const session = tile.kind === 'new' ? getState().data?.terminalSessions?.[id] : tile.sessionId;
+  if (!session) { toast('One moment — this session is still initializing'); return; }
+  const curAgent = tile.kind === 'new' ? (tile.agent || 'claude') : 'claude';
+  const agents = (getState().data?.features.agents || []).filter((a) => a.available && a.id !== curAgent);
+  if (!agents.length) { toast('No other agents available to hand off to'); return; }
+  const menu = document.createElement('div');
+  menu.className = 'handoff-menu'; menu.id = 'handoff-menu';
+  const hd = document.createElement('div'); hd.className = 'handoff-menu-hd'; hd.textContent = 'Continue this work in…'; menu.appendChild(hd);
+  for (const a of agents) {
+    const b = document.createElement('button');
+    b.className = 'handoff-opt'; b.dataset.act = 'handoff-to';
+    b.dataset.session = session; b.dataset.path = tile.projectPath; b.dataset.vendor = curAgent;
+    b.dataset.agent = a.id; b.dataset.agentlabel = a.label; b.textContent = a.label;
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.left = Math.max(8, Math.min(r.right - 190, window.innerWidth - 200)) + 'px';
+}
+/** Build the on-disk brief and open a NEW sibling tile with the chosen agent,
+ *  prefilled with the brief (review + Send). The original tile is untouched. */
+async function startHandoff(session: string, projectPath: string, vendor: string, toAgent: string, agentLabel: string): Promise<void> {
+  toast('Preparing handoff brief…');
+  const r = await postHandoffBrief(session);
+  if (!r.ok || !r.brief) { toast('✗ ' + (r.error || 'could not build the handoff brief')); return; }
+  const proj = r.projectPath || projectPath;
+  const short = r.project || proj.split(/[/\\]/).pop() || proj;
+  const id = 'new:' + proj + ':' + Date.now();
+  const cp = getState().ui.cockpit;
+  setCockpit({
+    tiles: [...cp.tiles, { id, kind: 'new', projectPath: proj, title: short + ' · ' + agentLabel + ' (handoff)', agent: toAgent, handoffFrom: { sessionId: session, vendor } }],
+    open: true, maximized: null,
+  });
+  setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
+  queueTilePrefill(id, r.brief); // dropped into the new tile's compose box on mount
+  toast('Handoff → ' + agentLabel + ': review the brief in the new tile, then Send');
+}
+
 // ── event delegation ─────────────────────────────────────────
 document.addEventListener('click', async (ev) => {
+  // Close an open handoff menu on any outside click (option clicks are inside it).
+  const hm = document.getElementById('handoff-menu');
+  if (hm && !hm.contains(ev.target as Node) && !(ev.target as HTMLElement).closest('[data-act="tile-handoff"]')) closeHandoffMenu();
   // Click on a picker backdrop (but not its panel) closes it. Notes first — its
   // backdrop also carries cp-add-backdrop for styling, so check the specific class.
   if ((ev.target as HTMLElement).classList?.contains('notes-backdrop')) { setCockpit({ notesOpen: false }); return; }
@@ -422,6 +472,11 @@ document.addEventListener('click', async (ev) => {
     focusWaitingTile();
   } else if (act === 'tile-restart') {
     restartTile(el.dataset.id!);
+  } else if (act === 'tile-handoff') {
+    openHandoffMenu(el);
+  } else if (act === 'handoff-to') {
+    closeHandoffMenu();
+    void startHandoff(el.dataset.session!, el.dataset.path!, el.dataset.vendor || 'claude', el.dataset.agent!, el.dataset.agentlabel || el.dataset.agent!);
   } else if (act === 'tile-popout') {
     // Pop this conversation out into its own chromeless window. Launch FIRST,
     // remove the grid tile only once the window is confirmed — the widget then

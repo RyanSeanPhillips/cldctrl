@@ -1240,6 +1240,16 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const conv = url.searchParams.get('conversation') || undefined;
         const query = url.searchParams.get('q') || undefined;
         sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv, query }) });
+      } else if (req.method === 'POST' && url.pathname === '/api/handoff-brief') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        // Build a handoff brief from a session's on-disk state (no live agent) so
+        // the client can open a new sibling tile with another agent, prefilled.
+        const body = await readJsonBody(req);
+        const session = typeof body.session === 'string' ? body.session : '';
+        const { buildHandoffBrief } = await import('./core/handoff.js');
+        const r = await buildHandoffBrief(session);
+        if (r.ok) log('serve_handoff', { session });
+        sendJson(res, r.ok ? 200 : 400, r);
       } else if (req.method === 'POST' && url.pathname === '/api/latex-convert') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         // Markdown note → compilable LaTeX beside it, via pandoc. Restricted to
