@@ -105,6 +105,18 @@ export async function postReveal(path: string, target: 'explorer' | 'code'): Pro
   return r.json();
 }
 
+/** Convert a markdown note to LaTeX server-side (pandoc). pandocMissing:true
+ *  means the machine has no pandoc — the caller falls back to asking the
+ *  conversation's agent to write the .tex instead. */
+export async function postLatexConvert(path: string): Promise<{ ok?: boolean; texPath?: string; pandocMissing?: boolean; error?: string }> {
+  const r = await fetch('/api/latex-convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
+    body: JSON.stringify({ path }),
+  });
+  return r.json();
+}
+
 /** Pop a conversation out into its own chromeless app window. The server
  *  validates the tile, builds the widget URL, and opens it via launchAppWindow;
  *  with no Chromium available it replies { fallback, url } so the client can

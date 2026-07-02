@@ -1231,6 +1231,29 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const conv = url.searchParams.get('conversation') || undefined;
         const query = url.searchParams.get('q') || undefined;
         sendJson(res, 200, { ok: true, notes: listNotes({ project: proj, conversation: conv, query }) });
+      } else if (req.method === 'POST' && url.pathname === '/api/latex-convert') {
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        // Markdown note → compilable LaTeX beside it, via pandoc. Restricted to
+        // paths the dashboard may already read: scratch/notes files, or files
+        // inside a known project. pandocMissing → the client asks the agent.
+        const body = await readJsonBody(req);
+        const src = typeof body.path === 'string' ? body.path : '';
+        if (!src || !/\.(md|markdown|txt)$/i.test(src) || (!isScratchPath(src) && !resolveProjectForFile(src))) {
+          sendJson(res, 400, { error: 'Not a convertible note path' }); return;
+        }
+        if (!fs.existsSync(src)) { sendJson(res, 404, { error: 'Note not found' }); return; }
+        if (!isCommandAvailable('pandoc')) { sendJson(res, 200, { ok: false, pandocMissing: true }); return; }
+        const texOut = src.replace(/\.(md|markdown|txt)$/i, '') + '.tex';
+        try {
+          const r = spawn.sync('pandoc', [src, '-f', 'markdown', '-t', 'latex', '--standalone', '-o', texOut],
+            { stdio: 'ignore', timeout: 20_000 });
+          if (r.status === 0 && fs.existsSync(texOut)) {
+            log('serve_latex', { src: path.basename(src) });
+            sendJson(res, 200, { ok: true, texPath: texOut, engine: 'pandoc' });
+          } else {
+            sendJson(res, 200, { ok: false, error: `pandoc failed (exit ${r.status ?? 'signal'})` });
+          }
+        } catch (e) { sendJson(res, 200, { ok: false, error: String(e) }); }
       } else if (req.method === 'POST' && url.pathname === '/api/popout') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         // Pop a conversation tile out into its own chromeless app window. The

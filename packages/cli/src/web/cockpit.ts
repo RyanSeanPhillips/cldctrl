@@ -10,7 +10,7 @@ import { marked } from 'marked';
 import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './termtheme.js';
-import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, fetchNoteHistory, postRestoreNote, type NoteEntry, type NoteRevision } from './api.js';
+import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, fetchNoteHistory, postRestoreNote, postLatexConvert, type NoteEntry, type NoteRevision } from './api.js';
 import { registerFileLinks } from './termlinks.js';
 import { toast } from './toast.js';
 import { flagAttention } from './tabalert.js';
@@ -697,6 +697,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (!convNotes.length && !others.length) html += '<div class="note-menu-empty">No notes yet</div>';
     html += '<div class="note-menu-div"></div><button class="note-item act" data-act="new">&#65291; New note</button>';
     if (notePath) html += '<button class="note-item act" data-act="history">&#128338; History…</button>';
+    if (notePath) html += '<div class="note-menu-div"></div>'
+      + '<button class="note-item act" data-act="latex" title="Write a compilable .tex beside this note (pandoc, or the agent if pandoc isn\'t installed)">&#8674; Convert to LaTeX</button>'
+      + '<button class="note-item act" data-act="latex-copy" title="Convert (if needed) and copy the LaTeX body to the clipboard — paste into your existing Overleaf project">&#128203; Copy as LaTeX</button>'
+      + '<button class="note-item act" data-act="latex-integrate" title="Ask the agent to merge this draft into the project\'s .tex (matching its conventions) — e.g. an Overleaf project git-synced into this repo">&#10132; Merge into project LaTeX…</button>';
     if (scope !== 'all') html += '<button class="note-item act" data-act="all">&#128270; All notes…</button>';
     noteMenu.innerHTML = html;
   };
@@ -713,6 +717,60 @@ function createTermTile(meta: CockpitTile): LiveTile {
       : '<div class="note-menu-empty">No history yet (saves snapshot to git as you write)</div>';
     noteMenu.innerHTML = html;
   };
+  // ── LaTeX pipeline: draft in markdown → .tex → Overleaf ───
+  const texPathFor = (p: string) => p.replace(/\.(md|markdown|txt)$/i, '') + '.tex';
+  const noteConvertLatex = async (silent: boolean): Promise<string | null> => {
+    if (!notePath) return null;
+    if (noteDirty) await noteSave(); // convert what's on screen, not a stale save
+    noteStatus.textContent = 'converting…';
+    const r = await postLatexConvert(notePath);
+    if (r.ok && r.texPath) {
+      noteStatus.textContent = 'LaTeX ready';
+      setTimeout(() => { if (!noteDirty) noteStatus.textContent = ''; }, 1500);
+      if (!silent) toast('Wrote ' + (r.texPath.split(/[/\\]/).pop() ?? '.tex') + ' — "Open in Overleaf" sends it up');
+      return r.texPath;
+    }
+    noteStatus.textContent = '';
+    if (r.pandocMissing) {
+      // No pandoc on this machine → the conversation's agent writes the .tex.
+      const tex = texPathFor(notePath);
+      const msg = `(cldctrl) Please convert my draft to LaTeX: read ${notePath} and write ${tex} as a COMPLETE compilable document (\\documentclass{article} + a proper preamble; keep headings, emphasis, lists, citations and math). Reply "LaTeX draft ready" when it's written.`;
+      if (!send({ type: 'input', data: msg + '\r' })) connect();
+      toast('pandoc not found — asked the agent to write the .tex; watch the conversation');
+      return null;
+    }
+    noteStatus.textContent = '✗ ' + (r.error || 'convert failed');
+    return null;
+  };
+  /** Convert (if needed) and put the LaTeX on the clipboard — the daily move:
+   *  paste straight into an EXISTING Overleaf/LaTeX project. */
+  const noteCopyLatex = async (): Promise<void> => {
+    if (!notePath) return;
+    let tex = texPathFor(notePath);
+    let file = await fetchFile(tex);
+    // Stale guard: if the note changed after the .tex was written, reconvert.
+    if (!file || noteDirty) { const made = await noteConvertLatex(true); if (made) { tex = made; file = await fetchFile(made); } }
+    if (!file || !file.content.trim()) { toast('No LaTeX yet — convert first (or let the agent write it)'); return; }
+    // pandoc --standalone wraps in a full document; for pasting INTO a project,
+    // the body alone is what you want — strip the preamble when present.
+    const m = /\\begin\{document\}([\s\S]*)\\end\{document\}/.exec(file.content);
+    const snippet = (m ? m[1] : file.content).trim();
+    try {
+      await navigator.clipboard.writeText(snippet);
+      toast('LaTeX copied — paste it into your Overleaf project');
+    } catch { toast('✗ Clipboard unavailable — the .tex file is beside the note'); }
+  };
+  /** Hand the draft to the conversation's agent to integrate into the project's
+   *  LaTeX (e.g. an Overleaf project git-synced into this repo): it finds the
+   *  right .tex, merges the section in project style, and commits so the sync
+   *  picks it up. The agent asks when the target is ambiguous. */
+  const noteSendToLatexProject = (): void => {
+    if (!notePath) return;
+    const msg = `(cldctrl) Integrate my draft into this project's LaTeX: read ${notePath} and merge its content into the appropriate .tex file in this repo (if it's ambiguous which file/section, ask me first). Convert markdown → LaTeX matching the document's existing conventions (sectioning, macros, \\cite style). If this repo is git-synced with Overleaf, commit the change (clear message) so the sync picks it up — but don't push without asking.`;
+    if (!send({ type: 'input', data: msg + '\r' })) connect();
+    toast('Asked the agent to merge the draft into the project LaTeX — watch the conversation');
+  };
+
   (el.querySelector('[data-note="menu"]') as HTMLButtonElement).addEventListener('click', (e) => {
     e.stopPropagation();
     if (noteMenuOpen) { closeNoteMenu(); return; }
@@ -723,6 +781,9 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (!item) return;
     if (item.dataset.act === 'all') { renderNoteMenu('all'); return; }
     if (item.dataset.act === 'history') { renderNoteHistory(); return; }
+    if (item.dataset.act === 'latex') { closeNoteMenu(); void noteConvertLatex(false); return; }
+    if (item.dataset.act === 'latex-copy') { closeNoteMenu(); void noteCopyLatex(); return; }
+    if (item.dataset.act === 'latex-integrate') { closeNoteMenu(); noteSendToLatexProject(); return; }
     if (item.dataset.act === 'menu-back') { renderNoteMenu('project'); return; }
     if (item.dataset.act === 'new') {
       closeNoteMenu();
