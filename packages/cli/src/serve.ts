@@ -57,16 +57,21 @@ let latestUpdate: string | null = null;
 let DEMO = false;
 
 async function getRateLimits(): Promise<RateLimitInfo | null> {
-  const cached = getCachedRateLimits();
-  if (cached) return cached;
-  if (Date.now() - lastProbeAt < RATE_PROBE_TTL_MS) return lastProbe;
+  // Re-probe when our last probe is older than the TTL (the 5h window moves and
+  // resets — a once-at-startup value goes badly stale, e.g. showing 12% while the
+  // 5h window is actually at 97%). probeRateLimits has its own fresh-cache short
+  // circuit, so calling it past the TTL is cheap when nothing changed.
+  if (Date.now() - lastProbeAt < RATE_PROBE_TTL_MS) {
+    return lastProbe ?? getCachedRateLimits();
+  }
   lastProbeAt = Date.now();
   try {
     lastProbe = await probeRateLimits();
   } catch {
     lastProbe = null;
   }
-  return lastProbe;
+  // Fall back to the last known value on a failed/empty probe rather than null.
+  return lastProbe ?? getCachedRateLimits();
 }
 
 /** Format a Date as YYYY-MM-DD in local time (matches usage.ts bucketing). */
