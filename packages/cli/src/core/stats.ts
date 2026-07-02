@@ -19,7 +19,7 @@ const CACHE_TTL = 5 * 60e3; // prompt cache ~5min: low cache-hit within this gap
 
 // Short keys keep the JSON small for big windows.
 export interface StatsTurn { t: number; s: number; k: number; b: number; c: number; f: 0 | 1 | 2; } // ts, sessionIdx, total, billed, ctx, flag(0 normal/1 eviction/2 reload)
-export interface StatsSession { id: string; slug: string; project: string; label: string; total: number; }
+export interface StatsSession { id: string; slug: string; project: string; label: string; total: number; vendor?: 'claude' | 'codex'; }
 export interface StatsTool { name: string; calls: number; resultTokens: number; mcp: boolean; }
 export interface StatsImageGroup { s: number; bucket: number; n: number; } // sessionIdx, hour-bucket(ms), count
 export interface StatsErr { t: number; s: number; }
@@ -35,6 +35,8 @@ export interface StatsPayload {
   subagentRuns: number;
   consults: Record<string, number>;
   totalTokens: number;
+  tokensByVendor: Record<string, number>; // e.g. { claude: N, codex: M } — powers the vendor split
+  codexRateLimit?: { usedPercent: number; windowMinutes?: number; resetsInSeconds?: number } | null;
   imageCount: number;
   limits: { fiveH: number | null; sevenD: number | null }; // live token caps if known (else client placeholder)
   generatedAt: number;
@@ -171,6 +173,19 @@ export async function computeStats(days: number): Promise<StatsPayload> {
       for (const e of parsed.apiErrors) { apiErrorsRaw.push(e); slugOf.set(e.session, slug); }
     }
   }
+  // Codex sessions: fold their token usage into the same timeline (vendor-tagged).
+  // Best-effort — no ~/.codex, parse errors, etc. never break the Claude stats.
+  const vendorOf = new Map<string, 'claude' | 'codex'>();
+  const codexCwd = new Map<string, string>();
+  let codexRateLimit: StatsPayload['codexRateLimit'] = null;
+  try {
+    const { collectCodexUsage } = await import('./codex-stats.js');
+    const cx = await collectCodexUsage(now, windowMs, freshMs);
+    codexRateLimit = cx.latestRateLimit;
+    for (const t of cx.turns) { rawTurns.push(t); vendorOf.set(t.session, 'codex'); }
+    for (const [id, meta] of cx.sessions) codexCwd.set(id, meta.cwd);
+  } catch { /* codex usage unavailable — Claude-only stats */ }
+
   rawTurns.sort((a, b) => a.ts - b.ts);
 
   // session table + index
@@ -179,9 +194,16 @@ export async function computeStats(days: number): Promise<StatsPayload> {
   const sessionIds = [...sessTotals.keys()];
   const idxOf = new Map<string, number>(); sessionIds.forEach((id, i) => idxOf.set(id, i));
   const sessions: StatsSession[] = sessionIds.map((id) => {
+    const vendor = vendorOf.get(id) ?? 'claude';
+    if (vendor === 'codex') {
+      const proj = prettyProject((codexCwd.get(id) || '').split(/[/\\]/).filter(Boolean).slice(-1)[0] || '');
+      return { id, slug: '', project: proj, label: 'codex·' + proj + '·' + id.slice(0, 4), total: sessTotals.get(id) || 0, vendor };
+    }
     const slug = slugOf.get(id) || '';
-    return { id, slug, project: prettyProject(slug), label: prettyProject(slug) + '·' + id.slice(0, 4), total: sessTotals.get(id) || 0 };
+    return { id, slug, project: prettyProject(slug), label: prettyProject(slug) + '·' + id.slice(0, 4), total: sessTotals.get(id) || 0, vendor };
   });
+  const tokensByVendor: Record<string, number> = {};
+  for (const t of rawTurns) { const v = vendorOf.get(t.session) ?? 'claude'; tokensByVendor[v] = (tokensByVendor[v] || 0) + t.total; }
 
   const turns: StatsTurn[] = rawTurns.map((t) => ({ t: t.ts, s: idxOf.get(t.session)!, k: t.total, b: t.billed, c: t.ctx, f: t.flag }));
 
@@ -213,6 +235,8 @@ export async function computeStats(days: number): Promise<StatsPayload> {
     subagentRuns: counters.subagents,
     consults: Object.fromEntries(consults),
     totalTokens: rawTurns.reduce((s, t) => s + t.total, 0),
+    tokensByVendor,
+    codexRateLimit,
     imageCount: rawImages.length,
     limits: { fiveH: null, sevenD: null },
     generatedAt: now,

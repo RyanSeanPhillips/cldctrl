@@ -125,6 +125,15 @@ function buildBody(p: StatsPayload): string {
   const usedServers = new Set(p.tools.filter((t) => t.mcp).map((t) => t.name.split('__')[1]));
   const serverRows = [...usedServers].sort().map((s) => { const calls = p.tools.filter((t) => t.name.startsWith('mcp__' + s + '__')).reduce((a, t) => a + t.calls, 0); return `<tr><td>${esc(s)}</td><td><span style="color:${TEAL}">●</span></td><td style="text-align:right">${calls || '—'}</td></tr>`; }).join('') || '<tr><td colspan=3 style="color:#808090">none used</td></tr>';
   const agentRows = ['claude', 'codex', 'gemini'].map((a) => `<tr><td>${a}</td><td style="text-align:right">${p.consults[a] || 0}</td></tr>`).join('');
+  // Token usage split by which CLI produced it (Claude JSONL vs Codex rollouts).
+  const byVendor = p.tokensByVendor || { claude: p.totalTokens };
+  const vendorTotal = Object.values(byVendor).reduce((a, b) => a + b, 0) || 1;
+  const VENDOR_COLOR: Record<string, string> = { claude: ACCENT, codex: TEAL, gemini: BLUE };
+  const vendorRows = Object.entries(byVendor).sort((a, b) => b[1] - a[1]).map(([v, n]) =>
+    `<tr><td><span style="color:${VENDOR_COLOR[v] || '#888'}">●</span> ${esc(v)}</td>`
+    + `<td style="text-align:right">${fmt(n)}</td><td style="text-align:right;color:#808090">${Math.round(n / vendorTotal * 100)}%</td></tr>`).join('');
+  const vendorBar = Object.entries(byVendor).sort((a, b) => b[1] - a[1]).map(([v, n]) =>
+    `<span style="display:inline-block;height:8px;width:${(n / vendorTotal * 100).toFixed(1)}%;background:${VENDOR_COLOR[v] || '#888'}"></span>`).join('');
 
   const misses = p.turns.filter((t) => t.f === 1).length, reloads = p.turns.filter((t) => t.f === 2).length;
   const extra = p.turns.filter((t) => t.f === 1).reduce((s, t) => s + t.c * 0.9, 0);
@@ -135,7 +144,8 @@ function buildBody(p: StatsPayload): string {
   const liveStrip = ov ? `<div class="stats-live">${ov.live ? '<span class="dot on"></span>Live' : '<span class="dot"></span>Est.'} usage —
     5h <b>${pct(ov.fiveHour.percent)}</b>${ov.fiveHour.resetIn ? ` <span class="muted">resets ${esc(ov.fiveHour.resetIn)}</span>` : ''}
     · 7d <b>${pct(ov.sevenDay.percent)}</b>${ov.sevenDay.resetIn ? ` <span class="muted">resets ${esc(ov.sevenDay.resetIn)}</span>` : ''}
-    ${ov.overage && ov.overage.percent > 0 ? `· <span style="color:${RED}">overage ${Math.round(ov.overage.percent)}%</span>` : ''}</div>` : '';
+    ${ov.overage && ov.overage.percent > 0 ? `· <span style="color:${RED}">overage ${Math.round(ov.overage.percent)}%</span>` : ''}
+    ${p.codexRateLimit ? `· <span style="color:${TEAL}">codex ${Math.round(p.codexRateLimit.usedPercent)}%</span>${p.codexRateLimit.windowMinutes ? ` <span class="muted">/${p.codexRateLimit.windowMinutes >= 60 ? (p.codexRateLimit.windowMinutes / 60) + 'h' : p.codexRateLimit.windowMinutes + 'm'}</span>` : ''}` : ''}</div>` : '';
 
   return `<div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('')}</div>
 ${liveStrip}
@@ -151,6 +161,12 @@ ${liveStrip}
 <div class="grid2">
   <div class="card"><h2>Tool-result context</h2><div class="row-sub"><span style="color:${ACCENT}">orange = MCP</span>, gray = built-in.</div>${chartTools}</div>
   <div class="card"><h2>MCP servers &amp; agent consults</h2><div class="grid2"><table><tr><td>server</td><td>used</td><td style="text-align:right">calls</td></tr>${serverRows}</table><table><tr><td>agent</td><td style="text-align:right">consults</td></tr>${agentRows}</table></div></div>
+</div>
+<div class="grid2">
+  <div class="card"><h2>Token usage by agent (this window)</h2>
+    <div class="row-sub">Tokens attributed to the CLI that produced them — Claude sessions vs Codex rollouts.</div>
+    <div style="display:flex;width:100%;border-radius:4px;overflow:hidden;margin:6px 0 10px">${vendorBar}</div>
+    <table style="width:100%"><tr><td>agent</td><td style="text-align:right">tokens</td><td style="text-align:right">share</td></tr>${vendorRows}</table></div>
 </div>`;
 }
 

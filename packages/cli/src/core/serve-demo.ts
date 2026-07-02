@@ -197,6 +197,8 @@ export function buildDemoStats(days: number, now: number): StatsPayload {
     // Multi-vendor council usage — the moat, visible in Stats.
     consults: { codex: 12, gemini: 4, claude: 3 },
     totalTokens,
+    tokensByVendor: { claude: Math.round(totalTokens * 0.62), codex: Math.round(totalTokens * 0.38) },
+    codexRateLimit: { usedPercent: 41, windowMinutes: 300 },
     imageCount,
     limits: { fiveH: 5_000_000, sevenD: 70_000_000 },
     generatedAt: now,
