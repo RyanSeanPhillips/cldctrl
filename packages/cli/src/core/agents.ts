@@ -102,7 +102,32 @@ export const AGENTS: AgentDef[] = [
     fallbacks: codexFallbacks,
   },
   { id: 'gemini', label: 'Gemini', cmdName: 'gemini', headless: (p) => ['-p', p], fallbacks: () => [] },
+  {
+    // Google Antigravity CLI — the `agy` binary (replaces the discontinued Gemini
+    // CLI). Multi-model (Gemini + Claude + GPT-OSS) via one Google login that
+    // piggybacks the Antigravity desktop app, so interactive cockpit launch just
+    // works once signed in. Headless `-p` exists but is FLAKY (blocks on the
+    // tool-permission prompt) — no startJson/resume, so consult stays disabled;
+    // v1 is cockpit LAUNCH only.
+    id: 'antigravity', label: 'Antigravity', cmdName: 'agy',
+    headless: (p) => ['-p', p],
+    fallbacks: antigravityFallbacks,
+  },
 ];
+
+/** The Antigravity CLI installs `agy` under a per-user bin dir, often off PATH
+ *  until a terminal restart. Point at the known install location directly. */
+function antigravityFallbacks(): string[] {
+  const out: string[] = [];
+  const la = process.env.LOCALAPPDATA;
+  if (la) out.push(path.join(la, 'agy', 'bin', 'agy.exe'));
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home) {
+    out.push(path.join(home, '.local', 'share', 'agy', 'bin', 'agy')); // Linux
+    out.push(path.join(home, '.agy', 'bin', 'agy'));
+  }
+  return out;
+}
 
 export type AgentSource = 'config' | 'env' | 'path' | 'app';
 export interface ResolvedAgent { path: string; source: AgentSource }
