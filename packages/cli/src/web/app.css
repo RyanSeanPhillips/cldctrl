@@ -829,3 +829,9 @@ body.widget-mode .note-head { min-height: 26px; padding: 3px var(--s2);
 body.widget-mode .tile-head .tile-title { font-size: 11.5px; font-weight: 500; color: var(--text-secondary); }
 body.widget-mode .tile-head .btn.icon { padding: 1px 6px; font-size: 12px; }
 body.widget-mode .tile-head .tile-ava { width: 15px; height: 15px; font-size: 8px; }
+
+/* node-pty missing: plain-language notice in the cockpit grid */
+.no-pty-note { grid-column: 1 / -1; padding: var(--s3) var(--s4); margin: var(--s2);
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+.no-pty-note code { color: var(--text); }

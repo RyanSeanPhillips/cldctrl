@@ -634,6 +634,16 @@ function createTermTile(meta: CockpitTile): LiveTile {
     .replace(/\$\$[\s\S]+?\$\$/g, ' (equation) ')   // don't read LaTeX soup aloud
     .replace(/\$[^$\n]+?\$/g, ' (math) ')
     .replace(/`{1,3}/g, '').replace(/^[#>\s-]+/gm, '').replace(/[*_~]/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+  // Inline citations are noise when LISTENING to a draft — skip them in every
+  // common form. Heuristics err conservative: the author-year pattern requires a
+  // capitalized name-ish token AND a year, so "(founded in 1995)" survives.
+  const stripCitations = (s: string) => s
+    .replace(/\\cite[a-z]*\*?(\[[^\]]*\])*\{[^}]*\}/g, '')                 // \cite{...} \citep[p.3]{...} \citeauthor…
+    .replace(/\[@[^\]]+\]/g, '')                                            // pandoc [@smith2020; @jones2019]
+    .replace(/(?<![\w])@[A-Za-z][\w:.#$%&+?<>~/-]*\b/g, '')                 // bare pandoc @smith2020
+    .replace(/\[\d+(\s*[,;–-]\s*\d+)*\]/g, '')                              // numeric [1] [1,2] [1–3]
+    .replace(/\(\s*(e\.g\.,?\s*|see\s+)?[A-Z][\w'’.-]+(\s+(&|and|et al\.?)\s*[\w'’.-]*)*,?\s+(19|20)\d{2}[a-z]?(\s*[;,]\s*[^()]*?(19|20)\d{2}[a-z]?)*\s*\)/g, '') // (Smith et al., 2020; Doe & Ray 2021)
+    .replace(/\s{2,}/g, ' ');
   const noteReadBtn = el.querySelector('[data-note="read"]') as HTMLButtonElement;
   const setNoteSpeaking = (on: boolean) => {
     noteReadBtn.innerHTML = on ? '&#9209;' : '&#128266;'; // ⏹ stop / 🔊 speaker
@@ -649,8 +659,9 @@ function createTermTile(meta: CockpitTile): LiveTile {
       const s0 = noteEdit.selectionStart ?? 0, s1 = noteEdit.selectionEnd ?? 0;
       const isSel = s1 > s0 && !!raw.substring(s0, s1).trim();
       // Display text must EQUAL the utterance text (boundary charIndex maps 1:1),
-      // so don't trim — leading whitespace just speaks as nothing.
-      const spoken = (isSel ? raw.substring(s0, s1) : noteStripMd(raw)).slice(0, 32000);
+      // so don't trim — leading whitespace just speaks as nothing. Citations are
+      // stripped from BOTH (the karaoke view shows what's actually being read).
+      const spoken = stripCitations(isSel ? raw.substring(s0, s1) : noteStripMd(raw)).slice(0, 32000);
       if (!spoken.trim()) return;
       setNoteSpeaking(true);
       // Karaoke view: selection-reads keep the surrounding text (dimmed) with the
@@ -1165,6 +1176,18 @@ export function syncCockpit(): void {
   const grid = document.getElementById('cockpit-grid');
   if (!root || !grid) return;
   wireGridDnD(grid);
+
+  // node-pty is an OPTIONAL native dep — when its prebuild didn't install, live
+  // in-dashboard terminals can't spawn. Say so plainly instead of letting tiles
+  // sit on "reconnecting…" forever.
+  if (st.data && st.data.features.agentTerminal === false && !grid.querySelector('.no-pty-note')) {
+    const n = document.createElement('div');
+    n.className = 'no-pty-note';
+    n.innerHTML = 'Live in-dashboard terminals are unavailable on this machine — the optional '
+      + '<code>node-pty</code> module didn’t install (it needs a platform prebuild or build tools). '
+      + 'Conversations still open in separate terminal windows; reinstalling cldctrl usually fixes it.';
+    grid.prepend(n);
+  }
 
   // Moving a tile's node (createTile append / order-enforcement insertBefore)
   // BLURS any focused descendant — the compose <textarea> you're typing in. The
