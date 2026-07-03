@@ -184,7 +184,7 @@ function sideConvItem(s: SessionInfo): Tpl {
     </div>
     <span class="side-conv-when">${ago(s.lastActivity)}</span>`;
   return s.id
-    ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
+    ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project} data-vendor=${s.vendor || 'claude'}
         title="Resume this conversation">${inner}</div>`
     : html`<div class=${'side-conv ' + cls}>${inner}</div>`;
 }
@@ -214,7 +214,7 @@ function sideRecentItem(s: SessionInfo): Tpl {
     <span class="side-recent-nm">${s.project}</span>
     <span class="side-recent-when">${ago(s.lastActivity)}</span>`;
   return s.id
-    ? html`<div class="side-recent-row" data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project}
+    ? html`<div class="side-recent-row" data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project} data-vendor=${s.vendor || 'claude'}
         title="Resume this conversation">${inner}</div>`
     : html`<div class="side-recent-row">${inner}</div>`;
 }

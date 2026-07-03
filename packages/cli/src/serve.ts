@@ -213,6 +213,32 @@ async function buildOverview(): Promise<unknown> {
 
   const activePaths = new Set(sessions.map(s => normalizePathForCompare(s.projectPath)));
 
+  // Recent Codex conversations, folded into the sidebar list (vendor:'codex').
+  // Gated to KNOWN projects so the existing /ws/term path validation stays intact
+  // and the list stays project-scoped. Cheap (cached in codex-stats).
+  const codexSessions = (() => {
+    try {
+      const { listRecentCodexSessions } = require('./core/codex-stats.js') as typeof import('./core/codex-stats.js');
+      return listRecentCodexSessions(Date.now(), 24 * 3600_000, 30)
+        .map((c) => {
+          const proj = resolveKnownProject(c.cwd);
+          if (!proj) return null; // unregistered dir → skip (keeps resume valid)
+          return {
+            id: c.sessionId,
+            project: proj.name,
+            path: proj.path,
+            vendor: 'codex' as const,
+            status: 'idle' as const, // Codex sessions aren't live-detected — they're resumable
+            currentAction: null,
+            lastActivity: new Date(c.lastTs).toISOString(),
+            tokens: 0, messages: 0, assistantTurns: 0, toolCalls: 0, contextSize: 0,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 12);
+    } catch { return []; }
+  })();
+
   return {
     version: VERSION,
     updateAvailable: latestUpdate,
@@ -263,11 +289,12 @@ async function buildOverview(): Promise<unknown> {
     // decision; the running control session id (once claude writes its JSONL) rides
     // along in terminalSessions['control'] via control discovery below.
     control: { lastActivity: getLatestControlActivity() || null },
-    sessions: sessions.map(s => ({
+    sessions: [...sessions.map(s => ({
       id: s.sessionId || null,
       project: nameMap.get(normalizePathForCompare(s.projectPath)) ?? path.basename(s.projectPath),
       path: s.projectPath,
-      status: s.idle ? 'idle' : 'active',
+      vendor: 'claude' as const,
+      status: (s.idle ? 'idle' : 'active') as 'idle' | 'active',
       currentAction: s.currentAction ?? null,
       lastActivity: s.lastActivity.toISOString(),
       tokens: s.stats.tokens,
@@ -284,7 +311,7 @@ async function buildOverview(): Promise<unknown> {
         writes: f.writes,
         lastTs: f.lastTs,
       })),
-    })),
+    })), ...codexSessions],
     projects: projects.map(p => {
       const git = cache?.gitStatuses?.[p.path] ?? null;
       return {
@@ -766,7 +793,7 @@ const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; prompt?: string; }
+interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; prompt?: string; vendor?: 'claude' | 'codex'; }
 
 // The port this dashboard is serving on, stamped into every PTY's env as
 // CLDCTRL_DASHBOARD_PORT so an MCP server running inside the dock/cockpit knows
@@ -818,6 +845,12 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
     return { cwd: getControlDir(), cmd: `claude ${hasControlHistory() ? '--continue' : ''}`.trim() };
   }
   if (meta.kind === 'resume' && meta.projectPath && meta.sessionId) {
+    // Codex sessions resume via `codex resume <uuid>` (interactive); Claude via
+    // `claude --resume`. The id is SAFE_SESSION_ID-validated; quote the resolved
+    // codex path (it can live in a hashed bin dir).
+    if (meta.vendor === 'codex') {
+      return { cwd: meta.projectPath, cmd: `${shellQuoteArg(agentCommand('codex'))} resume ${meta.sessionId}` };
+    }
     return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
   }
   if (meta.kind === 'new' && meta.projectPath) {
@@ -995,7 +1028,8 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'resume') {
           const session = url.searchParams.get('session') ?? '';
           if (!SAFE_SESSION_ID.test(session)) { socket.destroy(); return; }
-          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + session, { kind: 'resume', sessionId: session, projectPath: proj.path }));
+          const vendor = url.searchParams.get('vendor') === 'codex' ? 'codex' : 'claude';
+          wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + session, { kind: 'resume', sessionId: session, projectPath: proj.path, vendor }));
           return;
         }
         if (kind === 'new') {

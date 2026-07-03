@@ -93,6 +93,39 @@ export function getCodexRateLimitCached(now: number): CodexRate | null {
   return value;
 }
 
+// Recent Codex sessions for the sidebar conversation list. Cheap + cached: sort
+// rollouts by mtime, take the newest within the window, read each one's head for
+// cwd (session_meta) — bounded by `limit`. The caller filters to known projects.
+export interface CodexSession { sessionId: string; cwd: string; lastTs: number }
+let sessCache: { at: number; value: CodexSession[] } | null = null;
+const SESS_TTL = 30_000;
+
+export function listRecentCodexSessions(now: number, windowMs: number, limit = 30): CodexSession[] {
+  if (sessCache && now - sessCache.at < SESS_TTL) return sessCache.value;
+  const out: CodexSession[] = [];
+  try {
+    const files = walkFiles()
+      .map((f) => { let m = 0; try { m = fs.statSync(f.filePath).mtimeMs; } catch { /* skip */ } return { ...f, m }; })
+      .filter((f) => f.m > 0 && now - f.m <= windowMs)
+      .sort((a, b) => b.m - a.m)
+      .slice(0, limit);
+    for (const f of files) {
+      let cwd = '';
+      try {
+        const fd = fs.openSync(f.filePath, 'r');
+        const buf = Buffer.alloc(16 * 1024);
+        const n = fs.readSync(fd, buf, 0, buf.length, 0);
+        fs.closeSync(fd);
+        const m = buf.toString('utf8', 0, n).match(/"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (m) cwd = m[1].replace(/\\\\/g, '\\');
+      } catch { /* head unreadable — skip cwd */ }
+      if (cwd) out.push({ sessionId: f.sessionId, cwd, lastTs: f.m });
+    }
+  } catch { /* no ~/.codex */ }
+  sessCache = { at: now, value: out };
+  return out;
+}
+
 /** Collect Codex token usage across recent rollouts, in the shared raw-turn shape. */
 export async function collectCodexUsage(now: number, windowMs: number, freshMs: number): Promise<CodexUsage> {
   const turns: CodexRawTurn[] = [];

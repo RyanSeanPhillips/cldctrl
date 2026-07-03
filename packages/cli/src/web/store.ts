@@ -13,6 +13,7 @@ export interface CockpitTile {
   id: string;                 // 'resume:<sessionId>' | 'new:<...>' | 'doc:<path>' | 'control'
   kind: 'resume' | 'new' | 'doc' | 'control';
   sessionId?: string;         // resume only
+  vendor?: 'claude' | 'codex'; // resume tiles: which CLI to resume with (claude default; codex → `codex resume`)
   projectPath: string;
   title: string;
   worktree?: boolean;         // new sessions: run in an isolated git worktree
