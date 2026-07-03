@@ -30,6 +30,7 @@ interface LiveTile {
   openNoteAt?: (path: string) => void;          // terminal tiles — dock a specific file as the notepad (agent scratchpad routing)
   setContext?: (size: number, model: string | null, window?: number) => void; // terminal tiles — context-window meter
   setReadSession?: (sid: string | null) => void; // terminal tiles — bind/show the read-aloud button once a session id is known
+  linkSession?: (sid: string) => void;          // terminal tiles — a 'new' tile learned its real sessionId → re-key the notepad association to it
   focus?: () => void;         // terminal tiles — focus the xterm
   inject?: (text: string, autoSend: boolean) => void; // terminal tiles — message-in (#9)
   toggleMode?: () => void;    // doc tiles
@@ -503,7 +504,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const noteMenu = el.querySelector('.note-menu') as HTMLElement;
   const noteStatus = el.querySelector('.note-status') as HTMLElement;
   let noteOpen = false, notePath: string | null = null, noteReqd = false;
-  const convKey = meta.sessionId || meta.id; // stable conversation key for note association (survives new→resume)
+  // Durable conversation key for note association. A resume tile has its sessionId
+  // up front; a 'new' tile starts as its id and is re-keyed to the real sessionId
+  // via linkSession() once claude creates one — so a later fresh relaunch
+  // (resume:<sid>) finds the SAME draft instead of minting a blank one.
+  let convKey = meta.sessionId || meta.id;
   let noteAnnounced = !!meta.noteAnnounced; // one-time "a notepad is linked" notice already sent?
   let noteContent = '', noteMtime = 0, noteDirty = false, noteMode: 'edit' | 'preview' = 'edit';
   let notePoll: ReturnType<typeof setInterval> | null = null;
@@ -845,13 +850,34 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (meta.notePath) { bindNotePath(meta.notePath); await noteLoad(); return; }
     noteReqd = true;
     try {
-      const r = await postNotepad(meta.id, meta.projectPath, convKey);
+      // A fresh relaunch from the sidebar makes a brand-new tile with no persisted
+      // notePath — but the conversation's last draft is still associated on disk.
+      // Adopt the most-recent one (newest-first) instead of minting a blank notepad
+      // the user never opened. Only when the conversation truly has no note do we
+      // create one (deterministic name → no proliferation on repeat opens).
+      const existing = await fetchNotes({ conversation: convKey });
+      if (existing.length) {
+        bindNotePath(existing[0].path);
+        persistNotePath(existing[0].path);
+        await noteLoad();
+        return;
+      }
+      const r = await postNotepad(convKey, meta.projectPath, convKey);
       if (r.path) {
         bindNotePath(r.path);
         persistNotePath(r.path);
         await noteLoad();
       } else { noteStatus.textContent = '✗ ' + (r.error || 'no notepad'); noteReqd = false; }
     } catch { noteStatus.textContent = '✗ notepad failed'; noteReqd = false; }
+  };
+  // A 'new' tile just learned its real sessionId (claude created the session).
+  // Re-key the conversation to that durable id and migrate the notepad's on-disk
+  // association, so a future fresh relaunch (resume:<sid>) reopens THIS draft.
+  const linkSession = (sid: string): void => {
+    if (!sid || sid === convKey) return;
+    const prev = convKey;
+    convKey = sid;
+    if (notePath && prev !== sid) postRecordNote(notePath, meta.projectPath, sid);
   };
   const persistNoteOpen = (open: boolean) => {
     const cp = getState().ui.cockpit;
@@ -921,6 +947,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
       if (sid) { b.dataset.session = sid; b.style.display = ''; }
       else b.style.display = 'none';
     },
+    linkSession,
     focus: () => { try { term.focus(); } catch { /* ignore */ } },
     // Programmatic message-in (#9): drop text into this running session, optionally
     // opening the compose-box first so the user can confirm/edit before it submits.
@@ -1278,6 +1305,8 @@ export function syncCockpit(): void {
       const s = sid ? byId.get(sid) : undefined;
       t.setContext(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
       t.setReadSession?.(sid ?? null); // reveal/bind the read-aloud button once the id is known
+      if (meta.kind === 'new' && sid) t.linkSession?.(sid); // re-key the notepad to the durable sessionId
+
       // 'new' tiles: reveal the pop-out button once the session is discovered
       // (before that there's nothing stable for a widget window to reattach to).
       if (meta.kind === 'new') {

@@ -185,6 +185,10 @@ export function listNotes(filter?: { project?: string; conversation?: string; qu
       if (firstLine) title = (firstLine.replace(/^#+\s*/, '').slice(0, 60).trim()) || title;
       preview = body.replace(/\s+/g, ' ').trim().slice(0, 140);
     } catch { /* unreadable — keep filename as title */ }
+    // Skip blank notes: the docked notepad creates an empty file on first open, so
+    // an untouched conversation would otherwise litter the list (and surface above
+    // real drafts, since it's freshly mtime'd). Nothing to show → don't list it.
+    if (!body.trim()) continue;
     if (q) {
       const flat = body.replace(/\s+/g, ' ').trim();
       const at = flat.toLowerCase().indexOf(q);
