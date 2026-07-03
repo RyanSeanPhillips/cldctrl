@@ -78,6 +78,20 @@ const ConfigSchema = z.object({
   search: z.object({
     semantic: z.boolean().default(false),
   }).default({}),
+  // Alternate model providers via Anthropic-compatible endpoints (Kimi/Moonshot,
+  // GLM/Zhipu, OpenRouter, a local gateway, …). Each launches the `claude` CLI
+  // with ANTHROPIC_BASE_URL + auth + model overridden. Built-in presets (Kimi,
+  // GLM) merge with these; a profile is "available" once a key resolves (apiKey
+  // here, or its apiKeyEnv). apiKey is stored plaintext in config — prefer
+  // apiKeyEnv for secrets. Data leaves to that provider when you launch one.
+  provider_profiles: z.array(z.object({
+    id: z.string(),
+    label: z.string().optional(),
+    baseUrl: z.string(),
+    model: z.string().optional(),
+    apiKey: z.string().optional(),
+    apiKeyEnv: z.string().optional(),
+  })).default([]),
 });
 
 // ── Feature flag helper ────────────────────────────────────

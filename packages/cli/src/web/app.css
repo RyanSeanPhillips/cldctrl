@@ -845,3 +845,8 @@ body.widget-mode .tile-head .tile-ava { width: 15px; height: 15px; font-size: 8p
 .handoff-opt { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
   color: var(--text); font-size: 12.5px; padding: 6px 8px; border-radius: 5px; }
 .handoff-opt:hover { background: var(--highlight); }
+
+/* provider profiles in the +Add agent picker (Kimi/GLM/… — claude via alt endpoint) */
+.cp-provider input:checked + * , .cp-provider.on { }
+.cp-agent.cp-provider { border-color: color-mix(in srgb, var(--info) 45%, var(--border)); }
+.cp-agent.cp-provider::before { content: '↗ '; color: var(--info); opacity: 0.8; }

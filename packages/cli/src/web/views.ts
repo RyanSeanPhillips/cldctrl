@@ -539,6 +539,9 @@ function cockpitAddPanel(d: OverviewPayload, state: State): Tpl | string {
       ${d.features.agents.length > 1 ? html`<div class="cp-agents"><span class="cp-add-or">agent</span>
         ${d.features.agents.map((a) => html`<label class=${'cp-agent' + (a.available ? '' : ' off')} title=${a.available ? a.label : a.label + ' CLI not installed'}>
           <input type="radio" name="cp-agent" value=${a.id} ?disabled=${!a.available} ?checked=${a.id === 'claude'}> ${a.label}${a.available ? '' : ' (install)'}</label>`)}
+        ${(d.features.providers ?? []).map((p) => html`<label class=${'cp-agent cp-provider' + (p.available ? '' : ' off')}
+          title=${p.available ? 'Run Claude Code against ' + p.label + (p.model ? ' (' + p.model + ')' : '') + ' — your prompts go to this provider' : p.label + ' — set ' + p.keyHint + ' (or add a key in config) to enable'}>
+          <input type="radio" name="cp-agent" value=${p.id} ?disabled=${!p.available}> ${p.label}${p.available ? '' : ' (add key)'}</label>`)}
       </div>` : ''}
       <div class="cp-add-doc">
         <span class="cp-add-or">or open a doc</span>

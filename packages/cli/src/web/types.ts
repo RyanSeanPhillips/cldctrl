@@ -59,7 +59,7 @@ export interface OverviewPayload {
   updateAvailable?: string | null; // newer published version, or null
   generatedAt: string; // ISO
   tier: string | null;
-  features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; openExplorer?: boolean; openVscode?: boolean };
+  features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; providers?: Array<{ id: string; label: string; model?: string; available: boolean; keyHint: string }>; openExplorer?: boolean; openVscode?: boolean };
   usage: {
     fiveHour: UsageWindow;
     sevenDay: UsageWindow;

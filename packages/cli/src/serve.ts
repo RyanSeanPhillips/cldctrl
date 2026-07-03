@@ -35,6 +35,7 @@ import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
 import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, openInExplorer, isCommandAvailable } from './core/platform.js';
 import { listAgents, agentCommand } from './core/agents.js';
+import { listProviderProfiles } from './core/providers.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
 import { launchAndTrack, getCleanEnv } from './core/launcher.js';
 import { getControlDir, hasControlHistory, ensureControlWorkspace, getLatestControlActivity } from './core/control.js';
@@ -269,6 +270,7 @@ async function buildOverview(): Promise<unknown> {
     features: {
       agentTerminal: AGENT_TERMINAL_AVAILABLE,
       agents: listAgents(),
+      providers: listProviderProfiles(),
       openExplorer: config.launch?.explorer !== false,
       openVscode: config.launch?.vscode !== false && isCommandAvailable('code'),
     },
@@ -909,6 +911,15 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
 
   const env = getCleanEnv();
   if (dashboardPort) env.CLDCTRL_DASHBOARD_PORT = String(dashboardPort);
+  // Provider profile: a 'new' tile whose agent id is an alternate Anthropic-
+  // compatible provider (Kimi/GLM/…) launches the `claude` CLI (agentCommand
+  // falls back to claude for unknown ids) with the endpoint env overridden.
+  if (meta.kind === 'new' && meta.agent) {
+    try {
+      const provEnv = (require('./core/providers.js') as typeof import('./core/providers.js')).getProviderEnv(meta.agent);
+      if (provEnv) Object.assign(env, provEnv);
+    } catch { /* not a provider — normal agent */ }
+  }
   const isWin = getPlatform() === 'windows';
   // Windows: run the command from a temp .bat instead of `cmd /c "<string>"`.
   // `cmd /c` strips the inner quotes of a quoted argument, so a seeded prompt

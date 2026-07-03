@@ -78,6 +78,9 @@ export interface Config {
   /** Conversation search options. `semantic` (default false) turns on the local
    *  embedding re-rank — needs an optional @huggingface/transformers install. */
   search?: { semantic?: boolean };
+  /** Alternate model providers via Anthropic-compatible endpoints (Kimi, GLM, …).
+   *  Launches the claude CLI with ANTHROPIC_BASE_URL + auth + model overridden. */
+  provider_profiles?: Array<{ id: string; label?: string; baseUrl: string; model?: string; apiKey?: string; apiKeyEnv?: string }>;
 }
 
 // ── Runtime ─────────────────────────────────────────────────
