@@ -312,8 +312,22 @@ async function poll(): Promise<void> {
       if (cl.ts <= lastCockpitLaunchTs) continue;
       lastCockpitLaunchTs = cl.ts;
       if (Date.now() - cl.ts >= 60_000) continue;
+      // agent + brief = an MCP-triggered handoff: new tile with that agent,
+      // prefilled with the brief (reviewed + Sent by the operator).
+      if (cl.agent && cl.handoffBrief) {
+        const short = cl.project || cl.projectPath.split(/[/\\]/).pop() || 'conversation';
+        const id = 'new:' + cl.projectPath + ':' + Date.now();
+        const cp = getState().ui.cockpit;
+        setCockpit({
+          tiles: [...cp.tiles, { id, kind: 'new', projectPath: cl.projectPath, title: short + ' · ' + cl.agent + ' (handoff)', agent: cl.agent, handoffFrom: cl.handoffFrom }],
+          open: true, maximized: null,
+        });
+        setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
+        queueTilePrefill(id, cl.handoffBrief);
+        toast('Handoff → ' + cl.agent + ': review the brief in the new tile, then Send');
+      }
       // sessionId = resume that conversation as a tile; else spawn a fresh one.
-      if (cl.sessionId) addResumeTile(cl.sessionId, cl.projectPath, cl.project || cl.projectPath.split(/[/\\]/).pop() || 'conversation', true);
+      else if (cl.sessionId) addResumeTile(cl.sessionId, cl.projectPath, cl.project || cl.projectPath.split(/[/\\]/).pop() || 'conversation', true);
       else addLaunchTile(cl.projectPath, cl.project, cl.prompt);
     }
     // Message-in (#9): inject a message into a running cockpit session. Match by the

@@ -203,8 +203,15 @@ export function listNotes(filter?: { project?: string; conversation?: string; qu
 
 // ── Cockpit launch (agent/CTRL → dashboard: open a new session as a tile) ─
 // sessionId set = RESUME that conversation as a tile (web-first launch_session
-// routing); absent = spawn a fresh session tile.
-export interface CockpitLaunch { projectPath: string; project?: string; prompt?: string; sessionId?: string; ts: number; }
+// routing); absent = spawn a fresh session tile. agent + handoffBrief set = an
+// AGENT HANDOFF: open a NEW tile with that agent, prefilled with the brief
+// (handoff_session MCP tool) and backlinked to the source conversation.
+export interface CockpitLaunch {
+  projectPath: string; project?: string; prompt?: string; sessionId?: string; ts: number;
+  agent?: string;
+  handoffBrief?: string;
+  handoffFrom?: { sessionId: string; vendor: string };
+}
 
 /** Ask the dashboard to open a new conversation as a cockpit tile (instead of a
  *  separate terminal window). Used when the launch originates inside the web UI.

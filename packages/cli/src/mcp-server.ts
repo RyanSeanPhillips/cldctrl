@@ -286,6 +286,35 @@ async function handleConvertToLatex(args: { path: string }): Promise<unknown> {
   return r;
 }
 
+async function handleHandoffSession(args: { session: string; toAgent: string }): Promise<unknown> {
+  const session = (args.session ?? '').trim();
+  const toAgent = (args.toAgent ?? '').trim().toLowerCase();
+  if (!session) return { ok: false, error: 'Provide a sessionId (from search_conversations or get_active_sessions).' };
+  const target = listAgents().find((a) => a.id === toAgent);
+  if (!target) return { ok: false, error: `Unknown agent "${toAgent}". Available: ${listAgents().map((a) => a.id).join(', ')}.` };
+  if (!target.available) return { ok: false, error: `Agent "${toAgent}" isn't installed/available on this machine.` };
+  const { buildHandoffBrief } = await import('./core/handoff.js');
+  const brief = await buildHandoffBrief(session);
+  if (!brief.ok || !brief.brief || !brief.projectPath) {
+    return { ok: false, error: brief.error || 'Could not build a handoff brief for that session.' };
+  }
+  writeCockpitLaunch({
+    projectPath: brief.projectPath,
+    project: brief.project,
+    agent: toAgent,
+    handoffBrief: brief.brief,
+    handoffFrom: { sessionId: session, vendor: brief.vendor || 'claude' },
+    ts: Date.now(),
+  });
+  return {
+    ok: true,
+    agent: toAgent,
+    project: brief.project,
+    fromVendor: brief.vendor,
+    message: `Queued a handoff of session ${session.slice(0, 8)}… to ${target.label} in "${brief.project}". If the dashboard is open, a new ${target.label} tile appears prefilled with the brief for the operator to review and send. The original conversation is untouched.`,
+  };
+}
+
 async function handleRescanProjects(): Promise<unknown> {
   const result = rescanProjects();
   return {
@@ -612,6 +641,25 @@ async function main(): Promise<void> {
             },
           },
           required: ['project'],
+        },
+      },
+      {
+        name: 'handoff_session',
+        description:
+          "Hand off a conversation's work to a DIFFERENT agent (claude/codex/antigravity) — e.g. when a provider is low on tokens. Builds a brief from the session's ON-DISK state (transcript tail + git status/commits + touched files + docked notepad, plus a backlink) — so it works even if the original agent is dead — then opens a NEW cockpit tile with the chosen agent in the same project, prefilled with the brief for the operator to review and send. The original conversation is untouched. Needs the cldctrl dashboard running.",
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            session: {
+              type: 'string',
+              description: 'sessionId to hand off (from search_conversations or get_active_sessions). Claude or Codex sessions supported.',
+            },
+            toAgent: {
+              type: 'string',
+              description: 'Target agent id to continue in: claude | codex | antigravity',
+            },
+          },
+          required: ['session', 'toAgent'],
         },
       },
       {
@@ -1015,6 +1063,9 @@ async function main(): Promise<void> {
           break;
         case 'read_tasks':
           result = await handleReadTasks();
+          break;
+        case 'handoff_session':
+          result = await handleHandoffSession(args as { session: string; toAgent: string });
           break;
         case 'convert_to_latex':
           result = await handleConvertToLatex(args as { path: string });
