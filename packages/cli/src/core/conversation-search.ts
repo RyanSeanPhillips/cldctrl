@@ -101,6 +101,12 @@ export interface SearchResult {
   snippet: string;
   count: number;
   vendor: Vendor;
+  /**
+   * How hybrid search found this result (set only by the semantic layer):
+   * 'keyword' = text match, 'vector' = semantic-only (keyword missed it —
+   * snippet is the matched passage), 'both' = found by both signals.
+   */
+  matched?: 'keyword' | 'vector' | 'both';
 }
 
 // ── Content index ────────────────────────────────────────────
@@ -346,6 +352,18 @@ function buildIndex(): Map<string, IndexEntry & { docLower: string }> {
  */
 export function getSessionDoc(sessionId: string): string {
   return buildIndex().get(sessionId)?.doc ?? '';
+}
+
+/**
+ * Every indexed session doc, for corpus-wide consumers (the Tier-1 vector
+ * index in vector-index.ts). Same freshness/caching as keyword search.
+ */
+export function listSessionDocs(): Array<{ sessionId: string; doc: string; projectPath: string; vendor: Vendor; lastTs: number }> {
+  const out: Array<{ sessionId: string; doc: string; projectPath: string; vendor: Vendor; lastTs: number }> = [];
+  for (const e of buildIndex().values()) {
+    out.push({ sessionId: e.sessionId, doc: e.doc, projectPath: e.projectPath, vendor: e.vendor, lastTs: e.lastTs });
+  }
+  return out;
 }
 
 /**

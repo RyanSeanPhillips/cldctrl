@@ -384,6 +384,8 @@ async function handleSearchConversations(args: { query: string; limit?: number; 
     date: r.date,
     matches: r.count,
     snippet: r.snippet,
+    // 'vector' = semantic-only recall (keyword missed it); 'both'/'keyword' otherwise. Absent in keyword-only mode.
+    matched: r.matched,
   }));
   return {
     query,
