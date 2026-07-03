@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import spawn from 'cross-spawn';
 import { isCommandAvailable, detectLinuxTerminal } from './platform.js';
 import type { SetupResult } from './setup.js';
 
@@ -184,4 +185,128 @@ export function removeLinux(): SetupResult {
       'Remove the keyboard shortcut from your desktop settings manually.',
     ].join('\n'),
   };
+}
+
+// ── App-mode desktop launcher (freedesktop .desktop) ─────────────
+// The Linux equivalent of `cc shortcut`: a .desktop entry in the app menu that
+// opens the dashboard as a chromeless app window (`cc web --app`). --pin adds it
+// to the GNOME dash favorites. Mirrors installAppShortcut() on Windows.
+
+const DESKTOP_ID = 'cldctrl';
+const DESKTOP_FILE = DESKTOP_ID + '.desktop';
+
+/** Find the bundled 512px PNG icon (package root/assets, shipped via package.json files). */
+function getLinuxIconAsset(): string | null {
+  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(dir, 'assets', 'icon-512.png');
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
+/** Absolute, PATH-independent command that a GUI launcher can run to open app mode.
+ *  Prefer the exact node + bin script we're running under (a desktop session's PATH
+ *  may not include the npm global bin); fall back to bare `cc` if we can't resolve. */
+function resolveAppExec(): string {
+  const q = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
+  const script = process.argv[1];
+  if (script && /cldctrl(\.js)?$/.test(script) && fs.existsSync(script)) {
+    return `${q(process.execPath)} ${q(script)} web --app`;
+  }
+  return 'cc web --app';
+}
+
+function applicationsDir(): string { return path.join(os.homedir(), '.local', 'share', 'applications'); }
+function iconsDir(): string { return path.join(os.homedir(), '.local', 'share', 'icons'); }
+
+export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResult {
+  const appDir = applicationsDir();
+  try { fs.mkdirSync(appDir, { recursive: true }); } catch { /* ignore */ }
+
+  // Copy the icon into the user icon dir so the entry survives the package moving.
+  let iconRef = DESKTOP_ID; // themed-icon name fallback
+  const asset = getLinuxIconAsset();
+  if (asset) {
+    try {
+      fs.mkdirSync(iconsDir(), { recursive: true });
+      const dest = path.join(iconsDir(), DESKTOP_ID + '.png');
+      fs.copyFileSync(asset, dest);
+      iconRef = dest; // absolute path — most robust across DEs
+    } catch { iconRef = asset; }
+  }
+
+  const desktopPath = path.join(appDir, DESKTOP_FILE);
+  const entry = [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=CLD CTRL',
+    'Comment=Mission control for Claude Code',
+    `Exec=${resolveAppExec()}`,
+    `Icon=${iconRef}`,
+    'Terminal=false',
+    'Categories=Development;Utility;',
+    'StartupNotify=true',
+    // Groups the Chrome --app window (launched with --class=cldctrl) under this icon.
+    'StartupWMClass=cldctrl',
+    '',
+  ].join('\n');
+
+  try {
+    fs.writeFileSync(desktopPath, entry, { mode: 0o755 });
+  } catch (e) {
+    return { success: false, message: `Could not write ${desktopPath}: ${String(e)}` };
+  }
+
+  // Best-effort: refresh the app menu so the entry shows up without a re-login.
+  if (isCommandAvailable('update-desktop-database')) {
+    try { spawn.sync('update-desktop-database', [appDir], { stdio: 'ignore', timeout: 8000 }); } catch { /* ignore */ }
+  }
+
+  const lines = [`Installed app launcher → ${desktopPath}`, 'Find "CLD CTRL" in your applications menu; it opens the dashboard as an app window.'];
+
+  if (opts.pin) lines.push('', pinToDashLinux().message);
+  else lines.push('', 'Tip: run `cc shortcut --pin` to add it to your dock/favorites (GNOME).');
+
+  return { success: true, message: lines.join('\n') };
+}
+
+/** Add the entry to GNOME dash favorites (idempotent). Other DEs: manual pin. */
+function pinToDashLinux(): SetupResult {
+  const desktop = detectDesktop();
+  if (desktop !== 'gnome' || !isCommandAvailable('gsettings')) {
+    return { success: true, message: 'To pin: right-click "CLD CTRL" in your app menu → Add to Favorites / Pin to dock.' };
+  }
+  try {
+    const cur = spawn.sync('gsettings', ['get', 'org.gnome.shell', 'favorite-apps'], { encoding: 'utf-8', timeout: 8000 });
+    const raw = (cur.stdout ?? '').trim(); // e.g. ['org.gnome.Nautilus.desktop', ...]
+    if (raw.includes(`'${DESKTOP_FILE}'`)) return { success: true, message: 'Already pinned to the GNOME dash.' };
+    const inner = raw.replace(/^\[/, '').replace(/\]$/, '').trim();
+    const next = inner ? `[${inner}, '${DESKTOP_FILE}']` : `['${DESKTOP_FILE}']`;
+    const set = spawn.sync('gsettings', ['set', 'org.gnome.shell', 'favorite-apps', next], { stdio: 'ignore', timeout: 8000 });
+    if (set.status === 0) return { success: true, message: 'Pinned CLD CTRL to the GNOME dash.' };
+    return { success: true, message: 'Could not pin automatically — pin it from the app menu.' };
+  } catch {
+    return { success: true, message: 'Could not pin automatically — pin it from the app menu.' };
+  }
+}
+
+export function removeAppShortcutLinux(): SetupResult {
+  const desktopPath = path.join(applicationsDir(), DESKTOP_FILE);
+  try { fs.unlinkSync(desktopPath); } catch { /* ignore */ }
+  try { fs.unlinkSync(path.join(iconsDir(), DESKTOP_ID + '.png')); } catch { /* ignore */ }
+  // Best-effort unpin from GNOME favorites.
+  if (isCommandAvailable('gsettings')) {
+    try {
+      const cur = spawn.sync('gsettings', ['get', 'org.gnome.shell', 'favorite-apps'], { encoding: 'utf-8', timeout: 8000 });
+      const raw = (cur.stdout ?? '').trim();
+      if (raw.includes(`'${DESKTOP_FILE}'`)) {
+        const next = raw.replace(new RegExp(`\\s*,?\\s*'${DESKTOP_FILE}'`), '').replace(`['${DESKTOP_FILE}', `, '[').replace(`['${DESKTOP_FILE}']`, '[]');
+        spawn.sync('gsettings', ['set', 'org.gnome.shell', 'favorite-apps', next], { stdio: 'ignore', timeout: 8000 });
+      }
+    } catch { /* ignore */ }
+  }
+  return { success: true, message: 'Removed the CLD CTRL app launcher.' };
 }

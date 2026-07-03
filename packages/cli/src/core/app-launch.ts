@@ -102,6 +102,9 @@ export function launchAppWindow(url: string, opts: { sharedProfile?: boolean; br
   // --app= windows don't reliably report display-mode: standalone).
   const target = url + (url.includes('?') ? '&' : '?') + 'app=1';
   const args = [`--app=${target}`, '--new-window'];
+  // X11/Wayland: set WM_CLASS/app_id so the window groups under our .desktop icon
+  // (StartupWMClass=cldctrl) instead of a generic Chromium entry in the dock.
+  if (getPlatform() === 'linux') args.push('--class=cldctrl');
   if (!opts.sharedProfile) {
     const dir = path.join(getConfigDir(), 'app-profile');
     try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
