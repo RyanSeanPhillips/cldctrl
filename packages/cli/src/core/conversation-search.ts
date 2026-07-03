@@ -348,6 +348,18 @@ export function getSessionDoc(sessionId: string): string {
   return buildIndex().get(sessionId)?.doc ?? '';
 }
 
+/**
+ * Vendor-neutral session lookup for the handoff feature: given ANY session id
+ * (Claude JSONL or Codex rollout), return its indexed doc + resolved project cwd
+ * + vendor. Backs cross-vendor handoff (hand off FROM a Codex conversation).
+ * Returns null if the session isn't in the index yet.
+ */
+export function getSessionArtifact(sessionId: string): { doc: string; projectPath: string; vendor: string; lastTs: number } | null {
+  const e = buildIndex().get(sessionId);
+  if (!e) return null;
+  return { doc: e.doc, projectPath: e.projectPath, vendor: e.vendor, lastTs: e.lastTs };
+}
+
 function countOccurrences(haystack: string, needle: string): number {
   let c = 0, p = haystack.indexOf(needle);
   while (p >= 0) { c++; p = haystack.indexOf(needle, p + needle.length); }

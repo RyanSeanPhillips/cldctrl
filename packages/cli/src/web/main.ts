@@ -348,7 +348,7 @@ function openHandoffMenu(btn: HTMLElement): void {
   if (!tile) return;
   const session = tile.kind === 'new' ? getState().data?.terminalSessions?.[id] : tile.sessionId;
   if (!session) { toast('One moment — this session is still initializing'); return; }
-  const curAgent = tile.kind === 'new' ? (tile.agent || 'claude') : 'claude';
+  const curAgent = tile.kind === 'new' ? (tile.agent || 'claude') : (tile.vendor || 'claude');
   const agents = (getState().data?.features.agents || []).filter((a) => a.available && a.id !== curAgent);
   if (!agents.length) { toast('No other agents available to hand off to'); return; }
   const menu = document.createElement('div');

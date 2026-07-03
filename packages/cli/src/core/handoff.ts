@@ -30,7 +30,7 @@ export interface HandoffBrief {
   sessionId?: string;
   projectPath?: string;
   project?: string;
-  vendor?: 'claude';
+  vendor?: string;   // 'claude' | 'codex' | …
   brief?: string;
   error?: string;
 }
@@ -59,31 +59,44 @@ function resolveClaudeSession(sessionId: string): { file: string; cwd: string } 
 
 export async function buildHandoffBrief(sessionId: string): Promise<HandoffBrief> {
   if (!SAFE_SESSION_ID.test(sessionId)) return { ok: false, error: 'Invalid session id.' };
-  const resolved = resolveClaudeSession(sessionId);
-  if (!resolved) {
-    return { ok: false, error: 'Session not found among Claude sessions. Cross-vendor (Codex) handoff is a later slice.' };
-  }
-  const { file, cwd } = resolved;
-  const projectName = cwd ? (cwd.split(/[/\\]/).filter(Boolean).pop() || cwd) : 'this project';
 
-  // Goal = the first user turn; recent context = the transcript tail.
-  let goal = '', tail = '';
-  try {
-    const full = extractTranscript(file, 24);
-    tail = full;
-    const firstUser = full.match(/(?:^|\n)(?:User|Human)[:>]\s*([\s\S]*?)(?:\n(?:Assistant|Claude)[:>]|\n\n|$)/i);
-    if (firstUser) goal = firstUser[1].trim().slice(0, 400);
-  } catch { /* transcript optional */ }
-
-  // Files the session touched (from the activity parser, not a noisy git diff).
+  // Vendor-neutral resolve: prefer the RICH Claude path (transcript tail from the
+  // JSONL + touched files from the activity parser). Otherwise fall back to the
+  // cross-vendor search index (Codex rollouts, or Claude sessions outside the
+  // projects dir) for the doc + cwd + vendor.
+  let vendor = 'claude', cwd = '', goal = '', tail = '';
   let touched: string[] = [];
-  try {
-    const act = await parseSessionActivity(file);
-    if (act?.touchedFiles?.length) {
-      touched = act.touchedFiles.filter((t) => t.writes > 0).slice(0, 20).map((t) => t.path);
-      if (!touched.length) touched = act.touchedFiles.slice(0, 12).map((t) => t.path);
-    }
-  } catch { /* activity optional */ }
+  const claudeFile = resolveClaudeSession(sessionId);
+  if (claudeFile) {
+    cwd = claudeFile.cwd;
+    try {
+      const full = extractTranscript(claudeFile.file, 24);
+      tail = full;
+      const firstUser = full.match(/(?:^|\n)(?:User|Human)[:>]\s*([\s\S]*?)(?:\n(?:Assistant|Claude)[:>]|\n\n|$)/i);
+      if (firstUser) goal = firstUser[1].trim().slice(0, 400);
+    } catch { /* transcript optional */ }
+    try {
+      const act = await parseSessionActivity(claudeFile.file);
+      if (act?.touchedFiles?.length) {
+        touched = act.touchedFiles.filter((t) => t.writes > 0).slice(0, 20).map((t) => t.path);
+        if (!touched.length) touched = act.touchedFiles.slice(0, 12).map((t) => t.path);
+      }
+    } catch { /* activity optional */ }
+  } else {
+    const { getSessionArtifact } = await import('./conversation-search.js');
+    const art = getSessionArtifact(sessionId);
+    if (!art) return { ok: false, error: 'Session not found (it may not be indexed yet — open it once in the dashboard, then retry).' };
+    vendor = art.vendor;
+    cwd = art.projectPath;
+    // The index doc is capped from the START of the session (opening + early
+    // turns), so it's context rather than the very latest tail — still enough to
+    // convey the goal + direction; the new agent reads the repo for current state.
+    const doc = art.doc || '';
+    tail = doc.length > 6000 ? doc.slice(0, 6000) + '\n…(truncated — see the prior session / repo)' : doc;
+    const fu = doc.match(/(?:^|\n)(?:User|Human|You)[:>]\s*([\s\S]*?)(?:\n|$)/i);
+    goal = (fu ? fu[1] : doc).trim().slice(0, 400);
+  }
+  const projectName = cwd ? (cwd.split(/[/\\]/).filter(Boolean).pop() || cwd) : 'this project';
 
   // Current state of the work = git (corroborating ground truth).
   let gitLine = '', commits = '';
@@ -107,7 +120,7 @@ export async function buildHandoffBrief(sessionId: string): Promise<HandoffBrief
 
   const parts: string[] = [];
   parts.push(`# Handoff — continuing work in ${projectName}`);
-  parts.push(`This continues an earlier conversation (session \`${sessionId}\`). You can pull more detail from it with the cldctrl \`read_session\` / \`search_conversations\` MCP tools if available.`);
+  parts.push(`This continues an earlier ${vendor} conversation (session \`${sessionId}\`). To pull more detail, use the cldctrl \`search_conversations\` MCP tool (searches across all agents)${vendor === 'claude' ? ' or `read_session` (Claude sessions)' : ''} if available.`);
   if (goal) parts.push(`\n## Original goal\n${goal}`);
   if (gitLine) parts.push(`\n## Current state\n${gitLine}`);
   if (touched.length) parts.push(`\n## Files worked on\n${touched.map((f) => '- ' + f).join('\n')}`);
@@ -118,5 +131,5 @@ export async function buildHandoffBrief(sessionId: string): Promise<HandoffBrief
 
   let brief = parts.join('\n');
   if (brief.length > BRIEF_CAP) brief = brief.slice(0, BRIEF_CAP) + '\n…(truncated — read the notepad / prior session for the rest)';
-  return { ok: true, sessionId, projectPath: cwd || undefined, project: projectName, vendor: 'claude', brief };
+  return { ok: true, sessionId, projectPath: cwd || undefined, project: projectName, vendor, brief };
 }
