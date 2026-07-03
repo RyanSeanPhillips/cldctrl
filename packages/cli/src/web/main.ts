@@ -173,11 +173,11 @@ async function reveal(projectPath: string, target: 'explorer' | 'code'): Promise
 }
 
 // ── cockpit tile helpers ─────────────────────────────────────
-function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean, vendor: 'claude' | 'codex' = 'claude'): void {
+function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean, vendor: 'claude' | 'codex' | 'antigravity' = 'claude'): void {
   const id = 'resume:' + sessionId;
   const cp = getState().ui.cockpit;
   const already = cp.tiles.some((t) => t.id === id);
-  const label = vendor === 'codex' ? title + ' · codex' : title;
+  const label = vendor !== 'claude' ? title + ' · ' + vendor : title;
   const tiles = already
     ? cp.tiles
     : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title: label, vendor }];
@@ -419,7 +419,8 @@ document.addEventListener('click', async (ev) => {
     renderApp();
   }
   else if (act === 'openincockpit') {
-    addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, true, el.dataset.vendor === 'codex' ? 'codex' : 'claude');
+    const v = el.dataset.vendor;
+    addResumeTile(el.dataset.id!, el.dataset.path!, el.dataset.title || el.dataset.path!, true, v === 'codex' || v === 'antigravity' ? v : 'claude');
   } else if (act === 'cockpit-add-toggle') {
     const cp = getState().ui.cockpit;
     setCockpit({ addOpen: !cp.addOpen, addQuery: '', addResults: [] });

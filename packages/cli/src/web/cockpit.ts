@@ -234,7 +234,7 @@ function wsUrl(t: CockpitTile): string {
     if (t.sessionId) u += '&session=' + encodeURIComponent(t.sessionId);
     return u;
   }
-  return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '') + (t.vendor === 'codex' ? '&vendor=codex' : '');
+  return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '') + (t.vendor && t.vendor !== 'claude' ? '&vendor=' + t.vendor : '');
 }
 
 function createTermTile(meta: CockpitTile): LiveTile {

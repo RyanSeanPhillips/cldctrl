@@ -239,6 +239,28 @@ async function buildOverview(): Promise<unknown> {
     } catch { return []; }
   })();
 
+  // Recent Antigravity (`agy`) conversations — same treatment as Codex (known-
+  // project gated; vendor:'antigravity'). Reads the SQLite .db store via the
+  // built-in node:sqlite; no-ops on older Node / no ~/.gemini.
+  const antigravitySessions = (() => {
+    try {
+      const { listRecentAntigravitySessions } = require('./core/antigravity-sessions.js') as typeof import('./core/antigravity-sessions.js');
+      return listRecentAntigravitySessions(Date.now(), 24 * 3600_000, 20)
+        .map((a) => {
+          const proj = resolveKnownProject(a.cwd);
+          if (!proj) return null;
+          return {
+            id: a.sessionId, project: proj.name, path: proj.path,
+            vendor: 'antigravity' as const, status: 'idle' as const, currentAction: null,
+            lastActivity: new Date(a.lastTs).toISOString(),
+            tokens: 0, messages: 0, assistantTurns: 0, toolCalls: 0, contextSize: 0,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 12);
+    } catch { return []; }
+  })();
+
   return {
     version: VERSION,
     updateAvailable: latestUpdate,
@@ -311,7 +333,7 @@ async function buildOverview(): Promise<unknown> {
         writes: f.writes,
         lastTs: f.lastTs,
       })),
-    })), ...codexSessions],
+    })), ...codexSessions, ...antigravitySessions],
     projects: projects.map(p => {
       const git = cache?.gitStatuses?.[p.path] ?? null;
       return {
@@ -793,7 +815,7 @@ const REPLAY_CAP_BYTES = 256 * 1024;
 const IDLE_KILL_MS = 10 * 60_000;
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
-interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; prompt?: string; vendor?: 'claude' | 'codex'; }
+interface TermMeta { kind: 'control' | 'resume' | 'new'; sessionId?: string; projectPath?: string; agent?: string; prompt?: string; vendor?: 'claude' | 'codex' | 'antigravity'; }
 
 // The port this dashboard is serving on, stamped into every PTY's env as
 // CLDCTRL_DASHBOARD_PORT so an MCP server running inside the dock/cockpit knows
@@ -850,6 +872,10 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
     // codex path (it can live in a hashed bin dir).
     if (meta.vendor === 'codex') {
       return { cwd: meta.projectPath, cmd: `${shellQuoteArg(agentCommand('codex'))} resume ${meta.sessionId}` };
+    }
+    if (meta.vendor === 'antigravity') {
+      // `agy --conversation <id>` resumes that Antigravity conversation interactively.
+      return { cwd: meta.projectPath, cmd: `${shellQuoteArg(agentCommand('antigravity'))} --conversation ${meta.sessionId}` };
     }
     return { cwd: meta.projectPath, cmd: `claude --resume ${meta.sessionId}` };
   }
@@ -1028,7 +1054,8 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'resume') {
           const session = url.searchParams.get('session') ?? '';
           if (!SAFE_SESSION_ID.test(session)) { socket.destroy(); return; }
-          const vendor = url.searchParams.get('vendor') === 'codex' ? 'codex' : 'claude';
+          const vp = url.searchParams.get('vendor');
+          const vendor = vp === 'codex' || vp === 'antigravity' ? vp : 'claude';
           wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + session, { kind: 'resume', sessionId: session, projectPath: proj.path, vendor }));
           return;
         }
