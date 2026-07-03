@@ -208,6 +208,7 @@ async function buildOverview(): Promise<unknown> {
 
   const windowed = await getRollingUsageWindowed(getClaudeProjectsDir());
   const rate = await getRateLimits();
+  const codexRate = (await import('./core/codex-stats.js')).getCodexRateLimitCached(Date.now());
   const daily = await getDailyTokens(cache?.usageByProject);
 
   const activePaths = new Set(sessions.map(s => normalizePathForCompare(s.projectPath)));
@@ -241,6 +242,12 @@ async function buildOverview(): Promise<unknown> {
         percent: Math.round(rate.overageUtil * 1000) / 10,
         status: rate.overageStatus,
         resetIn: rate.overageReset > 0 ? formatResetEpoch(rate.overageReset) : rate.overageResetIn,
+      } : null,
+      codex: codexRate ? {
+        tokens: 0,
+        messages: 0,
+        percent: Math.round(codexRate.usedPercent * 10) / 10,
+        resetIn: codexRate.resetsInSeconds ? formatResetEpoch(Math.floor(Date.now() / 1000) + codexRate.resetsInSeconds) : null,
       } : null,
       daily,
       dailyCommits: aggregateDaily(cache?.commitActivity, 28, 'commits'),

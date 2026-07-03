@@ -44,6 +44,55 @@ function walkFiles(): Array<{ sessionId: string; filePath: string }> {
   return out;
 }
 
+// Light Codex rate-limit read for the sidebar usage zone (overview polls every
+// 3s, so this must be cheap): read ONLY the newest rollout's tail and grab the
+// last rate_limits event. Cached with a TTL so repeated polls don't re-read.
+export interface CodexRate { usedPercent: number; windowMinutes?: number; resetsInSeconds?: number }
+let rateCache: { at: number; value: CodexRate | null } | null = null;
+const RATE_TTL = 60_000;
+
+export function getCodexRateLimitCached(now: number): CodexRate | null {
+  if (rateCache && now - rateCache.at < RATE_TTL) return rateCache.value;
+  let value: CodexRate | null = null;
+  try {
+    // newest rollout file by mtime
+    let newest = '', newestM = 0;
+    for (const { filePath } of walkFiles()) {
+      let m = 0; try { m = fs.statSync(filePath).mtimeMs; } catch { continue; }
+      if (m > newestM) { newestM = m; newest = filePath; }
+    }
+    if (newest && now - newestM < 30 * 864e5) {
+      const size = fs.statSync(newest).size;
+      const readLen = Math.min(size, 96 * 1024);
+      const fd = fs.openSync(newest, 'r');
+      const buf = Buffer.alloc(readLen);
+      fs.readSync(fd, buf, 0, readLen, Math.max(0, size - readLen));
+      fs.closeSync(fd);
+      const text = buf.toString('utf8');
+      const idx = text.lastIndexOf('"rate_limits"');
+      if (idx >= 0) {
+        // parse the enclosing JSON line
+        const lineStart = text.lastIndexOf('\n', idx) + 1;
+        let lineEnd = text.indexOf('\n', idx); if (lineEnd < 0) lineEnd = text.length;
+        try {
+          const obj = JSON.parse(text.slice(lineStart, lineEnd));
+          const primary = obj?.payload?.rate_limits?.primary;
+          if (primary && Number.isFinite(Number(primary.used_percent))) {
+            const resetsAt = Number(primary.resets_at);
+            value = {
+              usedPercent: Number(primary.used_percent),
+              windowMinutes: Number(primary.window_minutes) || undefined,
+              resetsInSeconds: resetsAt > 0 ? Math.max(0, Math.round(resetsAt - now / 1000)) : undefined,
+            };
+          }
+        } catch { /* partial line — skip */ }
+      }
+    }
+  } catch { /* no codex / read error → null */ }
+  rateCache = { at: now, value };
+  return value;
+}
+
 /** Collect Codex token usage across recent rollouts, in the shared raw-turn shape. */
 export async function collectCodexUsage(now: number, windowMs: number, freshMs: number): Promise<CodexUsage> {
   const turns: CodexRawTurn[] = [];

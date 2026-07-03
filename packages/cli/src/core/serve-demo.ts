@@ -95,6 +95,7 @@ export function buildDemoOverview(now: number): OverviewPayload {
       sevenDay: { tokens: 41_600_000, messages: 2130, percent: 61.0, resetIn: '3d 4h' },
       live: true,
       overage: null,
+      codex: { tokens: 0, messages: 0, percent: 38.0, resetIn: '4h 12m' },
       daily: heat(now, 620_000),
       dailyCommits: heat(now, 9),
     },

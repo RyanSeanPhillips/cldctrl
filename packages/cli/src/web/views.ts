@@ -247,8 +247,9 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
       <span class="sp"></span>
       <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>
-    <div class="side-usage-row"><span class="side-usage-lbl">5h</span>${usageBar(d.usage.fiveHour)}</div>
-    <div class="side-usage-row"><span class="side-usage-lbl">7d</span>${usageBar(d.usage.sevenDay)}</div>
+    <div class="side-usage-row"><span class="side-usage-lbl" title="Claude 5-hour rolling window">5h</span>${usageBar(d.usage.fiveHour)}</div>
+    <div class="side-usage-row"><span class="side-usage-lbl" title="Claude 7-day rolling window">7d</span>${usageBar(d.usage.sevenDay)}</div>
+    ${d.usage.codex ? html`<div class="side-usage-row"><span class="side-usage-lbl vlbl-codex" title="OpenAI Codex rate-limit window">${vendorMark('codex')}</span>${usageBar(d.usage.codex)}</div>` : ''}
     ${d.usage.overage ? html`<div class="side-usage-row overage-row"><span class="side-usage-lbl">extra</span>
       <span class="overage" title=${'Paid overage · resets ' + d.usage.overage.resetIn}>⚠ <span class="num">${d.usage.overage.percent}%</span></span></div>` : ''}
     ${sideControls()}

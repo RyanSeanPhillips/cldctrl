@@ -65,6 +65,7 @@ export interface OverviewPayload {
     sevenDay: UsageWindow;
     live: boolean;
     overage: { percent: number; status: string; resetIn: string } | null;
+    codex?: UsageWindow | null; // OpenAI Codex rate-limit window (when a codex session is present)
     daily: HeatCell[];
     dailyCommits: HeatCell[];
   };
