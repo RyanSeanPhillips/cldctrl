@@ -8,8 +8,28 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 import spawn from 'cross-spawn';
-import { isCommandAvailable } from './platform.js';
+import { isCommandAvailable, normalizePathForCompare } from './platform.js';
+import { loadConfig, getConfigDir } from '../config.js';
+import { buildProjectListFast } from './projects.js';
+
+/**
+ * Only allow conversion of files the dashboard may already touch: inside a known
+ * project or the scratch dir. Prevents a prompt-injected agent (via the MCP tool)
+ * from writing a .tex to an arbitrary path on disk.
+ */
+export function isConvertiblePath(src: string): boolean {
+  if (!src) return false;
+  const np = normalizePathForCompare(src).replace(/\\/g, '/').replace(/\/+$/, '');
+  const under = (root: string) => { const r = normalizePathForCompare(root).replace(/\\/g, '/').replace(/\/+$/, ''); return np === r || np.startsWith(r + '/'); };
+  try { if (under(path.join(getConfigDir(), 'scratch'))) return true; } catch { /* ignore */ }
+  try {
+    const { config } = loadConfig();
+    for (const p of buildProjectListFast(config)) if (under(p.path)) return true;
+  } catch { /* ignore */ }
+  return false;
+}
 
 export interface LatexResult {
   ok: boolean;
@@ -21,6 +41,7 @@ export interface LatexResult {
 
 export function convertMarkdownToLatex(src: string): LatexResult {
   if (!src || !/\.(md|markdown|txt)$/i.test(src)) return { ok: false, error: 'Not a markdown/text file (.md/.markdown/.txt)' };
+  if (!isConvertiblePath(src)) return { ok: false, error: 'Path is not inside a known project or the scratch dir' };
   if (!fs.existsSync(src)) return { ok: false, error: 'File not found: ' + src };
   if (!isCommandAvailable('pandoc')) return { ok: false, pandocMissing: true };
   const texPath = src.replace(/\.(md|markdown|txt)$/i, '') + '.tex';

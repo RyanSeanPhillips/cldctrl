@@ -134,7 +134,7 @@ export async function postLatexConvert(path: string): Promise<{ ok?: boolean; te
  *  validates the tile, builds the widget URL, and opens it via launchAppWindow;
  *  with no Chromium available it replies { fallback, url } so the client can
  *  window.open() a plain popup instead. */
-export async function postPopout(body: { kind: 'resume' | 'new'; id?: string; session: string; path: string; title: string; agent?: string }): Promise<{ ok?: boolean; fallback?: boolean; url?: string; error?: string }> {
+export async function postPopout(body: { kind: 'resume' | 'new'; id?: string; session: string; path: string; title: string; agent?: string; vendor?: string }): Promise<{ ok?: boolean; fallback?: boolean; url?: string; error?: string }> {
   const r = await fetch('/api/popout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },

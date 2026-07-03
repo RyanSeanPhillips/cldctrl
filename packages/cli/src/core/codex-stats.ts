@@ -97,11 +97,12 @@ export function getCodexRateLimitCached(now: number): CodexRate | null {
 // rollouts by mtime, take the newest within the window, read each one's head for
 // cwd (session_meta) — bounded by `limit`. The caller filters to known projects.
 export interface CodexSession { sessionId: string; cwd: string; lastTs: number }
-let sessCache: { at: number; value: CodexSession[] } | null = null;
+let sessCache: { at: number; key: string; value: CodexSession[] } | null = null;
 const SESS_TTL = 30_000;
 
 export function listRecentCodexSessions(now: number, windowMs: number, limit = 30): CodexSession[] {
-  if (sessCache && now - sessCache.at < SESS_TTL) return sessCache.value;
+  const key = windowMs + ':' + limit; // don't return a cached window for different args
+  if (sessCache && sessCache.key === key && now - sessCache.at < SESS_TTL) return sessCache.value;
   const out: CodexSession[] = [];
   try {
     const files = walkFiles()
@@ -122,7 +123,7 @@ export function listRecentCodexSessions(now: number, windowMs: number, limit = 3
       if (cwd) out.push({ sessionId: f.sessionId, cwd, lastTs: f.m });
     }
   } catch { /* no ~/.codex */ }
-  sessCache = { at: now, value: out };
+  sessCache = { at: now, key, value: out };
   return out;
 }
 

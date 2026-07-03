@@ -911,10 +911,13 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
 
   const env = getCleanEnv();
   if (dashboardPort) env.CLDCTRL_DASHBOARD_PORT = String(dashboardPort);
-  // Provider profile: a 'new' tile whose agent id is an alternate Anthropic-
-  // compatible provider (Kimi/GLM/…) launches the `claude` CLI (agentCommand
-  // falls back to claude for unknown ids) with the endpoint env overridden.
-  if (meta.kind === 'new' && meta.agent) {
+  // Provider profile: a tile whose agent id is an alternate Anthropic-compatible
+  // provider (Kimi/GLM/…) launches the `claude` CLI (agentCommand falls back to
+  // claude for unknown ids) with the endpoint env overridden. Applied for BOTH
+  // new AND resume/reattach (getProviderEnv is a no-op for real agents), so a
+  // resumed provider session keeps its endpoint instead of silently reverting to
+  // api.anthropic.com with the user's real Claude auth.
+  if (meta.agent) {
     try {
       const provEnv = (require('./core/providers.js') as typeof import('./core/providers.js')).getProviderEnv(meta.agent);
       if (provEnv) Object.assign(env, provEnv);
@@ -1073,15 +1076,17 @@ function setupAgentTerminal(server: http.Server): boolean {
         if (kind === 'new') {
           const id = url.searchParams.get('id') ?? '';
           if (!/^new:.{1,400}$/.test(id)) { socket.destroy(); return; }
+          const agent = url.searchParams.get('agent') ?? 'claude';
           // Reattach fallback: a popped-out/docked-back 'new' tile reconnecting
           // AFTER its PTY idle-died — the terminal is gone but the session it
-          // created is known, so RESUME that instead of spawning a fresh agent.
+          // created is known, so RESUME that instead of spawning a fresh agent —
+          // with the RIGHT CLI (codex/agy vendor) + provider env (agent) preserved.
           const fb = url.searchParams.get('session') ?? '';
           if (!terminals.has(id) && fb && SAFE_SESSION_ID.test(fb)) {
-            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: proj.path }));
+            const vendor = agent === 'codex' || agent === 'antigravity' ? agent : 'claude';
+            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: proj.path, vendor, agent }));
             return;
           }
-          const agent = url.searchParams.get('agent') ?? 'claude';
           let cwd = proj.path;
           if (url.searchParams.get('worktree') === '1') {
             const wt = await createWorktree(proj.path, (url.searchParams.get('branch') || '').slice(0, 120));
@@ -1356,6 +1361,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const session = typeof body.session === 'string' ? body.session : '';
         const tileId = typeof body.id === 'string' ? body.id : '';
         const agent = typeof body.agent === 'string' && /^[a-z0-9-]{1,20}$/i.test(body.agent) ? body.agent : '';
+        const vendor = body.vendor === 'codex' || body.vendor === 'antigravity' ? body.vendor : '';
         const proj = resolveKnownProject(typeof body.path === 'string' ? body.path : '');
         const sessionOk = kind === 'resume' ? SAFE_SESSION_ID.test(session) : (!session || SAFE_SESSION_ID.test(session));
         const idOk = kind === 'resume' || /^new:.{1,400}$/.test(tileId);
@@ -1365,6 +1371,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         if (session) params.set('session', session);
         if (kind === 'new') params.set('id', tileId);
         if (agent) params.set('agent', agent);
+        if (vendor) params.set('vendor', vendor);
         const widgetUrl = `http://127.0.0.1:${dashboardPort}/?` + params.toString();
         try {
           const { launchAppWindow } = await import('./core/app-launch.js');

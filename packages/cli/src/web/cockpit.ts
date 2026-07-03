@@ -648,7 +648,10 @@ function createTermTile(meta: CockpitTile): LiveTile {
     .replace(/\[@[^\]]+\]/g, '')                                            // pandoc [@smith2020; @jones2019]
     .replace(/(?<![\w])@[A-Za-z][\w:.#$%&+?<>~/-]*\b/g, '')                 // bare pandoc @smith2020
     .replace(/\[\d+(\s*[,;–-]\s*\d+)*\]/g, '')                              // numeric [1] [1,2] [1–3]
-    .replace(/\(\s*(e\.g\.,?\s*|see\s+)?[A-Z][\w'’.-]+(\s+(&|and|et al\.?)\s*[\w'’.-]*)*,?\s+(19|20)\d{2}[a-z]?(\s*[;,]\s*[^()]*?(19|20)\d{2}[a-z]?)*\s*\)/g, '') // (Smith et al., 2020; Doe & Ray 2021)
+    // (Smith et al., 2020; Doe & Ray 2021). Bounded + no nested quantifiers to
+    // avoid catastrophic backtracking on a long note: "(" + optional e.g./see +
+    // a Capitalized name-start + ≤150 non-paren chars (lazy) + a year + ")".
+    .replace(/\(\s*(?:e\.g\.,?\s*|see\s+)?[A-Z][^()]{0,150}?(?:19|20)\d{2}[a-z]?\s*\)/g, '')
     .replace(/\s{2,}/g, ' ');
   const noteReadBtn = el.querySelector('[data-note="read"]') as HTMLButtonElement;
   const setNoteSpeaking = (on: boolean) => {

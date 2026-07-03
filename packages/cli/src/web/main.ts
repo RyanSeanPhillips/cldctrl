@@ -177,7 +177,8 @@ function addResumeTile(sessionId: string, projectPath: string, title: string, op
   const id = 'resume:' + sessionId;
   const cp = getState().ui.cockpit;
   const already = cp.tiles.some((t) => t.id === id);
-  const label = vendor !== 'claude' ? title + ' · ' + vendor : title;
+  const suffix = ' · ' + vendor;
+  const label = vendor !== 'claude' && !title.endsWith(suffix) ? title + suffix : title; // idempotent (dock-back reuses the tagged title)
   const tiles = already
     ? cp.tiles
     : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title: label, vendor }];
@@ -505,7 +506,7 @@ document.addEventListener('click', async (ev) => {
     const session = t.kind === 'new' ? getState().data?.terminalSessions?.[id] : t.sessionId;
     if (!session) { toast('One moment — this session is still initializing'); return; }
     el.setAttribute('disabled', '1'); // no double-launch on double-click
-    const r = await postPopout({ kind: t.kind, id: t.id, session, path: t.projectPath, title: t.title, agent: t.agent });
+    const r = await postPopout({ kind: t.kind, id: t.id, session, path: t.projectPath, title: t.title, agent: t.agent, vendor: t.vendor });
     const opened = r.ok || (r.fallback && r.url && window.open(r.url, '_blank', 'popup,width=980,height=720') != null);
     if (opened) {
       const cp = getState().ui.cockpit;
@@ -817,7 +818,7 @@ if (!WIDGET) {
       if (!req?.tile || Date.now() - req.ts > 5000) return; // stale request
       const t = req.tile;
       if (t.kind === 'resume' && t.sessionId) {
-        addResumeTile(t.sessionId, t.projectPath, t.title, true);
+        addResumeTile(t.sessionId, t.projectPath, t.title, true, t.vendor === 'codex' || t.vendor === 'antigravity' ? t.vendor : 'claude');
       } else if (t.kind === 'new' && t.id) {
         const cp = getState().ui.cockpit;
         if (!cp.tiles.some((x) => x.id === t.id)) {
@@ -851,7 +852,9 @@ async function bootWidget(): Promise<void> {
   // widgets by session. Both carry sessionId for the usage meter + reattach fallback.
   const id = kind === 'new' ? (q.get('id') ?? '') : 'resume:' + session;
   const agent = q.get('agent') || undefined;
-  widgetTile = { id, kind, sessionId: session || undefined, projectPath, title, agent };
+  const wv = q.get('vendor');
+  const vendor = wv === 'codex' || wv === 'antigravity' ? wv : undefined;
+  widgetTile = { id, kind, sessionId: session || undefined, projectPath, title, agent, vendor };
   document.title = title + ' — CLD CTRL';
   const root = document.createElement('div');
   root.className = 'widget-root';

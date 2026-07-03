@@ -62,6 +62,21 @@ function allProfiles(): ProviderProfile[] {
   return [...byId.values()];
 }
 
+/**
+ * Reject a base URL that would leak credentials: require https (so the key +
+ * conversation aren't sent in plaintext), forbid embedded credentials, and allow
+ * http ONLY for loopback (local gateways like Ollama). A malformed or
+ * non-conforming URL disables the profile.
+ */
+export function isSafeProviderUrl(u: string): boolean {
+  let url: URL;
+  try { url = new URL(u); } catch { return false; }
+  if (url.username || url.password) return false;
+  if (url.protocol === 'https:') return true;
+  if (url.protocol === 'http:' && /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i.test(url.hostname)) return true;
+  return false;
+}
+
 /** All profiles with availability, for the dashboard picker. */
 export function listProviderProfiles(): ResolvedProvider[] {
   return allProfiles().map((p) => ({
@@ -69,7 +84,7 @@ export function listProviderProfiles(): ResolvedProvider[] {
     label: p.label || p.id,
     baseUrl: p.baseUrl,
     model: p.model,
-    available: !!keyFor(p),
+    available: !!keyFor(p) && isSafeProviderUrl(p.baseUrl),
     keyHint: p.apiKeyEnv || defaultEnvName(p.id),
   }));
 }
@@ -85,8 +100,16 @@ export function getProviderEnv(id?: string): Record<string, string> | null {
   const p = getProviderProfile(id);
   if (!p) return null;
   const key = keyFor(p);
-  const env: Record<string, string> = { ANTHROPIC_BASE_URL: p.baseUrl };
-  if (key) { env.ANTHROPIC_AUTH_TOKEN = key; env.ANTHROPIC_API_KEY = key; }
+  // SECURITY: NEVER override the endpoint without the provider's OWN key. If we
+  // set ANTHROPIC_BASE_URL with no token, the claude CLI falls back to the user's
+  // real Anthropic OAuth credential and would send it (+ the conversation) to the
+  // provider/attacker URL. No key, or an unsafe URL → no override (runs normal claude).
+  if (!key || !isSafeProviderUrl(p.baseUrl)) return null;
+  const env: Record<string, string> = {
+    ANTHROPIC_BASE_URL: p.baseUrl,
+    ANTHROPIC_AUTH_TOKEN: key,
+    ANTHROPIC_API_KEY: key,
+  };
   if (p.model) { env.ANTHROPIC_MODEL = p.model; }
   return env;
 }
