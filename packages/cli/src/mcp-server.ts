@@ -350,14 +350,22 @@ async function handleCreateProject(args: {
     return result;
   }
 
-  let launch: { success: boolean; message: string } | undefined;
+  let launch: { success: boolean; message: string; surface?: string } | undefined;
   if (args.launch) {
-    const launched = launchAndTrack({
-      projectPath: result.project.path,
-      isNew: true,
+    // Route through the same web-first logic as launch_session: if a dashboard
+    // is up, the fresh project opens as a cockpit TILE (it's already registered
+    // in config + the index by createProject above, so it resolves), otherwise
+    // it falls back to a terminal window. Previously this called launchAndTrack
+    // directly and always spawned a terminal, even with the cockpit running.
+    const routed = (await handleLaunchSession({
+      project: result.project.path,
       prompt: args.prompt,
-    });
-    launch = { success: launched.success, message: launched.message };
+    })) as { success?: boolean; message?: string; surface?: string; error?: string };
+    launch = {
+      success: !!routed.success,
+      message: routed.message ?? routed.error ?? 'Launch attempted.',
+      surface: routed.surface,
+    };
   }
 
   return { ...result, launch };

@@ -12,7 +12,7 @@ import { log } from './logger.js';
 
 function git(args: string[]): Promise<{ ok: boolean; out: string; err: string }> {
   return new Promise((resolve) => {
-    const child = spawn('git', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('git', args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '', err = '';
     child.stdout?.on('data', (d: Buffer) => { out += d.toString(); });
     child.stderr?.on('data', (d: Buffer) => { err += d.toString(); });

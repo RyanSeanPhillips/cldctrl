@@ -148,7 +148,7 @@ export function createProject(opts: CreateProjectOptions): CreateProjectResult {
   if (!fs.existsSync(path.join(projectPath, '.git'))) {
     if (isCommandAvailable('git')) {
       try {
-        execFileSync('git', ['init'], { cwd: projectPath, stdio: 'ignore', timeout: 10000 });
+        execFileSync('git', ['init'], { cwd: projectPath, stdio: 'ignore', timeout: 10000, windowsHide: true });
         steps.gitInitialized = true;
       } catch (err) {
         log('error', { function: 'createProject.gitInit', message: String(err) });

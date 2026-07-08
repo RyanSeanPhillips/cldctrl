@@ -571,7 +571,12 @@ body.sidebar-collapsed .side-handle { opacity: 1; margin-left: 2px; }
 .tile-head { display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s3);
   min-height: 32px; box-sizing: border-box;
   background: var(--surface-2); border-bottom: 1px solid var(--border-strong); cursor: pointer;
-  position: relative; }
+  position: relative;
+  /* When the notepad docks and halves the conversation pane, the header's button
+     row would otherwise overflow past the pane edge and clip the trailing ⤢/✕
+     (close/maximize). Wrapping only kicks in on real overflow, so the normal
+     full-width single-row layout is unchanged. */
+  flex-wrap: wrap; row-gap: 2px; }
 /* "needs input": tint the header + pulse the status dot so the tile stands out in
    the grid (the toolbar's "● N waiting" pill covers the maximized case). */
 .tile.attn .tile-head { background: color-mix(in srgb, var(--warn) 14%, var(--surface-2));

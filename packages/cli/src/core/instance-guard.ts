@@ -82,7 +82,7 @@ function blockedByCurrentDesktop(): boolean {
     const out = execFileSync('powershell', [
       '-NonInteractive', '-NoProfile', '-ExecutionPolicy', 'Bypass',
       '-File', script,
-    ], { timeout: 2000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    ], { timeout: 2000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     return out.includes('BLOCKED');
   } catch {
     return false; // fail open

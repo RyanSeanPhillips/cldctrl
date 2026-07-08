@@ -43,7 +43,7 @@ export function isCommandAvailable(cmd: string): boolean {
   let available: boolean;
   try {
     const which = getPlatform() === 'windows' ? 'where' : 'which';
-    execFileSync(which, [cmd], { stdio: 'pipe' });
+    execFileSync(which, [cmd], { stdio: 'pipe', windowsHide: true });
     available = true;
   } catch {
     available = false;
@@ -60,7 +60,7 @@ export function prewarmCommandCache(cmds: string[]): void {
   const which = getPlatform() === 'windows' ? 'where' : 'which';
   for (const cmd of cmds) {
     if (cmdCache.has(cmd)) continue;
-    execFile(which, [cmd], (err) => {
+    execFile(which, [cmd], { windowsHide: true }, (err) => {
       if (!cmdCache.has(cmd)) cmdCache.set(cmd, !err);
     });
   }
@@ -240,7 +240,7 @@ export function focusWindowByTitle(title: string): boolean {
           $h = [WinFocus]::Find("${title}")
           if ($h -ne [IntPtr]::Zero) { [WinFocus]::ShowWindow($h, 9); [WinFocus]::SetForegroundWindow($h); exit 0 }
           exit 1
-        `], { stdio: 'pipe', timeout: 3000 });
+        `], { stdio: 'pipe', timeout: 3000, windowsHide: true });
         return true;
 
       case 'macos':

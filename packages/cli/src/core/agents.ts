@@ -240,7 +240,7 @@ export function consultAgent(agentId: string, prompt: string, opts: ConsultOpts 
     const finish = (res: ConsultResult) => { if (!done) { done = true; resolve(res); } };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(r.path, args, { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(r.path, args, { cwd: cwd || undefined, env: getCleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     } catch (e) { return finish({ ok: false, agent: agentId, error: String(e) }); }
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish({ ok: false, agent: agentId, error: 'Timed out after ' + Math.round(timeoutMs / 1000) + 's' }); }, timeoutMs);
     child.stdout?.on('data', (d: Buffer) => { out += d.toString(); if (out.length > 2_000_000) { try { child.kill(); } catch { /* ignore */ } } });

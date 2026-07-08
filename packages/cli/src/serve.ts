@@ -940,7 +940,19 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
 
   let term: any;
   try {
-    term = pty.spawn(file, args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: spec.cwd, env });
+    // useConpty: force the headless ConPTY backend on Windows. The legacy winpty
+    // backend spawns a winpty-agent with a real hidden console that can briefly
+    // flash a window; ConPTY (Win10 1809+) creates the pseudo-console with none.
+    // Fall back to node-pty's default backend if ConPTY is unavailable — a
+    // possible flash beats failing to spawn the terminal at all.
+    const ptyOpts = { name: 'xterm-256color', cols: 80, rows: 24, cwd: spec.cwd, env };
+    try {
+      term = pty.spawn(file, args, isWin ? { ...ptyOpts, useConpty: true } : ptyOpts);
+    } catch (conptyErr) {
+      if (!isWin) throw conptyErr;
+      log('serve_term', { event: 'conpty_fallback', id, message: String(conptyErr) });
+      term = pty.spawn(file, args, ptyOpts);
+    }
     if (batPath) setTimeout(() => { try { fs.unlinkSync(batPath); } catch { /* ignore */ } }, 8000);
   } catch (err) {
     log('error', { function: 'spawnTerm', message: 'spawn failed: ' + String(err) });

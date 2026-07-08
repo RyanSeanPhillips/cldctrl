@@ -16,6 +16,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
     const child = spawn('git', args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
 
     let stdout = '';

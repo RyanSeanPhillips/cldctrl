@@ -139,6 +139,7 @@ export function extractProjectName(projectPath: string): string {
       cwd: projectPath,
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 3000,
+      windowsHide: true,
     }).toString().trim();
 
     if (remoteUrl) {
