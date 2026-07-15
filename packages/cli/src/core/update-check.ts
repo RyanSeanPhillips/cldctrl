@@ -8,6 +8,7 @@ import path from 'path';
 import https from 'https';
 import { getConfigDir } from '../config.js';
 import { VERSION } from '../constants.js';
+import { telemetryEnabled } from './error-report.js';
 
 interface UpdateCache {
   latestVersion: string;
@@ -52,6 +53,10 @@ export type ClientKind = 'tui' | 'browser' | 'cli';
 
 function beacon(client: ClientKind, extra: Record<string, unknown>): void {
   try {
+    // One telemetry switch governs everything that phones home: honor the same
+    // opt-out as crash reporting (DO_NOT_TRACK / CLDCTRL_NO_TELEMETRY / the
+    // config's error_reporting.enabled=false). Disclosed in README "Telemetry".
+    if (!telemetryEnabled()) return;
     // Field names match the analytics Worker (app-analytics): `s` → site/surface,
     // `v` → app version (the worker's `ver` column; it was previously sent as `l`,
     // which the worker reads as an event label, so version never recorded — fixed).
@@ -151,8 +156,10 @@ function isNewer(latest: string, current: string): boolean {
  * npm registry (cached 24h) if the endpoint is unavailable.
  */
 export async function checkForUpdate(force = false, client: ClientKind = 'cli'): Promise<string | null> {
-  // One request that both checks the version and records the launch.
-  let latest = await fetchVersionFromHome(client);
+  // One request that both checks the version and records the launch — so with
+  // telemetry opted out, skip our endpoint entirely (it logs adoption stats
+  // server-side) and resolve the version from cache/npm only.
+  let latest = telemetryEnabled() ? await fetchVersionFromHome(client) : null;
 
   if (!latest) {
     // Endpoint down/missing — still count the launch, then resolve the version

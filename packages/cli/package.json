@@ -1,6 +1,6 @@
 {
   "name": "cldctrl",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "Mission control for Claude Code — cross-platform TUI project launcher",
   "license": "AGPL-3.0-only",
   "author": "Ryan Phillips",

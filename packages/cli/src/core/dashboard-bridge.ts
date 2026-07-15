@@ -56,7 +56,13 @@ export function writeAgentSearch(s: AgentSearch): void { writeJson(AGENT_SEARCH_
 export function readAgentSearch(): AgentSearch | null { return readJson<AgentSearch>(AGENT_SEARCH_FILE); }
 
 // ── Scratchpad (agent → dashboard: pop open a markdown draft) ─
-export interface ScratchOpen { path: string; title: string; ts: number; }
+export interface ScratchOpen {
+  path: string; title: string; ts: number;
+  /** Terminal id of the tile whose agent asked (from CLDCTRL_TILE_ID — 'control',
+   *  'resume:<sessionId>', 'new:<id>'), so the dashboard docks the notepad onto the
+   *  CALLING conversation instead of guessing from operator focus. */
+  tile?: string;
+}
 const normSlash = (s: string) => s.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
 
 export function scratchDir(): string {
@@ -124,12 +130,15 @@ export function newNoteFile(title?: string): string {
   return p;
 }
 
-/** Seed/ensure a scratchpad and signal the dashboard to open it. Returns the path. */
-export function openScratchpad(content: string | undefined, title: string | undefined): string {
+/** Seed/ensure a scratchpad and signal the dashboard to open it. Returns the path.
+ *  `tile` is the calling agent's terminal id (CLDCTRL_TILE_ID), when known. */
+export function openScratchpad(content: string | undefined, title: string | undefined, tile?: string): string {
   const p = scratchPath(title);
   if (content != null) fs.writeFileSync(p, content, 'utf-8');
   else if (!fs.existsSync(p)) fs.writeFileSync(p, '', 'utf-8');
-  writeJson(SCRATCH_OPEN_FILE, { path: p, title: title || 'Scratchpad', ts: Date.now() });
+  const sig: ScratchOpen = { path: p, title: title || 'Scratchpad', ts: Date.now() };
+  if (tile) sig.tile = tile;
+  writeJson(SCRATCH_OPEN_FILE, sig);
   return p;
 }
 

@@ -297,7 +297,7 @@ async function poll(): Promise<void> {
     if (sc && sc.ts > lastScratchTs) {
       lastScratchTs = sc.ts;
       if (Date.now() - sc.ts < 5 * 60_000) {
-        if (openAgentScratchpad(sc.path)) {
+        if (openAgentScratchpad(sc.path, sc.tile)) {
           if (getState().ui.cockpit.tiles.length > 1) setCockpit({ layout: 'cols2' });
         } else {
           addDocTile(sc.path, '', true, true);

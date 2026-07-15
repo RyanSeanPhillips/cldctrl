@@ -73,8 +73,9 @@ export interface OverviewPayload {
   projects: ProjectInfo[];
   /** A search the control-plane agent pushed to the dashboard (agent → dashboard). */
   bridge: { query: string; note?: string; results: SearchResult[]; ts: number } | null;
-  /** A scratchpad the agent asked to pop open (agent → dashboard). */
-  scratch: { path: string; title: string; ts: number } | null;
+  /** A scratchpad the agent asked to pop open (agent → dashboard). `tile` is the
+   *  calling agent's terminal id ('control' | 'resume:<sid>' | 'new:<id>'), when known. */
+  scratch: { path: string; title: string; ts: number; tile?: string } | null;
   /** A new session CTRL asked to open as a cockpit tile (agent → dashboard). */
   cockpitLaunches?: Array<{ projectPath: string; project?: string; prompt?: string; ts: number }>;
   /** Messages to inject into a running cockpit session (agent → dashboard, #9). */

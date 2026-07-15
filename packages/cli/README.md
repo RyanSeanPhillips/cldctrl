@@ -182,6 +182,21 @@ Projects are auto-discovered from `~/.claude/projects` and can also be configure
 }
 ```
 
+## Telemetry
+
+CLD CTRL sends two kinds of anonymous, cookieless telemetry to `cld-ctrl.com`, both **fully opt-out** with a single switch:
+
+- **Usage ping** — one tiny "app started" beacon per launch (plus a periodic "still open" heartbeat), carrying only the app version and which surface started (TUI / browser / CLI). No paths, project names, prompts, or personal data — the server derives region-level geo and discards the IP.
+- **Crash reports** — on an unexpected error: the error name, a scrubbed stack signature (file paths and user strings removed), app version, and OS. Never message content, file contents, or paths.
+
+Opt out of **all** of it with any of:
+
+- `DO_NOT_TRACK=1` (the [console DNT standard](https://consoledonottrack.com/))
+- `CLDCTRL_NO_TELEMETRY=1`
+- `"error_reporting": { "enabled": false }` in the config file (or the in-app settings editor, `,` key)
+
+When opted out, version checks go directly to the npm registry instead of the cld-ctrl.com endpoint.
+
 ## Author
 
 **Ryan Phillips** — [@RyanSeanPhillips](https://github.com/RyanSeanPhillips)

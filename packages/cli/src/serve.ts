@@ -839,9 +839,15 @@ interface TermSession {
  *  lazily on each overview poll — an idle `claude` doesn't write its session file
  *  until the first turn, so a one-shot poll-at-spawn would miss it. */
 function fillDiscoveredSessions(): void {
-  // ids already matched to a tile — never claim the same session for two tiles
+  // ids already matched to a tile — never claim the same session for two tiles.
+  // Include live resume: terminals' OWN session ids: `claude --resume` touches
+  // that JSONL, so an undiscovered 'new' tile in the same project would otherwise
+  // "discover" a conversation that already belongs to another tile.
   const claimed = new Set<string>();
-  for (const s of terminals.values()) if (s.discoveredSessionId) claimed.add(s.discoveredSessionId);
+  for (const s of terminals.values()) {
+    if (s.discoveredSessionId) claimed.add(s.discoveredSessionId);
+    if (s.meta.sessionId) claimed.add(s.meta.sessionId);
+  }
   for (const s of terminals.values()) {
     const isCtrl = s.meta.kind === 'control';
     if ((s.meta.kind !== 'new' && !isCtrl) || s.discoveredSessionId || !s.cwd) continue;
@@ -911,6 +917,10 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
 
   const env = getCleanEnv();
   if (dashboardPort) env.CLDCTRL_DASHBOARD_PORT = String(dashboardPort);
+  // Terminal identity: lets an MCP server running inside this PTY say WHICH tile
+  // its agent lives in (e.g. open_scratchpad routes the notepad to the calling
+  // conversation instead of guessing from operator focus).
+  env.CLDCTRL_TILE_ID = id;
   // Provider profile: a tile whose agent id is an alternate Anthropic-compatible
   // provider (Kimi/GLM/…) launches the `claude` CLI (agentCommand falls back to
   // claude for unknown ids) with the endpoint env overridden. Applied for BOTH

@@ -64,6 +64,14 @@ function isEnabled(): boolean {
   return enabledCache;
 }
 
+/** The single telemetry switch, shared by every phone-home in the app: crash
+ *  reports here AND the anonymous launch/heartbeat beacon (update-check.ts).
+ *  False when DO_NOT_TRACK / CLDCTRL_NO_TELEMETRY is set, or the config's
+ *  error_reporting.enabled is explicitly false. */
+export function telemetryEnabled(): boolean {
+  return isEnabled();
+}
+
 /** Mirror config.ts's config-dir resolution, minus zod, for a cheap flag read. */
 function configJsonPath(): string {
   const env = process.env.CLDCTRL_CONFIG_DIR ?? process.env.CLAUDEDOCK_CONFIG_DIR;

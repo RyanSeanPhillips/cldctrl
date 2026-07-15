@@ -73,7 +73,8 @@ export interface Config {
   /** Manual project→group overrides, keyed by normalized path. Absent paths
    *  fall back to auto-categorization. Set conversationally via CTRL. */
   project_groups?: Record<string, string>;
-  /** Scrubbed, PII-free crash telemetry. Default ON; opt out here. */
+  /** The single telemetry switch: crash reports + the anonymous usage beacon.
+   *  Default ON; opt out here (or CLDCTRL_NO_TELEMETRY / DO_NOT_TRACK). */
   error_reporting?: { enabled: boolean };
   /** Conversation search options. `semantic` (default false) turns on the local
    *  embedding re-rank — needs an optional @huggingface/transformers install. */

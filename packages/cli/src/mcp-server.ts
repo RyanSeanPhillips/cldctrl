@@ -1033,7 +1033,10 @@ async function main(): Promise<void> {
           break;
         case 'open_scratchpad': {
           const a = args as { content?: string; title?: string };
-          const p = openScratchpad(a.content, a.title);
+          // Tile identity rides along so the dashboard docks the notepad onto THIS
+          // agent's conversation (cockpit PTYs set CLDCTRL_TILE_ID), not whatever
+          // tile happens to be focused.
+          const p = openScratchpad(a.content, a.title, process.env.CLDCTRL_TILE_ID);
           result = { ok: true, path: p, note: 'Opened in the dashboard cockpit. Edit this file (Write/Edit) to update the draft — it live-reloads. Call save_scratchpad to keep it in a project.' };
           break;
         }

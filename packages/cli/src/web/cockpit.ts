@@ -230,9 +230,12 @@ function wsUrl(t: CockpitTile): string {
     if (t.worktree) u += '&worktree=1&branch=' + encodeURIComponent(t.branch ?? '');
     if (t.prompt) u += '&prompt=' + encodeURIComponent(t.prompt);
     // Discovered session as a reattach fallback: if the 'new:<id>' PTY has been
-    // idle-killed (e.g. a popped-out widget reloading later), the server resumes
-    // the session instead of spawning a fresh, unrelated agent.
-    if (t.sessionId) u += '&session=' + encodeURIComponent(t.sessionId);
+    // idle-killed (e.g. a popped-out widget reloading later, or a laptop waking
+    // after sleep), the server resumes the session instead of spawning a fresh,
+    // unrelated agent. Grid tiles carry the id in discoveredSessionId; widget
+    // pop-outs carry it in sessionId.
+    const sid = t.sessionId ?? t.discoveredSessionId;
+    if (sid) u += '&session=' + encodeURIComponent(sid);
     return u;
   }
   return base + '&kind=resume&session=' + encodeURIComponent(t.sessionId ?? '') + (t.vendor && t.vendor !== 'claude' ? '&vendor=' + t.vendor : '');
@@ -241,8 +244,9 @@ function wsUrl(t: CockpitTile): string {
 function createTermTile(meta: CockpitTile): LiveTile {
   // The CTRL control tile is a mission-control agent, not a project conversation:
   // it has no projectPath/sessionId, so it HIDES project reveal/code, read-aloud,
-  // the docked notepad, and the drag grip; it stays pinned first. It KEEPS restart,
-  // screenshot (its terminal id is exactly 'control'), maximize, attention + theme.
+  // and the drag grip; it stays pinned first. It KEEPS restart, screenshot (its
+  // terminal id is exactly 'control'), maximize, attention + theme — and the docked
+  // notepad, keyed by its stable tile id ('control') with no project association.
   const isControl = meta.kind === 'control';
   const el = document.createElement('div');
   el.className = 'tile' + (isControl ? ' control-tile' : '');
@@ -261,7 +265,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
     `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId ?? '')}" title="Read the latest reply aloud"${meta.sessionId ? '' : ' style="display:none"'}>&#128266;</button>`;
   const grip = isControl ? '<span class="tile-pin" title="Pinned — mission-control agent">&#9670;</span>'
     : '<span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>';
-  const noteBtn = isControl ? '' :
+  const noteBtn =
     `<button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>`;
   // Pop out into its own chromeless window. Resume tiles always can (stable
   // sessionId → the widget attaches to the same 'resume:<id>' PTY). 'new' tiles
@@ -399,6 +403,15 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const connect = () => {
     if (closedByUs) return;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    // The closure `meta` is the tile object from MOUNT time — a 'new' tile learns
+    // its real sessionId (discoveredSessionId) minutes later via the poll, which
+    // writes it to the STORE tile, not this object. Pull it in before building
+    // the URL, or a reconnect after the PTY died (sleep/server restart) respawns
+    // a blank fresh agent instead of resuming the conversation.
+    if (meta.kind === 'new' && !meta.sessionId && !meta.discoveredSessionId) {
+      const cur = getState().ui.cockpit.tiles.find((x) => x.id === meta.id);
+      if (cur?.discoveredSessionId) meta.discoveredSessionId = cur.discoveredSessionId;
+    }
     sock = new WebSocket(wsUrl(meta));
     sock.binaryType = 'arraybuffer';
     sock.onopen = () => { retry = 0; if (status) status.textContent = 'live'; if (dot) dot.className = 'dot on'; arm(); setTimeout(doFit, 40); };
@@ -1301,7 +1314,11 @@ export function syncCockpit(): void {
     for (const meta of cp.tiles) {
       const t = tiles.get(meta.id);
       if (!t?.setContext) continue;
-      const sid = meta.kind === 'new' ? discovered[meta.id] : meta.sessionId;
+      // Live registry first; fall back to the persisted discoveredSessionId — after
+      // a server restart (or a fallback reattach that re-keyed the PTY to
+      // 'resume:<sid>') terminalSessions no longer has the 'new:<id>' entry, but
+      // the conversation is the same one.
+      const sid = meta.kind === 'new' ? (discovered[meta.id] ?? meta.discoveredSessionId) : meta.sessionId;
       const s = sid ? byId.get(sid) : undefined;
       t.setContext(s?.contextSize ?? 0, s?.model ?? null, s?.contextWindow);
       t.setReadSession?.(sid ?? null); // reveal/bind the read-aloud button once the id is known
@@ -1361,8 +1378,26 @@ export function dockNoteInActiveTile(path: string): boolean {
   t.openNoteAt(path);
   return true;
 }
-export function openAgentScratchpad(path: string): boolean {
-  const targetId = pickActiveTermTileId();
+export function openAgentScratchpad(path: string, origin?: string | null): boolean {
+  // `origin` is the calling agent's terminal id (CLDCTRL_TILE_ID via the scratch-open
+  // signal): dock the notepad onto THAT conversation, not whatever the operator happens
+  // to be focused on. A CTRL-originated scratchpad docks onto the control tile itself
+  // (its notepad is keyed by the stable 'control' conversation id). No origin (agent
+  // outside the cockpit, or its tile is gone) falls back to the operator-focus
+  // heuristic — which deliberately excludes the control tile (it's pinned first, so
+  // the "first tile" fallback would otherwise always pick it).
+  let targetId: string | null = null;
+  if (origin === 'control' || origin?.startsWith('control:')) origin = 'control';
+  if (origin) {
+    const termTiles = getState().ui.cockpit.tiles.filter((t) => t.kind !== 'doc');
+    // Match by terminal id; a 'new' tile whose PTY was re-keyed to 'resume:<sid>'
+    // after a server restart matches by its (discovered) sessionId instead.
+    const sid = origin.startsWith('resume:') ? origin.slice('resume:'.length) : null;
+    targetId = termTiles.find((t) => t.id === origin)?.id
+      ?? (sid ? termTiles.find((t) => t.sessionId === sid || t.discoveredSessionId === sid)?.id : undefined)
+      ?? null;
+  }
+  targetId = targetId ?? pickActiveTermTileId();
   if (!targetId) return false;
   const t = tiles.get(targetId);
   if (!t?.openNoteAt) return false;

@@ -66,9 +66,10 @@ const ConfigSchema = z.object({
   // Manual project→group overrides (normalized path → group name). Absent paths
   // fall back to auto-categorization. Edited conversationally via CTRL.
   project_groups: z.record(z.string(), z.string()).default({}),
-  // Scrubbed, PII-free crash telemetry (error name + stack-signature hash +
-  // version/OS only). Default ON; opt out here or via CLDCTRL_NO_TELEMETRY /
-  // DO_NOT_TRACK. See core/error-report.ts.
+  // The single telemetry switch: scrubbed PII-free crash reports (error name +
+  // stack-signature hash + version/OS) AND the anonymous launch/heartbeat
+  // beacon. Default ON; opt out here or via CLDCTRL_NO_TELEMETRY / DO_NOT_TRACK.
+  // See core/error-report.ts (telemetryEnabled) + README "Telemetry".
   error_reporting: z.object({
     enabled: z.boolean().default(true),
   }).default({}),
