@@ -159,6 +159,33 @@ export function openInExplorer(dirPath: string): boolean {
   return true;
 }
 
+/** Extensions that would EXECUTE (not view) on a shell-open — never default-open these. */
+const EXEC_EXTS = /\.(exe|bat|cmd|com|msi|scr|pif|lnk|vbs|vbe|js[e]?|ws[fh]?|hta|jar|app|command|desktop)$/i;
+export function isExecutableFile(filePath: string): boolean { return EXEC_EXTS.test(filePath); }
+
+/**
+ * Shell-open a FILE with the OS-default application for its type (what a
+ * double-click in the file manager would do). Refuses executables — a shell
+ * open would RUN them, not view them; callers should reveal those instead.
+ */
+export function shellOpenFile(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved) || isExecutableFile(resolved)) return false;
+  switch (getPlatform()) {
+    case 'windows':
+      // explorer.exe with a file path performs the shell "open" verb (default app)
+      spawn.spawn('explorer', [resolved], { detached: true, stdio: 'ignore' }).unref();
+      break;
+    case 'macos':
+      spawn.spawn('open', [resolved], { detached: true, stdio: 'ignore' }).unref();
+      break;
+    case 'linux':
+      spawn.spawn('xdg-open', [resolved], { detached: true, stdio: 'ignore' }).unref();
+      break;
+  }
+  return true;
+}
+
 /**
  * Open a URL in the user's default browser (cross-platform). Best-effort.
  */

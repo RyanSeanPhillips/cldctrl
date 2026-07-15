@@ -33,7 +33,7 @@ import { commitNotesSoon, noteHistory, noteRevisionContent, restoreNoteRevision 
 import { captureScreenshot } from './core/screenshot.js';
 import { createWorktree } from './core/worktree.js';
 import { readDaemonCache } from './core/background.js';
-import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, openInExplorer, isCommandAvailable } from './core/platform.js';
+import { getClaudeProjectsDir, normalizePathForCompare, openUrl, getPlatform, openInExplorer, isCommandAvailable, shellOpenFile, isExecutableFile } from './core/platform.js';
 import { listAgents, agentCommand } from './core/agents.js';
 import { listProviderProfiles } from './core/providers.js';
 import { readClaudeTier, getTierLabel, probeRateLimits, getCachedRateLimits, formatResetEpoch } from './core/claude-usage.js';
@@ -1416,12 +1416,36 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         let isFile = false;
         try { isFile = !exact && fs.existsSync(raw) && fs.statSync(raw).isFile(); } catch { isFile = false; }
         const openPath = exact ? exact.path : raw;
-        const target = body.target === 'code' ? 'code' : 'explorer';
+        const target = body.target === 'code' ? 'code' : body.target === 'default' ? 'default' : 'explorer';
         try {
-          if (target === 'code') {
-            if (!isCommandAvailable('code')) { sendJson(res, 200, { ok: false, error: 'VS Code (code) not on PATH' }); return; }
-            spawn.spawn('code', isFile ? ['-g', openPath] : [openPath], { detached: true, stdio: 'ignore' }).unref();
-          } else if (isFile && getPlatform() === 'windows') {
+          if (target === 'default' && isFile) {
+            // OS-default app for the file type (what a double-click would do).
+            // shellOpenFile refuses executables (a shell open would RUN them) —
+            // fall through to a reveal-in-explorer so the click still lands somewhere.
+            if (shellOpenFile(openPath)) { log('serve_reveal', { target, path: openPath, isFile }); sendJson(res, 200, { ok: true, target }); return; }
+            if (!isExecutableFile(openPath)) { sendJson(res, 200, { ok: false, error: 'could not open with the default app' }); return; }
+            spawn.spawn('explorer', ['/select,' + openPath], { detached: true, stdio: 'ignore' }).unref();
+            sendJson(res, 200, { ok: true, target: 'explorer', note: 'executable — revealed instead of run' });
+            return;
+          }
+          if (target === 'code' || target === 'default') { // 'default' on a directory behaves like explorer below
+            if (target === 'code') {
+              // Editor missing → degrade to the OS default app rather than a dead click.
+              if (!isCommandAvailable('code')) {
+                if (isFile && shellOpenFile(openPath)) { sendJson(res, 200, { ok: true, target: 'default', note: 'VS Code not on PATH — opened with the default app' }); return; }
+                sendJson(res, 200, { ok: false, error: 'VS Code (code) not on PATH' }); return;
+              }
+              spawn.spawn('code', isFile ? ['-g', openPath] : [openPath], { detached: true, stdio: 'ignore' }).unref();
+              log('serve_reveal', { target, path: openPath, isFile });
+              sendJson(res, 200, { ok: true, target });
+              return;
+            }
+            openInExplorer(openPath);
+            log('serve_reveal', { target, path: openPath, isFile });
+            sendJson(res, 200, { ok: true, target });
+            return;
+          }
+          if (isFile && getPlatform() === 'windows') {
             spawn.spawn('explorer', ['/select,' + openPath], { detached: true, stdio: 'ignore' }).unref(); // highlight the file
           } else {
             openInExplorer(isFile ? path.dirname(openPath) : openPath);

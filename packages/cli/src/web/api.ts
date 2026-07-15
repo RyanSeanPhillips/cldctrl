@@ -96,7 +96,7 @@ export async function postFile(p: string, content: string): Promise<{ ok?: boole
 }
 
 /** Open a project's location on disk: the system file explorer or VS Code. */
-export async function postReveal(path: string, target: 'explorer' | 'code'): Promise<{ ok?: boolean; error?: string }> {
+export async function postReveal(path: string, target: 'explorer' | 'code' | 'default'): Promise<{ ok?: boolean; error?: string }> {
   const r = await fetch('/api/reveal', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CLDCTRL': '1' },
