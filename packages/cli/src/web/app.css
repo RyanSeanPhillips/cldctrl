@@ -855,3 +855,8 @@ body.widget-mode .tile-head .tile-ava { width: 15px; height: 15px; font-size: 8p
 .cp-provider input:checked + * , .cp-provider.on { }
 .cp-agent.cp-provider { border-color: color-mix(in srgb, var(--info) 45%, var(--border)); }
 .cp-agent.cp-provider::before { content: '↗ '; color: var(--info); opacity: 0.8; }
+
+/* ── floating thumbnail when hovering an image path in a terminal (termlinks) ── */
+.term-img-peek { position: fixed; z-index: 10000; display: none; max-width: 260px; max-height: 200px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--overlay);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45); pointer-events: none; object-fit: contain; }

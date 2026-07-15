@@ -607,6 +607,11 @@ async function handleProjectDetail(tab: string, rawPath: string, rawDir: string)
 // ── File read/write (for cockpit doc tiles) ──────────────────
 // Restricted to files inside a known project; text only, size-capped.
 const FILE_CAP = 5 * 1024 * 1024;
+const IMAGE_CAP = 25 * 1024 * 1024; // screenshots/figures can outgrow FILE_CAP
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  svg: 'image/svg+xml', webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', avif: 'image/avif',
+};
 function normSlash(s: string): string { return s.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, ''); }
 
 function fileInKnownProject(filePath: string): boolean {
@@ -1238,6 +1243,25 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       } else if (req.method === 'GET' && url.pathname === '/api/file') {
         const result = handleReadFile(url.searchParams.get('path') ?? '');
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'GET' && url.pathname === '/api/image') {
+        // Binary image serving for in-app previews (terminal link popups, the
+        // lightbox). Same containment as /api/file: known project or scratch dir.
+        // `sandbox` CSP so an SVG's scripts can never run if opened as a document.
+        const p = url.searchParams.get('path') ?? '';
+        const ext = (p.split('.').pop() ?? '').toLowerCase();
+        const mime = IMAGE_MIME[ext];
+        if (!p || !mime) { sendJson(res, 400, { error: 'Not an image path' }); return; }
+        if (!fileInKnownProject(p)) { sendJson(res, 403, { error: 'Path is not inside a known project' }); return; }
+        try {
+          const st = fs.statSync(p);
+          if (!st.isFile()) { sendJson(res, 404, { error: 'Not a file' }); return; }
+          if (st.size > IMAGE_CAP) { sendJson(res, 413, { error: 'Image too large' }); return; }
+          res.writeHead(200, {
+            'Content-Type': mime, 'Content-Length': st.size, 'Cache-Control': 'no-cache',
+            'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox',
+          });
+          fs.createReadStream(p).pipe(res);
+        } catch { sendJson(res, 404, { error: 'Not found' }); }
       } else if (req.method === 'GET' && url.pathname === '/api/search') {
         const q = url.searchParams.get('q') ?? '';
         // Optional semantic re-rank (config search.semantic, default off) —

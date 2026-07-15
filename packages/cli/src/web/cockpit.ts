@@ -11,7 +11,7 @@ import { getState, setCockpit } from './store.js';
 import type { CockpitTile } from './store.js';
 import { termTheme } from './termtheme.js';
 import { fetchFile, postFile, postNotepad, postNewNote, fetchNotes, postRecordNote, fetchNoteHistory, postRestoreNote, postLatexConvert, type NoteEntry, type NoteRevision } from './api.js';
-import { registerFileLinks } from './termlinks.js';
+import { registerFileLinks, worktreeCwd } from './termlinks.js';
 import { toast } from './toast.js';
 import { flagAttention } from './tabalert.js';
 
@@ -452,7 +452,9 @@ function createTermTile(meta: CockpitTile): LiveTile {
     }
     return true;
   });
-  registerFileLinks(term, meta.projectPath); // clickable file paths in output
+  // Clickable file paths in output. Worktree tiles resolve relative paths
+  // against the WORKTREE dir, not the main checkout (wrong copy otherwise).
+  registerFileLinks(term, worktreeCwd(meta.projectPath, meta.worktree, meta.branch));
   // The bell is the agent's explicit "I need you" (permission prompt / turn done):
   // flash the tab when you're away, and mark the tile waiting when you're not on it.
   try { term.onBell(() => { flagAttention(meta.title + ' · needs input'); if (armed && !focused()) markAttn(meta.id); }); } catch { /* onBell needs proposed API */ }

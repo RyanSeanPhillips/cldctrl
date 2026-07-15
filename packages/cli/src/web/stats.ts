@@ -193,7 +193,8 @@ function wire(body: HTMLElement): void {
 let lbUris: string[] = [];
 let lbIndex = 0;
 
-function openLightbox(uris: string[]): void {
+/** Exported: terminal image links (termlinks.ts) reuse this same viewer. */
+export function openLightbox(uris: string[]): void {
   const lb = document.getElementById('lb');
   if (!lb) return;
   lbUris = uris; lbIndex = 0;

@@ -9,11 +9,53 @@
  *   Ctrl/Cmd+Shift+click → reveal in Explorer/Finder (right-click there for
  *                          "Open with…" when you want to pick the app).
  *   plain click          → just a hint toast.
- * Relative paths resolve against the tile's project cwd; the server validates the
- * path is inside a known project (and never shell-executes executables).
+ * IMAGE paths are special: hovering shows a floating thumbnail, a plain click
+ * opens the in-app lightbox (viewing in-app is harmless — no modifier needed).
+ * URLs (http/https) are clickable too: Ctrl/Cmd+click opens a new tab — the
+ * pattern for "this needs a dev server/env": the agent runs it in ITS terminal
+ * (which has the env) and prints the URL; the link is just the pointer.
+ * Relative paths resolve against the tile's cwd — the WORKTREE dir for worktree
+ * tiles (see worktreeCwd) — and the server validates the path is inside a known
+ * project (and never shell-executes executables).
  */
 import { postReveal } from './api.js';
 import { toast } from './toast.js';
+import { openLightbox } from './stats.js';
+
+const IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
+function isImagePath(p: string): boolean {
+  return IMG_EXTS.has((p.split('.').pop() ?? '').toLowerCase());
+}
+const URL_RE = /https?:\/\/[^\s"'<>|(){}\[\]]+/g;
+
+/** The cwd a tile's relative paths resolve against. Worktree tiles run in
+ *  <project>/.claude/worktrees/<branch-slug> — resolving against the main
+ *  checkout would silently open the WRONG (main-branch) copy of the file.
+ *  Slug rule mirrors core/worktree.ts. */
+export function worktreeCwd(projectPath: string, worktree?: boolean, branch?: string): string {
+  if (!worktree || !projectPath) return projectPath;
+  const s = (branch || 'cockpit/session').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'session';
+  const sep = projectPath.includes('\\') ? '\\' : '/';
+  return projectPath.replace(/[\\/]+$/, '') + sep + '.claude' + sep + 'worktrees' + sep + s;
+}
+
+// ── hover thumbnail (one floating element, shared by all tiles) ──
+let peekEl: HTMLImageElement | null = null;
+function showPeek(src: string, ev: MouseEvent): void {
+  if (!peekEl) {
+    peekEl = document.createElement('img');
+    peekEl.className = 'term-img-peek';
+    peekEl.addEventListener('error', () => { if (peekEl) peekEl.style.display = 'none'; });
+    document.body.appendChild(peekEl);
+  }
+  peekEl.src = src;
+  peekEl.style.display = 'block';
+  // Above the cursor when there's room, below otherwise; clamp into the viewport.
+  const pad = 14, w = 260, h = 200;
+  peekEl.style.left = Math.min(ev.clientX + pad, window.innerWidth - w - pad) + 'px';
+  peekEl.style.top = (ev.clientY > h + 2 * pad ? ev.clientY - h - pad : ev.clientY + pad) + 'px';
+}
+function hidePeek(): void { if (peekEl) { peekEl.style.display = 'none'; peekEl.removeAttribute('src'); } }
 
 // File types where "open" means EDIT: route to VS Code, not the OS association
 // (on Windows .ts is an MPEG stream, .py may be the interpreter, .md often nothing).
@@ -55,13 +97,34 @@ export function registerFileLinks(term: any, projectPath: string): void {
       if (!line) { cb(undefined); return; }
       const text: string = line.translateToString(true);
       const links: any[] = [];
-      PATH_RE.lastIndex = 0;
+      // URLs first — and remember their spans so the path matcher below doesn't
+      // re-match path-looking fragments INSIDE a URL (e.g. localhost:5173/x.html).
+      const urlSpans: Array<[number, number]> = [];
+      URL_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
+      while ((m = URL_RE.exec(text))) {
+        const raw = m[0].replace(/[).,:;]+$/, '');
+        urlSpans.push([m.index, m.index + raw.length]);
+        links.push({
+          range: { start: { x: m.index + 1, y }, end: { x: m.index + raw.length, y } },
+          text: raw,
+          activate: (ev: MouseEvent) => {
+            if (ev.ctrlKey || ev.metaKey) { window.open(raw, '_blank', 'noopener'); return; }
+            const now = Date.now();
+            if (now - lastHint > 2500) { lastHint = now; toast('Ctrl+Click to open the link in a new tab'); }
+          },
+        });
+      }
+      PATH_RE.lastIndex = 0;
       while ((m = PATH_RE.exec(text))) {
         const raw = m[0].replace(/[).,:;]+$/, ''); // trim trailing punctuation
         if (raw.length < 3) continue;
+        const s = m.index, e = m.index + raw.length;
+        if (urlSpans.some(([us, ue]) => s < ue && e > us)) continue; // inside a URL
+        const img = isImagePath(raw);
+        const imgSrc = () => '/api/image?path=' + encodeURIComponent(absolutize(raw, projectPath));
         links.push({
-          range: { start: { x: m.index + 1, y }, end: { x: m.index + raw.length, y } },
+          range: { start: { x: s + 1, y }, end: { x: e, y } },
           text: raw,
           activate: (ev: MouseEvent) => {
             if (ev.ctrlKey || ev.metaKey) {
@@ -71,10 +134,14 @@ export function registerFileLinks(term: any, projectPath: string): void {
               open(raw, target);
               return;
             }
-            // plain click → don't open; teach the gesture (throttled)
+            // plain click: images pop the in-app lightbox (harmless to view);
+            // everything else teaches the gesture (throttled)
+            if (img) { hidePeek(); openLightbox([imgSrc()]); return; }
             const now = Date.now();
             if (now - lastHint > 2500) { lastHint = now; toast('Ctrl+Click to open · Ctrl+Alt+Click default app · Ctrl+Shift+Click reveal'); }
           },
+          hover: img ? (ev: MouseEvent) => showPeek(imgSrc(), ev) : undefined,
+          leave: img ? () => hidePeek() : undefined,
         });
       }
       cb(links.length ? links : undefined);
