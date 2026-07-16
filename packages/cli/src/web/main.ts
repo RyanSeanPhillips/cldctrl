@@ -1,11 +1,11 @@
 import './app.css';
 import { render } from 'uhtml';
 import { appView } from './views.js';
-import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession, disablePersistence } from './store.js';
-import type { CockpitTile } from './store.js';
+import { getState, subscribe, setData, setConnError, setUi, setTranscript, setDetail, resetDetail, setSearch, setCockpit, loadPersistedSession, clearPersistedSession, disablePersistence, loadPopouts, heartbeatPopout, removePopout } from './store.js';
+import type { CockpitTile, RestoreItem } from './store.js';
 import type { DetailTab } from './types.js';
 import {
-  fetchOverview, fetchTranscript, postLaunch,
+  fetchOverview, fetchTranscript, fetchTranscriptMeta, postLaunch,
   fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, postHandoffBrief, fetchNotes,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
@@ -419,7 +419,9 @@ document.addEventListener('click', async (ev) => {
   // hidden by CSS but guard anyway. All other tile actions (notepad, restart,
   // screenshot, read-aloud, reveal) fall through unchanged.
   if (WIDGET) {
-    if (act === 'tile-close') { window.close(); return; }
+    // Explicit ✕ = a deliberate close: drop the registry entry so a later
+    // restart doesn't offer to resurrect a window the user chose to close.
+    if (act === 'tile-close') { if (widgetTile) removePopout(widgetTile.id); window.close(); return; }
     if (act === 'tile-dock') { requestDockBack(); return; }
     if (act === 'tile-max' || act === 'tile-popout') return;
   }
@@ -509,6 +511,9 @@ document.addEventListener('click', async (ev) => {
     const r = await postPopout({ kind: t.kind, id: t.id, session, path: t.projectPath, title: t.title, agent: t.agent, vendor: t.vendor });
     const opened = r.ok || (r.fallback && r.url && window.open(r.url, '_blank', 'popup,width=980,height=720') != null);
     if (opened) {
+      // Track it: popped-out conversations live outside the persisted grid, so
+      // the registry is what lets restart-restore find them again.
+      heartbeatPopout({ ...t, sessionId: session });
       const cp = getState().ui.cockpit;
       setCockpit({ tiles: cp.tiles.filter((x) => x.id !== id), open: true, maximized: cp.maximized === id ? null : cp.maximized });
       toast('Popped out — dock it back with the tile’s ⇘ button (or the sidebar)');
@@ -563,10 +568,32 @@ document.addEventListener('click', async (ev) => {
     renderApp();
   }
   else if (act === 'restore-accept') {
+    // Banner "Restore all": everything back where it was (dest = origin).
     const o = getState().ui.restoreOffer;
-    if (o) { setCockpit({ tiles: o.tiles, layout: o.layout, open: true, maximized: null }); setUi({ restoreOffer: null, selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+    if (o) void applyRestore(o.items.map((i) => ({ ...i, dest: i.origin })), o.layout);
   }
-  else if (act === 'restore-dismiss') { setUi({ restoreOffer: null }); clearPersistedSession(); }
+  else if (act === 'restore-choose') {
+    const o = getState().ui.restoreOffer;
+    if (o) { setUi({ restoreOffer: { ...o, chooserOpen: true } }); enrichRestoreItems(); }
+  }
+  else if (act === 'restore-chooser-close') {
+    const o = getState().ui.restoreOffer;
+    if (o) setUi({ restoreOffer: { ...o, chooserOpen: false } });
+  }
+  else if (act === 'restore-apply') {
+    const o = getState().ui.restoreOffer;
+    if (o) void applyRestore(o.items, o.layout);
+  }
+  else if (act === 'restore-peek') {
+    const o = getState().ui.restoreOffer;
+    const it = o?.items.find((x) => x.tile.id === el.dataset.id);
+    if (it) { it.peek = !it.peek; setUi({}); }
+  }
+  else if (act === 'restore-dismiss') {
+    const o = getState().ui.restoreOffer;
+    if (o) for (const i of o.items) { if (i.origin === 'win') removePopout(i.tile.id); }
+    setUi({ restoreOffer: null }); clearPersistedSession();
+  }
   else if (act === 'sidebar-toggle') { setUi({ sidebarCollapsed: !getState().ui.sidebarCollapsed }); }
   else if (act === 'toggle-group') {
     const g = el.dataset.group!;
@@ -730,15 +757,166 @@ document.addEventListener('change', (ev) => {
   } else if (t.dataset?.act === 'theme-select') {
     applyTheme((t as unknown as HTMLSelectElement).value as ThemeId);
     renderApp();
+  } else if (t.dataset?.act === 'restore-ck') {
+    // Keep/skip checkbox on a chooser card: unchecked = leave it behind.
+    const o = getState().ui.restoreOffer;
+    const it = o?.items.find((x) => x.tile.id === t.dataset.id);
+    if (it) { it.dest = (t as unknown as HTMLInputElement).checked ? it.origin : 'skip'; setUi({}); }
   }
 });
 
+// ── restore chooser: drag cards between zones ────────────────
+// Delegated so uhtml re-renders don't drop listeners. Cards carry data-rid,
+// zones data-rzone ('grid' | 'win' | 'skip').
+if (!WIDGET) {
+  document.addEventListener('dragstart', (e) => {
+    const card = (e.target as HTMLElement).closest?.('[data-rid]') as HTMLElement | null;
+    if (card && e.dataTransfer) { e.dataTransfer.setData('text/plain', card.dataset.rid!); e.dataTransfer.effectAllowed = 'move'; }
+  });
+  document.addEventListener('dragover', (e) => {
+    const zone = (e.target as HTMLElement).closest?.('[data-rzone]') as HTMLElement | null;
+    if (zone) { e.preventDefault(); zone.classList.add('dropover'); }
+  });
+  document.addEventListener('dragleave', (e) => {
+    ((e.target as HTMLElement).closest?.('[data-rzone]') as HTMLElement | null)?.classList.remove('dropover');
+  });
+  document.addEventListener('drop', (e) => {
+    const zone = (e.target as HTMLElement).closest?.('[data-rzone]') as HTMLElement | null;
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.remove('dropover');
+    const id = e.dataTransfer?.getData('text/plain');
+    const o = getState().ui.restoreOffer;
+    const it = o?.items.find((x) => x.tile.id === id);
+    if (!it) return;
+    const dest = zone.dataset.rzone as 'grid' | 'win' | 'skip';
+    if (dest === 'win' && it.tile.kind !== 'resume' && it.tile.kind !== 'new') { toast('Only conversations can open as their own window'); return; }
+    it.dest = dest;
+    setUi({});
+  });
+}
+
 // ── boot ─────────────────────────────────────────────────────
 // Bring back where you left off. Fresh reopen (PTYs still alive) → restore +
-// reconnect silently; stale (next day) → offer to restore, no surprise spawns.
+// reconnect silently, including relaunching pop-out windows that died with the
+// app; stale (next day) → banner + chooser, no surprise spawns.
+
+/** Popped-out conversations that died WITH the app (vs deliberately closed or
+ *  still alive in their own window right now). Prunes dead-wood entries. */
+function collectOrphanPopouts(persistTs: number): CockpitTile[] {
+  const map = loadPopouts();
+  const now = Date.now();
+  const ALIVE_MS = 20_000;             // widget heartbeats every ~5s
+  const SHUTDOWN_WINDOW_MS = 10 * 60_000; // "closed around app shutdown" (windows are closed one at a time)
+  const orphans: CockpitTile[] = [];
+  for (const [id, e] of Object.entries(map)) {
+    if (!e?.tile || typeof e.lastSeen !== 'number') { removePopout(id); continue; }
+    if (now - e.lastSeen < ALIVE_MS) continue; // its window is open right now
+    // A widget that outlived the main window (lastSeen > persistTs) also counts
+    // as "was open at shutdown" — e.g. main closed first, widget died later.
+    if (e.lastSeen >= persistTs - SHUTDOWN_WINDOW_MS) orphans.push(e.tile);
+    else removePopout(id); // closed long before shutdown — a deliberate close
+  }
+  return orphans;
+}
+
+/** Re-open a conversation as its own chromeless window; grid-tile fallback so
+ *  a failed launch never loses the conversation. */
+async function relaunchPopout(t: CockpitTile): Promise<void> {
+  const session = t.sessionId ?? '';
+  if (!session || (t.kind !== 'resume' && t.kind !== 'new')) { removePopout(t.id); return; }
+  const r = await postPopout({ kind: t.kind, id: t.id, session, path: t.projectPath, title: t.title, agent: t.agent, vendor: t.vendor });
+  const opened = r.ok || (r.fallback && r.url && window.open(r.url, '_blank', 'popup,width=980,height=720') != null);
+  if (opened) {
+    heartbeatPopout(t); // fresh lastSeen until the widget's own heartbeat takes over
+  } else {
+    removePopout(t.id);
+    addResumeTile(session, t.projectPath, t.title, false, t.vendor === 'codex' || t.vendor === 'antigravity' ? t.vendor : 'claude');
+    toast('Couldn’t reopen "' + t.title + '" as a window — restored it as a tile instead');
+  }
+}
+
+/** A pop-out tile as it should be RESTORED after a full restart: the PTY is
+ *  gone, so a discovered 'new' tile becomes a resume of its real session. */
+function popoutRestoreTile(t: CockpitTile): CockpitTile | null {
+  if (t.kind === 'resume') return t;
+  if (t.kind === 'new' && t.sessionId && !t.worktree) {
+    return { id: 'resume:' + t.sessionId, kind: 'resume', sessionId: t.sessionId, projectPath: t.projectPath, title: t.title, vendor: t.vendor };
+  }
+  return null; // nothing resumable (undiscovered/worktree 'new') — leave it behind
+}
+
+/** Apply the restore offer: each item to its chosen destination. Grid tiles
+ *  MERGE with anything already open (the banner is non-blocking — the user may
+ *  have started working before deciding). */
+async function applyRestore(items: RestoreItem[], layout: 'cols1' | 'cols2' | 'grid'): Promise<void> {
+  const gridTiles = items.filter((i) => i.dest === 'grid').map((i) => i.tile);
+  const winTiles = items.filter((i) => i.dest === 'win').map((i) => i.tile);
+  // Everything offered leaves the registry: restored windows re-register on
+  // relaunch; grid/skipped conversations no longer belong to a window.
+  for (const i of items) removePopout(i.tile.id);
+  const cur = getState().ui.cockpit.tiles;
+  const seen = new Set(cur.map((t) => t.id));
+  const merged = [...cur, ...gridTiles.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)))];
+  setCockpit({ tiles: merged, layout, open: true, maximized: null });
+  setUi({ restoreOffer: null, selectedProject: null });
+  setSearch({ query: '', results: [] });
+  writeHash();
+  for (const t of winTiles) void relaunchPopout(t);
+  const skipped = items.length - gridTiles.length - winTiles.length;
+  toast('Restored ' + gridTiles.length + ' tile' + (gridTiles.length === 1 ? '' : 's')
+    + (winTiles.length ? ' + ' + winTiles.length + ' window' + (winTiles.length === 1 ? '' : 's') : '')
+    + (skipped ? ' (skipped ' + skipped + ')' : ''));
+}
+
+/** Fill the chooser's cards with summary, context %, model, and last prompts.
+ *  All fetches are fire-and-forget; cards render what has arrived so far. */
+function enrichRestoreItems(): void {
+  const o = getState().ui.restoreOffer;
+  if (!o) return;
+  // Summaries: one per-project sessions fetch (server-memoized), matched by id.
+  for (const p of [...new Set(o.items.map((i) => i.tile.projectPath).filter(Boolean))]) {
+    fetchProjectSessions(p).then((rows) => {
+      const o2 = getState().ui.restoreOffer;
+      if (!o2) return;
+      let changed = false;
+      for (const it of o2.items) {
+        const row = it.tile.sessionId ? rows.find((r) => r.id === it.tile.sessionId) : undefined;
+        if (row?.summary && !it.summary) { it.summary = row.summary; changed = true; }
+      }
+      if (changed) setUi({});
+    }).catch(() => { /* card just shows no summary */ });
+  }
+  // Context meter + model + last prompts: one transcript-tail fetch per session.
+  for (const it of o.items) {
+    const sid = it.tile.sessionId;
+    if (!sid || it.ctxPct !== undefined) continue;
+    it.ctxPct = null; // in-flight marker (also the "unknown" render state)
+    fetchTranscriptMeta(sid).then((m) => {
+      const o2 = getState().ui.restoreOffer;
+      const cur = o2?.items.find((x) => x.tile.id === it.tile.id);
+      if (!cur) return;
+      const win = getState().data?.sessions.find((s) => s.id === sid)?.contextWindow ?? 200_000;
+      cur.ctxPct = m.contextSize > 0 ? Math.min(100, Math.round((m.contextSize / win) * 100)) : null;
+      cur.model = m.model;
+      cur.lastPrompts = m.entries.filter((e) => e.role === 'user').slice(-3).map((e) => e.text);
+      setUi({});
+    }).catch(() => { /* meter stays unknown */ });
+  }
+}
+
 function restoreSession(): void {
   const p = loadPersistedSession();
-  if (!p) return;
+  const orphanPopouts = collectOrphanPopouts(p?.ts ?? 0);
+  if (!p && !orphanPopouts.length) return;
+  if (!p) {
+    // No persisted grid (e.g. cleared storage) but orphaned pop-outs exist —
+    // still offer those rather than silently dropping them.
+    const items = orphanPopouts.map(popoutRestoreTile).filter((t): t is CockpitTile => !!t)
+      .map((tile): RestoreItem => ({ tile, origin: 'win', dest: 'win' }));
+    if (items.length) setUi({ restoreOffer: { layout: 'cols2', items, chooserOpen: false } });
+    return;
+  }
   setUi({ sidebarCollapsed: !!p.sidebarCollapsed, collapsedGroups: p.collapsedGroups ?? [] });
   // Resume the SAME conversation a 'new' tile created (no manual /resume): if we
   // captured its real sessionId, restore it as a resume tile. Otherwise strip the
@@ -765,17 +943,27 @@ function restoreSession(): void {
   // here too (in case of stale localStorage from before this changed).
   const seen = new Set<string>();
   const tiles = mapped.filter((t) => t.kind !== 'control' && (seen.has(t.id) ? false : (seen.add(t.id), true)));
-  if (!tiles.length) return;
+  if (!tiles.length && !orphanPopouts.length) return;
   const FRESH_MS = 8 * 60_000; // inside the server's ~10-min PTY idle window
   if (Date.now() - p.ts < FRESH_MS) {
     // Force open:true — the cockpit is the always-open home surface (stale localStorage
     // from the old List/Cockpit tab era could otherwise carry open:false).
-    setCockpit({ tiles, layout: p.cockpit.layout, open: true, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
+    if (tiles.length) setCockpit({ tiles, layout: p.cockpit.layout, open: true, maximized: p.cockpit.maximized, hiddenProjects: p.cockpit.hiddenProjects ?? [] });
     // Land on the cockpit — a project left in the URL hash (readHash set
     // selectedProject) would otherwise hide the restored tiles. Mirror restore-accept.
     setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
+    // Pop-outs that died with the app come back as windows too — "get me back
+    // to where I was". Their PTYs are still inside the idle grace, so the
+    // relaunched widgets reattach seamlessly.
+    for (const t of orphanPopouts) void relaunchPopout(t);
   } else {
-    setUi({ restoreOffer: { tiles, layout: p.cockpit.layout } });
+    const items: RestoreItem[] = [
+      ...tiles.map((tile): RestoreItem => ({ tile, origin: 'grid' as const, dest: 'grid' as const })),
+      ...orphanPopouts.map(popoutRestoreTile).filter((t): t is CockpitTile => !!t)
+        .filter((t) => !seen.has(t.id)) // popped out AND somehow still in the grid — grid entry wins
+        .map((tile): RestoreItem => ({ tile, origin: 'win' as const, dest: 'win' as const })),
+    ];
+    if (items.length) setUi({ restoreOffer: { layout: p.cockpit.layout, items, chooserOpen: false } });
   }
 }
 
@@ -829,6 +1017,7 @@ if (!WIDGET) {
         }
         setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash();
       } else return;
+      removePopout(t.id); // it's a grid tile again — the persisted grid owns it now
       localStorage.setItem(DOCK_ACK, JSON.stringify({ ts: req.ts }));
     } catch { /* malformed request */ }
   });
@@ -855,6 +1044,7 @@ async function bootWidget(): Promise<void> {
   const wv = q.get('vendor');
   const vendor = wv === 'codex' || wv === 'antigravity' ? wv : undefined;
   widgetTile = { id, kind, sessionId: session || undefined, projectPath, title, agent, vendor };
+  heartbeatPopout(widgetTile); // register/refresh this window's entry (~5s cadence below)
   document.title = title + ' — CLD CTRL';
   const root = document.createElement('div');
   root.className = 'widget-root';
@@ -873,7 +1063,10 @@ async function bootWidget(): Promise<void> {
     t.setReadSession?.(sid ?? null);
   };
   applyUsage(getState().data);
-  setInterval(async () => { try { setData(await fetchOverview()); applyUsage(getState().data); } catch { /* offline tick */ } }, 5000);
+  setInterval(async () => {
+    if (widgetTile) heartbeatPopout(widgetTile); // liveness signal for restart-restore
+    try { setData(await fetchOverview()); applyUsage(getState().data); } catch { /* offline tick */ }
+  }, 5000);
 }
 
 if (WIDGET) {

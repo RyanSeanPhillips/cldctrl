@@ -1,7 +1,7 @@
 /** All dashboard views, rendered declaratively with uhtml from store state. */
 import { html, svg } from 'uhtml';
 import type { OverviewPayload, SessionInfo, ProjectInfo, UsageWindow, HeatCell } from './types.js';
-import type { State } from './store.js';
+import type { State, RestoreItem, RestoreOffer } from './store.js';
 import { tok, ago, clamp } from './util.js';
 import { THEMES, currentTheme } from './theme.js';
 
@@ -610,6 +610,88 @@ function cockpitFloat(state: State): Tpl {
       title="A conversation finished its turn / wants input — click to jump to it">● ${cp.attnTiles.length} waiting</button></div>` : ''}`;
 }
 
+// ── restore workspace (banner + spatial chooser) ─────────────
+// Stale-reopen flow: a slim banner offers Restore all / Choose… / Dismiss; the
+// chooser is a drag-and-drop map of the last session — a Cockpit zone with tile
+// cards, an Own-windows zone for popped-out conversations, and a Don't-restore
+// zone. Drag between zones (or uncheck) to pick where each conversation reopens.
+
+function rstVendorChip(vendor?: string): Tpl | string {
+  if (!vendor || vendor === 'claude') return '';
+  const label = vendor === 'antigravity' ? '✦ agy' : vendor === 'codex' ? '⬡ codex' : vendor;
+  return html`<span class=${'vendor-chip ' + vendor}>${label}</span>`;
+}
+
+function rstMeter(it: RestoreItem): Tpl {
+  if (it.ctxPct == null) return html`<div class="rst-ctx dim">${it.tile.kind === 'doc' ? 'notepad / document' : 'context: —'}</div>`;
+  const level = it.ctxPct >= 85 ? 'crit' : it.ctxPct >= 65 ? 'warn' : '';
+  return html`<div class="rst-ctx">
+    <div class=${'rst-meter ' + level}><i style=${'width:' + it.ctxPct + '%'}></i></div>
+    <span class="num">${it.ctxPct}%</span><span>of ctx</span>
+  </div>`;
+}
+
+function rstCard(it: RestoreItem): Tpl {
+  const t = it.tile;
+  const skip = it.dest === 'skip';
+  const proj = t.projectPath ? (t.projectPath.split(/[/\\]/).pop() || t.projectPath) : '';
+  const canPeek = !!it.lastPrompts?.length;
+  return html`<div class=${'rst-card' + (skip ? ' skip' : '')} draggable="true" data-rid=${t.id}>
+    <div class="rst-row">
+      <input type="checkbox" data-act="restore-ck" data-id=${t.id} ?checked=${!skip} title="Keep / skip">
+      <span class="rst-title" title=${t.title}>${t.title}</span>
+    </div>
+    <div class="rst-row rst-meta">
+      <span class="rst-proj">${proj}</span>${rstVendorChip(t.vendor)}
+      ${it.origin === 'win' ? html`<span class="rst-chip">⧉ window</span>` : ''}
+      ${t.kind === 'doc' ? html`<span class="rst-chip">✎ doc</span>` : ''}
+    </div>
+    ${it.summary ? html`<div class="rst-sum" title=${it.summary}>${it.summary}</div>` : ''}
+    ${it.peek && canPeek ? html`<div class="rst-peek"><div class="rst-pkh">last prompts</div>
+      ${it.lastPrompts!.map((p) => html`<div class="rst-pkp" title=${p}>› ${p}</div>`)}</div>` : ''}
+    <div class="rst-row">
+      ${rstMeter(it)}
+      ${canPeek ? html`<button class=${'rst-pkbtn' + (it.peek ? ' on' : '')} data-act="restore-peek" data-id=${t.id}
+        title="Show the last prompts sent to this conversation">${it.peek ? '▴' : '▾'}</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function rstZone(ro: RestoreOffer, zone: 'grid' | 'win' | 'skip'): Tpl {
+  const items = ro.items.filter((i) => i.dest === zone);
+  const label = zone === 'grid' ? '▦ Cockpit' : zone === 'win' ? '⧉ Own windows' : '✕ Don’t restore';
+  const hint = zone === 'skip' ? html`<div class="rst-hint">drop here to leave a conversation behind — it stays in the sidebar list</div>` : '';
+  return html`<div class=${'rst-zone rst-zone-' + zone} data-rzone=${zone}>
+    <h3>${label} <span class="rst-cnt">(${items.length})</span></h3>
+    <div class="rst-cards">${items.map(rstCard)}${hint}</div>
+  </div>`;
+}
+
+function restoreChooser(ro: RestoreOffer): Tpl {
+  const g = ro.items.filter((i) => i.dest === 'grid').length;
+  const w = ro.items.filter((i) => i.dest === 'win').length;
+  const s = ro.items.filter((i) => i.dest === 'skip').length;
+  return html`<div class="rst-back">
+    <div class="rst-modal">
+      <div class="rst-head">
+        <h2>Restore your workspace</h2>
+        <span class="rst-sub">drag a conversation between zones · uncheck to skip it</span>
+        <span class="sp"></span>
+        <button class="btn icon" data-act="restore-chooser-close" title="Back to the banner">✕</button>
+      </div>
+      <div class="rst-body"><div class="rst-zones">
+        ${rstZone(ro, 'grid')}${rstZone(ro, 'win')}${rstZone(ro, 'skip')}
+      </div></div>
+      <div class="rst-foot">
+        <span class="rst-hint">Would restore ${g} into the cockpit${w ? ' + ' + w + ' as own window' + (w === 1 ? '' : 's') : ''}${s ? ', skip ' + s : ''}</span>
+        <span class="sp"></span>
+        <button class="btn ghost" data-act="restore-dismiss">Start fresh</button>
+        <button class="btn primary" data-act="restore-apply">Restore</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // ── root ─────────────────────────────────────────────────────
 export function appView(state: State): Tpl {
   const d = state.data;
@@ -621,11 +703,13 @@ export function appView(state: State): Tpl {
   const ro = state.ui.restoreOffer;
   return html`
     ${ro ? html`<div class="restore-banner">
-      <span>↩ Pick up where you left off — restore ${ro.tiles.length} conversation${ro.tiles.length === 1 ? '' : 's'} from your last session?</span>
+      <span>↩ Pick up where you left off — restore ${ro.items.length} conversation${ro.items.length === 1 ? '' : 's'} from your last session?</span>
       <span class="sp"></span>
-      <button class="btn primary" data-act="restore-accept">Restore</button>
+      <button class="btn primary" data-act="restore-accept">Restore all</button>
+      <button class="btn" data-act="restore-choose">Choose…</button>
       <button class="btn" data-act="restore-dismiss">Dismiss</button>
     </div>` : ''}
+    ${ro?.chooserOpen ? restoreChooser(ro) : ''}
     ${home ? cockpitFloat(state) : ''}
     <div class="body">
       ${sidebar(d, state, state.search.query, matchPaths)}

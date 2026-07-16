@@ -22,4 +22,15 @@ if (missing.length) {
   console.error('✗ publish blocked — missing build artifacts:\n  ' + missing.join('\n  '));
   process.exit(1);
 }
-console.log('✓ publish check: all shipped artifacts present');
+
+// Version-sync gate: constants.ts VERSION is hardcoded (rootDir blocks a
+// package.json import) and silently drifted 0.3.7 → 0.4.x once already. It
+// feeds the dashboard sidebar, TUI welcome, and the update-available check.
+const pkgVersion = JSON.parse(fs.readFileSync(path.join(pkg, 'package.json'), 'utf8')).version;
+const constants = fs.readFileSync(path.join(pkg, 'src', 'constants.ts'), 'utf8');
+const m = constants.match(/export const VERSION = '([^']+)'/);
+if (!m || m[1] !== pkgVersion) {
+  console.error(`✗ publish blocked — src/constants.ts VERSION ('${m?.[1] ?? '?'}') != package.json version ('${pkgVersion}')`);
+  process.exit(1);
+}
+console.log('✓ publish check: all shipped artifacts present, VERSION in sync (' + pkgVersion + ')');

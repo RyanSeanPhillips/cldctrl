@@ -35,8 +35,10 @@ export interface HandoffBrief {
   error?: string;
 }
 
-/** Locate a Claude session's JSONL by id + return its project cwd. */
-function resolveClaudeSession(sessionId: string): { file: string; cwd: string } | null {
+/** Locate a Claude session's JSONL by id + return its project cwd. Works for
+ *  DEAD sessions too (scans the projects dir) — also used by /api/transcript
+ *  so the restore picker can peek at conversations from a previous day. */
+export function resolveClaudeSession(sessionId: string): { file: string; cwd: string } | null {
   const root = getClaudeProjectsDir();
   let slugs: string[];
   try { slugs = fs.readdirSync(root); } catch { return null; }

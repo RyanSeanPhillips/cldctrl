@@ -362,8 +362,16 @@ interface TranscriptEntry {
   text: string;
 }
 
+interface TranscriptTail {
+  entries: TranscriptEntry[];
+  /** Context occupancy of the LAST assistant turn (cacheRead + input + cacheWrite),
+   *  same formula as activity.ts lastContextSize — feeds the restore picker's meter. */
+  contextSize: number;
+  model: string | null;
+}
+
 /** Extract the last ~30 conversational turns from a session JSONL. */
-function readTranscriptTail(filePath: string): TranscriptEntry[] {
+function readTranscriptTail(filePath: string): TranscriptTail {
   const stat = fs.statSync(filePath);
   const start = Math.max(0, stat.size - TRANSCRIPT_TAIL_BYTES);
   const buf = Buffer.alloc(stat.size - start);
@@ -378,6 +386,8 @@ function readTranscriptTail(filePath: string): TranscriptEntry[] {
   if (start > 0) lines = lines.slice(1); // first line may be partial
 
   const entries: TranscriptEntry[] = [];
+  let contextSize = 0;
+  let model: string | null = null;
   const push = (role: TranscriptEntry['role'], text: string) => {
     const t = text.replace(/\s+/g, ' ').trim();
     if (!t) return;
@@ -398,6 +408,12 @@ function readTranscriptTail(filePath: string): TranscriptEntry[] {
         if (text && !text.startsWith('<')) push('user', text);
       }
     } else if (obj.type === 'assistant' && obj.message && Array.isArray(obj.message.content)) {
+      const u = obj.message.usage;
+      if (u) {
+        const turnCtx = (u.cache_read_input_tokens ?? 0) + (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+        if (turnCtx > 0) contextSize = turnCtx;
+      }
+      if (obj.message.model) model = obj.message.model;
       for (const block of obj.message.content) {
         if (block.type === 'text' && block.text) {
           push('assistant', block.text);
@@ -410,7 +426,7 @@ function readTranscriptTail(filePath: string): TranscriptEntry[] {
     }
   }
 
-  return entries.slice(-MAX_TRANSCRIPT_ENTRIES);
+  return { entries: entries.slice(-MAX_TRANSCRIPT_ENTRIES), contextSize, model };
 }
 
 async function handleTranscript(sessionId: string): Promise<{ status: number; body: unknown }> {
@@ -426,10 +442,19 @@ async function handleTranscript(sessionId: string): Promise<{ status: number; bo
       if (s.sessionId && s.sessionFilePath) sessionFileMap.set(s.sessionId, s.sessionFilePath);
     }
   }
+  // Dead-session fallback (restore picker peeks at yesterday's conversations):
+  // scan the Claude projects dir directly — active-session detection won't find
+  // sessions older than the 5h window.
+  if (!sessionFileMap.has(sessionId)) {
+    const { resolveClaudeSession } = await import('./core/handoff.js');
+    const r = resolveClaudeSession(sessionId);
+    if (r) sessionFileMap.set(sessionId, r.file);
+  }
   const filePath = sessionFileMap.get(sessionId);
   if (!filePath) return { status: 404, body: { error: 'Session not found' } };
   try {
-    return { status: 200, body: { entries: readTranscriptTail(filePath) } };
+    const tail = readTranscriptTail(filePath);
+    return { status: 200, body: { entries: tail.entries, contextSize: tail.contextSize, model: tail.model } };
   } catch (err) {
     log('error', { function: 'handleTranscript', message: String(err) });
     return { status: 500, body: { error: 'Failed to read transcript' } };

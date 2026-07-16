@@ -18,6 +18,16 @@ export async function fetchTranscript(id: string): Promise<TranscriptEntry[]> {
   return d.entries ?? [];
 }
 
+/** Transcript tail + context/model metadata — feeds the restore chooser's
+ *  per-conversation context meter and "last prompts" peek. Works for DEAD
+ *  sessions (the server scans the Claude projects dir as a fallback). */
+export async function fetchTranscriptMeta(id: string): Promise<{ entries: TranscriptEntry[]; contextSize: number; model: string | null }> {
+  const r = await fetch('/api/transcript?id=' + encodeURIComponent(id));
+  if (!r.ok) throw new Error('transcript ' + r.status);
+  const d = await r.json();
+  return { entries: d.entries ?? [], contextSize: d.contextSize ?? 0, model: d.model ?? null };
+}
+
 export interface LaunchResult {
   success?: boolean;
   message?: string;

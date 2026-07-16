@@ -29,6 +29,27 @@ export interface CockpitTile {
   discoveredSessionId?: string; // 'new' tiles: the sessionId claude created → resume it (not re-spawn) on restore
 }
 
+/** One conversation (or doc tile) in the restore offer. `origin` is where it
+ *  lived last session (cockpit grid vs its own pop-out window); `dest` is where
+ *  the user wants it back — mutated by the chooser's drag/checkbox UI. */
+export interface RestoreItem {
+  tile: CockpitTile;
+  origin: 'grid' | 'win';
+  dest: 'grid' | 'win' | 'skip';
+  // Lazy enrichment, fetched when the chooser opens (never persisted):
+  summary?: string;       // rich summary → Claude's own index summary → gist
+  ctxPct?: number | null; // context occupancy 0-100 (last assistant turn)
+  model?: string | null;
+  lastPrompts?: string[]; // last few user prompts (transcript tail)
+  peek?: boolean;         // the last-prompts drawer is expanded
+}
+
+export interface RestoreOffer {
+  layout: CockpitState['layout'];
+  items: RestoreItem[];
+  chooserOpen: boolean;   // the spatial drag-and-drop modal (banner "Choose…")
+}
+
 export interface CockpitState {
   tiles: CockpitTile[];
   layout: 'cols1' | 'cols2' | 'grid';
@@ -58,7 +79,7 @@ export interface UiState {
   sidebarCollapsed: boolean;
   collapsedGroups: string[];       // sidebar project-groups the user has collapsed
   cockpit: CockpitState;           // cockpit.open = the Cockpit view is selected
-  restoreOffer: { tiles: CockpitTile[]; layout: CockpitState['layout'] } | null; // last-session tiles to optionally restore
+  restoreOffer: RestoreOffer | null; // last-session workspace to optionally restore (banner + chooser modal)
 }
 
 export interface DetailState {
@@ -186,6 +207,46 @@ function schedulePersist(): void {
       localStorage.setItem(PERSIST_KEY, JSON.stringify(data));
     } catch { /* storage unavailable / quota — non-fatal */ }
   }, 800);
+}
+
+// ── pop-out registry (localStorage) ──────────────────────────
+// Popped-out conversations live in their own windows, outside the persisted
+// grid — without this registry they'd silently vanish from every restore.
+// The main window registers a tile when it pops out; the widget heartbeats
+// its entry (~5s) while alive. Restore-time rules (main.ts restoreSession):
+//   lastSeen within ~20s of now            → widget still open, leave it alone
+//   lastSeen ≥ persisted ts − 10 min       → died with the app: offer/restore it
+//   older                                  → deliberately closed long before
+//                                             shutdown: prune the entry
+// Widgets write ONLY their own entry here — the main-grid persistence guard
+// (disablePersistence) covers cldctrl.session.v1, not this key.
+const POPOUT_KEY = 'cldctrl.popouts.v1';
+export interface PopoutEntry { tile: CockpitTile; lastSeen: number }
+
+export function loadPopouts(): Record<string, PopoutEntry> {
+  try {
+    const raw = localStorage.getItem(POPOUT_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    return map && typeof map === 'object' ? map : {};
+  } catch { return {}; }
+}
+
+function savePopouts(map: Record<string, PopoutEntry>): void {
+  try { localStorage.setItem(POPOUT_KEY, JSON.stringify(map)); } catch { /* quota — non-fatal */ }
+}
+
+/** Upsert a pop-out's registry entry (register at pop-out time; heartbeat from the widget). */
+export function heartbeatPopout(tile: CockpitTile): void {
+  const map = loadPopouts();
+  map[tile.id] = { tile, lastSeen: Date.now() };
+  savePopouts(map);
+}
+
+export function removePopout(id: string): void {
+  const map = loadPopouts();
+  if (!(id in map)) return;
+  delete map[id];
+  savePopouts(map);
 }
 
 export function loadPersistedSession(): PersistedSession | null {

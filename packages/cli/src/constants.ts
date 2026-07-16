@@ -2,7 +2,9 @@
  * Shared constants: version, color palettes, unicode characters, defaults.
  */
 
-export const VERSION = '0.3.7';
+// MUST match package.json version — check-publish.mjs enforces this before a
+// release (it drifted silently from 0.3.7 while package.json moved to 0.4.x).
+export const VERSION = '0.4.1';
 export const APP_NAME = 'CLD CTRL';
 export const APP_CMD = 'cldctrl';
 export const APP_TAGLINE = 'Mission control for Claude Code';
