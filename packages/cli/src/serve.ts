@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
-import { loadConfig } from './config.js';
+import { loadConfig, getConfigDir } from './config.js';
 import { installErrorHandlers } from './core/error-report.js';
 import { buildProjectListFast, projectGroup, getSessionDir } from './core/projects.js';
 import { getActiveClaudeProcesses } from './core/processes.js';
@@ -907,8 +907,71 @@ function fillDiscoveredSessions(): void {
       if (cand) { s.discoveredSessionId = cand.id; claimed.add(cand.id); log('serve_term', { event: 'session_discovered', id: cand.id }); }
     } catch { /* dir not created until the agent writes its first line */ }
   }
+  // Persist newly-discovered ids so a restart can rehydrate 'new' tiles whose
+  // sessionId the browser hadn't yet polled (see captureTermSessions).
+  captureTermSessions();
 }
 const terminals = new Map<string, TermSession>();
+
+// ── 'new'-tile resume persistence ────────────────────────────
+// A freshly-launched agent tile is keyed `new:<uuid>` and only becomes resumable
+// once we've discovered the sessionId the agent wrote (fillDiscoveredSessions).
+// The browser learns that id from the overview poll and, on reconnect after a
+// PTY death, passes it back as `session=` so we `--resume` instead of spawning a
+// fresh agent. That leaves a RACE across a server restart: if the tile was
+// launched seconds before the restart, the browser may not have polled the id
+// yet, so its reconnect carries no `session=` and the conversation is lost.
+//
+// Fix: persist tileId -> resume info to disk (keyed by the SAME `new:<uuid>` the
+// browser reconnects with). A final capture runs synchronously at shutdown after
+// a forced discovery pass, so the successor server can resume the tile even when
+// the browser never learned its sessionId. Entries are pruned by age/count.
+interface PersistedTermSession { sessionId: string; cwd?: string; vendor?: string; agent?: string; savedAt: number; }
+const TERM_SESSIONS_TTL_MS = 7 * 24 * 60 * 60_000; // a week — resumes get stale
+const TERM_SESSIONS_MAX = 200;
+let persistedTermSessions: Record<string, PersistedTermSession> = {};
+function termSessionsFile(): string { return path.join(getConfigDir(), 'terminal-sessions.json'); }
+
+function loadPersistedTermSessions(): void {
+  try {
+    const j = JSON.parse(fs.readFileSync(termSessionsFile(), 'utf-8'));
+    if (j && typeof j === 'object') {
+      const cutoff = Date.now() - TERM_SESSIONS_TTL_MS;
+      persistedTermSessions = {};
+      for (const [k, v] of Object.entries(j as Record<string, PersistedTermSession>)) {
+        if (v && typeof v.sessionId === 'string' && typeof v.savedAt === 'number' && v.savedAt >= cutoff) {
+          persistedTermSessions[k] = v;
+        }
+      }
+    }
+  } catch { /* none yet / unreadable — start empty */ }
+}
+
+function savePersistedTermSessions(): void {
+  // Cap to the most-recent MAX entries so the file can't grow without bound.
+  const entries = Object.entries(persistedTermSessions).sort((a, b) => b[1].savedAt - a[1].savedAt).slice(0, TERM_SESSIONS_MAX);
+  persistedTermSessions = Object.fromEntries(entries);
+  try { fs.writeFileSync(termSessionsFile(), JSON.stringify(persistedTermSessions), 'utf-8'); } catch { /* ignore */ }
+}
+
+/** Snapshot every live tile's durable resume info into the persisted map. Cheap
+ *  and idempotent — only writes when something changed. Called (a) after each
+ *  discovery pass and (b) synchronously at shutdown. */
+function captureTermSessions(): void {
+  let changed = false;
+  for (const [id, s] of terminals.entries()) {
+    // Only 'new'/'resume' tiles carry a resumable conversation; skip the CTRL dock.
+    if (s.meta.kind === 'control') continue;
+    const sid = s.discoveredSessionId || s.meta.sessionId;
+    if (!sid) continue;
+    const prev = persistedTermSessions[id];
+    if (!prev || prev.sessionId !== sid) {
+      persistedTermSessions[id] = { sessionId: sid, cwd: s.cwd, vendor: s.meta.vendor, agent: s.meta.agent, savedAt: Date.now() };
+      changed = true;
+    }
+  }
+  if (changed) savePersistedTermSessions();
+}
 let termBatSeq = 0; // unique suffix for per-terminal temp .bat files (Windows)
 
 /** cwd + claude command for a terminal kind. Returns null if it can't be built. */
@@ -1146,10 +1209,25 @@ function setupAgentTerminal(server: http.Server): boolean {
           // AFTER its PTY idle-died — the terminal is gone but the session it
           // created is known, so RESUME that instead of spawning a fresh agent —
           // with the RIGHT CLI (codex/agy vendor) + provider env (agent) preserved.
-          const fb = url.searchParams.get('session') ?? '';
+          // Prefer the browser-supplied `session=`; fall back to the disk-persisted
+          // map (survives a server RESTART even when the browser never polled the
+          // discovered sessionId — closes the launch→restart race).
+          let fb = url.searchParams.get('session') ?? '';
+          let fbCwd = proj.path;
+          let fbVendor: 'claude' | 'codex' | 'antigravity' = agent === 'codex' || agent === 'antigravity' ? agent : 'claude';
+          if ((!fb || !SAFE_SESSION_ID.test(fb)) && !terminals.has(id)) {
+            const persisted = persistedTermSessions[id];
+            if (persisted && SAFE_SESSION_ID.test(persisted.sessionId)) {
+              fb = persisted.sessionId;
+              // Resume in the tile's ORIGINAL cwd (may be a worktree) when it still
+              // exists — that's where the session JSONL lives; else the project.
+              if (persisted.cwd) { try { if (fs.existsSync(persisted.cwd)) fbCwd = persisted.cwd; } catch { /* use proj.path */ } }
+              if (persisted.vendor === 'codex' || persisted.vendor === 'antigravity' || persisted.vendor === 'claude') fbVendor = persisted.vendor;
+              log('serve_term', { event: 'resume_from_persisted', id, session: fb });
+            }
+          }
           if (!terminals.has(id) && fb && SAFE_SESSION_ID.test(fb)) {
-            const vendor = agent === 'codex' || agent === 'antigravity' ? agent : 'claude';
-            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: proj.path, vendor, agent }));
+            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: fbCwd, vendor: fbVendor, agent }));
             return;
           }
           let cwd = proj.path;
@@ -1184,6 +1262,9 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
     installErrorHandlers('browser', config.error_reporting?.enabled !== false);
   } catch { installErrorHandlers('browser'); }
   dashboardPort = port; // stamped into PTY env so nested MCP servers know they're in the web surface
+  // Rehydrate the tileId -> resume map a prior instance persisted, so 'new' tiles
+  // whose sessionId the browser never polled can still --resume after a restart.
+  if (!DEMO) loadPersistedTermSessions();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1587,6 +1668,11 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
     if (shuttingDown) return;
     shuttingDown = true;
     log('serve', { event: 'shutdown', reason: sig, terminals: terminals.size });
+    // Last-chance session capture BEFORE the PTYs die: run a forced discovery
+    // pass (catches sessions whose JSONL exists but the browser never polled),
+    // then persist tileId -> resume info so the successor server can rehydrate
+    // 'new' tiles that would otherwise reconnect with no sessionId → fresh agent.
+    try { fillDiscoveredSessions(); captureTermSessions(); } catch { /* best-effort */ }
     shutdownTerminals(sig);
     try { server.close(); } catch { /* ignore */ }
     setTimeout(() => process.exit(0), 250).unref?.();
