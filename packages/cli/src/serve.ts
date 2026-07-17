@@ -1473,7 +1473,11 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
             // fall through to a reveal-in-explorer so the click still lands somewhere.
             if (shellOpenFile(openPath)) { log('serve_reveal', { target, path: openPath, isFile }); sendJson(res, 200, { ok: true, target }); return; }
             if (!isExecutableFile(openPath)) { sendJson(res, 200, { ok: false, error: 'could not open with the default app' }); return; }
-            spawn.spawn('explorer', ['/select,' + openPath], { detached: true, stdio: 'ignore' }).unref();
+            if (getPlatform() === 'windows') {
+              spawn.spawn('explorer', ['/select,' + openPath], { detached: true, stdio: 'ignore' }).unref();
+            } else {
+              openInExplorer(path.dirname(openPath)); // no /select on mac/linux — reveal the folder
+            }
             sendJson(res, 200, { ok: true, target: 'explorer', note: 'executable — revealed instead of run' });
             return;
           }

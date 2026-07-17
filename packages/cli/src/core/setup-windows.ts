@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { getConfigDir } from '../config.js';
 import type { SetupResult } from './setup.js';
@@ -50,7 +51,7 @@ function tryRemoveScheduledTask(): void {
 }
 
 function getHotkeyScriptPath(): string {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 5; i++) {
     const candidate = path.join(dir, 'hotkey.ps1');
     if (fs.existsSync(candidate)) return candidate;
@@ -145,7 +146,7 @@ const APP_VBS_NAME = 'cldctrl-app.vbs';
 
 /** Find the bundled cldctrl.ico (package root, shipped via package.json files). */
 function getIconPath(): string | null {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 6; i++) {
     const candidate = path.join(dir, 'cldctrl.ico');
     if (fs.existsSync(candidate)) return candidate;

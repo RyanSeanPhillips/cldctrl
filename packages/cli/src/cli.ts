@@ -287,7 +287,9 @@ export function createCli(): Command {
     .description('Open config in $EDITOR')
     .action(() => {
       const configPath = getConfigPath();
-      const editor = process.env.EDITOR ?? process.env.VISUAL ?? 'vi';
+      // Default editor per platform: `vi` doesn't exist on stock Windows.
+      const fallback = process.platform === 'win32' ? 'notepad' : 'vi';
+      const editor = process.env.EDITOR ?? process.env.VISUAL ?? fallback;
 
       // Ensure config exists first
       const { config, isNew } = loadConfig();
@@ -295,10 +297,14 @@ export function createCli(): Command {
 
       const spawn = require('cross-spawn') as typeof import('cross-spawn');
       const child = spawn.spawn(editor, [configPath], { stdio: 'inherit' });
+      // An ENOENT (editor not on PATH) emits an 'error' event, not a non-zero
+      // 'close' — without this handler that throws as an unhandled exception.
+      child.on('error', (err) => {
+        console.error(`Could not launch editor "${editor}": ${err.message}`);
+        console.error(`Set $EDITOR, or edit the file directly: ${configPath}`);
+      });
       child.on('close', (code) => {
-        if (code !== 0) {
-          console.error(`Editor exited with code ${code}`);
-        }
+        if (code) console.error(`Editor exited with code ${code}`);
       });
     });
 

@@ -129,9 +129,23 @@ export function copyToClipboard(text: string): boolean {
       case 'macos':
         execFileSync('pbcopy', { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
         return true;
-      default:
-        execFileSync('xclip', ['-selection', 'clipboard'], { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
-        return true;
+      default: {
+        // Linux/BSD: no single universal tool. Try Wayland (wl-copy) first, then
+        // the X11 options (xclip, xsel) — a Wayland-only session (modern GNOME)
+        // often has no working xclip, and an X11 session has no wl-copy.
+        const attempts: Array<[string, string[]]> = [
+          ['wl-copy', []],
+          ['xclip', ['-selection', 'clipboard']],
+          ['xsel', ['--clipboard', '--input']],
+        ];
+        for (const [cmd, args] of attempts) {
+          try {
+            execFileSync(cmd, args, { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
+            return true;
+          } catch { /* not installed / failed — try the next */ }
+        }
+        return false;
+      }
     }
   } catch { return false; }
 }
@@ -229,6 +243,33 @@ export function detectLinuxTerminal(): string | null {
     if (isCommandAvailable(cmd)) return cmd;
   }
   return null;
+}
+
+/**
+ * Build the argv that makes a given Linux terminal emulator run `command`.
+ *
+ * The naive `-e <cmd...>` form is NOT universal: gnome-terminal wants `--`,
+ * kitty/foot take the command bare, wezterm needs `start --`, and
+ * xfce4-terminal needs `-x` (execute the rest of the line) rather than `-e`
+ * (which expects a single quoted string). Getting this wrong makes the launch
+ * silently fail (the spawn error is swallowed), so keep this table authoritative.
+ */
+export function linuxTerminalArgs(terminal: string, command: string[]): string[] {
+  const base = terminal.split('/').pop() ?? terminal; // tolerate absolute paths
+  switch (base) {
+    case 'gnome-terminal':
+      return ['--', ...command];
+    case 'kitty':
+    case 'foot':
+      return [...command]; // command passed directly, no flag
+    case 'wezterm':
+      return ['start', '--', ...command];
+    case 'xfce4-terminal':
+      return ['-x', ...command]; // -x = execute remainder of the command line
+    // konsole, alacritty, xterm, x-terminal-emulator and other compliant emulators
+    default:
+      return ['-e', ...command];
+  }
 }
 
 /**

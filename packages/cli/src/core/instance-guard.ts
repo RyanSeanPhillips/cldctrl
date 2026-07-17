@@ -19,6 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { getConfigDir } from '../config.js';
 import { getPlatform } from './platform.js';
@@ -62,7 +63,7 @@ function writeInstances(entries: InstanceEntry[]): void {
 
 /** Locate desktop-probe.ps1 from the built output (mirrors getHotkeyScriptPath). */
 function getProbeScriptPath(): string | null {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 6; i++) {
     const candidate = path.join(dir, 'desktop-probe.ps1');
     if (fs.existsSync(candidate)) return candidate;
