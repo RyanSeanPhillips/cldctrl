@@ -6,8 +6,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
-import { isCommandAvailable, detectLinuxTerminal } from './platform.js';
+import { isCommandAvailable, detectLinuxTerminal, linuxTerminalArgs } from './platform.js';
 import type { SetupResult } from './setup.js';
 
 function detectDesktop(): string | null {
@@ -50,7 +51,7 @@ if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && command -v hyprctl >/dev/null 2>&1; 
 fi
 
 # No existing window found — launch new one
-${terminal} ${terminal === 'gnome-terminal' ? '-- cc' : terminal === 'kitty' ? 'cc' : '-e cc'}
+${[terminal, ...linuxTerminalArgs(terminal, ['cc'])].join(' ')}
 `;
 }
 
@@ -197,7 +198,7 @@ const DESKTOP_FILE = DESKTOP_ID + '.desktop';
 
 /** Find the bundled 512px PNG icon (package root/assets, shipped via package.json files). */
 function getLinuxIconAsset(): string | null {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 6; i++) {
     const candidate = path.join(dir, 'assets', 'icon-512.png');
     if (fs.existsSync(candidate)) return candidate;
@@ -221,7 +222,7 @@ function resolveAppExec(): string {
 function applicationsDir(): string { return path.join(os.homedir(), '.local', 'share', 'applications'); }
 function iconsDir(): string { return path.join(os.homedir(), '.local', 'share', 'icons'); }
 
-export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResult {
+export function installAppShortcutLinux(opts: { pin?: boolean; asyncRefresh?: boolean } = {}): SetupResult {
   const appDir = applicationsDir();
   try { fs.mkdirSync(appDir, { recursive: true }); } catch { /* ignore */ }
 
@@ -261,8 +262,17 @@ export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResu
   }
 
   // Best-effort: refresh the app menu so the entry shows up without a re-login.
+  // asyncRefresh (the app-mode launch path) fires it detached so it never blocks
+  // the window from opening; `cc shortcut` (interactive) waits so its success
+  // message reflects a completed refresh.
   if (isCommandAvailable('update-desktop-database')) {
-    try { spawn.sync('update-desktop-database', [appDir], { stdio: 'ignore', timeout: 8000 }); } catch { /* ignore */ }
+    try {
+      if (opts.asyncRefresh) {
+        spawn.spawn('update-desktop-database', [appDir], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn.sync('update-desktop-database', [appDir], { stdio: 'ignore', timeout: 8000 });
+      }
+    } catch { /* ignore */ }
   }
 
   const lines = [`Installed app launcher → ${desktopPath}`, 'Find "CLD CTRL" in your applications menu; it opens the dashboard as an app window.'];
@@ -271,6 +281,51 @@ export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResu
   else lines.push('', 'Tip: run `cc shortcut --pin` to add it to your dock/favorites (GNOME).');
 
   return { success: true, message: lines.join('\n') };
+}
+
+/**
+ * Cheap staleness check by stat only (no content reads on the launch path).
+ * `dest` is a copy of `asset`, so it's current iff same byte size AND written
+ * at/after the asset's mtime; a newly-shipped icon (package upgrade / edited
+ * asset) has a different size or a newer mtime, so this returns false and we
+ * re-copy. Missing/unreadable dest → not current.
+ */
+function installedIconIsCurrent(asset: string, dest: string): boolean {
+  try {
+    const a = fs.statSync(asset);
+    const d = fs.statSync(dest);
+    return a.size === d.size && d.mtimeMs >= a.mtimeMs;
+  } catch { return false; }
+}
+
+// Run the ensure body at most once per process — the long-lived server opens
+// the initial window plus every pop-out, so this bounds all the stat/spawn work
+// to a single check per process instead of once per window.
+let appShortcutEnsured = false;
+
+/**
+ * Idempotently ensure the app-mode `.desktop` entry + icon exist so a Chrome
+ * `--app` window launched with `--class=cldctrl` groups under our icon instead
+ * of a generic Chromium/orphan entry. Called on Linux app-mode launch.
+ *
+ * Re-installs when the bundled icon asset differs from the installed copy, so
+ * shipping a new icon (or upgrading the package) propagates automatically on the
+ * next launch — no manual `cc shortcut` needed. Never blocks the launch: the
+ * .desktop write + icon copy are a few fast fs ops, and the slow
+ * `update-desktop-database` refresh is fired detached (asyncRefresh). All
+ * failures are swallowed — a missing/failed icon must never stop the window.
+ */
+export function ensureAppShortcutLinux(): void {
+  if (appShortcutEnsured) return; // already handled this process
+  try {
+    const desktopPath = path.join(applicationsDir(), DESKTOP_FILE);
+    const iconDest = path.join(iconsDir(), DESKTOP_ID + '.png');
+    const asset = getLinuxIconAsset();
+    const iconCurrent = !asset || installedIconIsCurrent(asset, iconDest);
+    if (fs.existsSync(desktopPath) && iconCurrent) { appShortcutEnsured = true; return; }
+    installAppShortcutLinux({ asyncRefresh: true }); // (re)writes .desktop + copies icon; non-blocking refresh
+    appShortcutEnsured = true;
+  } catch { /* best-effort — leave the flag unset so a later launch can retry */ }
 }
 
 /** Add the entry to GNOME dash favorites (idempotent). Other DEs: manual pin. */
