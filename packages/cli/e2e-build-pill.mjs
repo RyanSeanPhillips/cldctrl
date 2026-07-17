@@ -54,11 +54,12 @@ try {
   const pillText = await page.$eval('.restart-pill', el => el.textContent.trim()).catch(() => '');
   check('pill says "restart to load"', /restart to load/i.test(pillText), pillText);
 
-  // Click it → should copy `cc restart` (toast).
-  await page.$eval('.restart-pill', el => el.click());
-  await sleep(500);
-  const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => '')).catch(() => '');
-  check('clicking copies `cc restart`', clip === 'cc restart', clip);
+  // The pill is wired to the one-click restart action (restart-open → same path
+  // as the ⏻ menu's Restart). We assert the WIRING here rather than clicking —
+  // clicking would spawn a real restart supervisor (side effects). The actual
+  // restart-from-click behavior is covered end-to-end by e2e-power-menu.mjs.
+  const act = await page.$eval('.restart-pill', el => el.getAttribute('data-act')).catch(() => '');
+  check('pill wired to restart action', act === 'restart-open', act);
 } catch (e) {
   check('no exception', false, String(e));
 } finally {
