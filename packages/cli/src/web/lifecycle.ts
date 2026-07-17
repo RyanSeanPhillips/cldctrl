@@ -23,9 +23,27 @@ let known: string | null = null;   // first instanceId observed this page-load
 let reloading = false;              // guard so we trigger exactly one reload
 let misses = 0;                     // consecutive failed polls
 let overlayEl: HTMLElement | null = null;
+let manualMode: 'restarting' | 'stopping' | null = null; // user pressed Restart/Stop
 
 const MISS_BEFORE_OVERLAY = 2;      // ~6–8s of failures before we show anything
 const MISS_BEFORE_FAILURE = 20;     // ~60s → the server isn't coming back on its own
+
+/** The user pressed Restart in the power menu: show immediate feedback and keep
+ *  the "Updating…" message steady while the server bounces. The reload still
+ *  fires from onOverview when the new instanceId appears. */
+export function announceRestarting(): void {
+  if (reloading) return;
+  manualMode = 'restarting';
+  showOverlay('updating');
+}
+
+/** The user pressed Stop: the server is meant to stay down, so freeze the page
+ *  on a terminal "stopped" state and never auto-reload. */
+export function announceStopping(): void {
+  manualMode = 'stopping';
+  reloading = true; // blocks onOverview/onOverviewError — no reconnect attempts
+  showOverlay('stopped');
+}
 
 /** Call on each SUCCESSFUL overview poll with the payload's instanceId. */
 export function onOverview(instanceId: string | undefined): void {
@@ -42,6 +60,7 @@ export function onOverview(instanceId: string | undefined): void {
     // it bounced (or another process took the port) — reload to resync.
     triggerReload(); return;
   }
+  manualMode = null;
   hideOverlay();
 }
 
@@ -49,6 +68,9 @@ export function onOverview(instanceId: string | undefined): void {
 export function onOverviewError(): void {
   if (reloading) return;
   misses++;
+  // A manual restart keeps the "Updating…" message steady rather than flipping
+  // to "Reconnecting…" while the server is expectedly down for a few seconds.
+  if (manualMode === 'restarting') { showOverlay('updating'); return; }
   if (misses >= MISS_BEFORE_FAILURE) showOverlay('failed');
   else if (misses >= MISS_BEFORE_OVERLAY) showOverlay('reconnecting');
 }
@@ -63,7 +85,7 @@ function triggerReload(): void {
 
 // ── overlay (inline-styled so it survives even if app.css didn't reload) ──────
 
-type Mode = 'reconnecting' | 'updating' | 'failed';
+type Mode = 'reconnecting' | 'updating' | 'failed' | 'stopped';
 
 function showOverlay(mode: Mode): void {
   if (!overlayEl) {
@@ -79,23 +101,26 @@ function showOverlay(mode: Mode): void {
     document.body.appendChild(overlayEl);
     ensureSpinKeyframes();
   }
-  const spinner = mode === 'failed'
-    ? '<div style="font-size:28px">⚠️</div>'
+  const stat = mode === 'failed' || mode === 'stopped';
+  const spinner = mode === 'failed' ? '<div style="font-size:28px">⚠️</div>'
+    : mode === 'stopped' ? '<div style="font-size:28px">⏻</div>'
     : '<div style="width:34px;height:34px;border:3px solid #2a2f3a;border-top-color:#e87632;border-radius:50%;animation:cldctrl-spin 0.8s linear infinite"></div>';
   const title = mode === 'reconnecting' ? 'Reconnecting…'
     : mode === 'updating' ? 'Updating…'
+    : mode === 'stopped' ? 'Dashboard stopped'
     : 'Dashboard server didn’t come back';
   const sub = mode === 'reconnecting' ? 'Waiting for the dashboard server to come back.'
     : mode === 'updating' ? 'The server restarted — reloading to load the latest version.'
+    : mode === 'stopped' ? 'The server was shut down. Start it again from a terminal with <code style="color:#e87632">cc</code>.'
     : 'It may have failed to restart. Retry, or start it again from a terminal with <code style="color:#e87632">cc</code>.';
   overlayEl.innerHTML =
     spinner +
     `<div style="font-size:16px;color:#eee;font-weight:600">${title}</div>` +
     `<div style="max-width:420px;color:#9aa">${sub}</div>` +
-    (mode === 'failed'
+    (stat
       ? '<button id="cldctrl-lifecycle-retry" style="margin-top:6px;padding:7px 16px;background:#e87632;color:#06080d;border:none;border-radius:6px;font-weight:600;cursor:pointer">Retry</button>'
       : '');
-  if (mode === 'failed') {
+  if (stat) {
     const btn = overlayEl.querySelector('#cldctrl-lifecycle-retry');
     btn?.addEventListener('click', () => { try { location.reload(); } catch { /* ignore */ } });
   }

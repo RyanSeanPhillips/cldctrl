@@ -49,6 +49,20 @@ export async function postLaunch(body: { path: string; prompt?: string; resume?:
   return r.json();
 }
 
+/** Restart the dashboard server (spawns a supervisor that stops us + starts a
+ *  successor; the page reloads onto it via instanceId detection). */
+export async function postRestart(): Promise<{ ok?: boolean; disabled?: boolean }> {
+  const r = await fetch('/api/restart', { method: 'POST', headers: { 'X-CLDCTRL': '1' } });
+  return r.json();
+}
+
+/** Stop the dashboard server (graceful shutdown; the page shows a "stopped"
+ *  state). Restart it from a terminal with `cc`. */
+export async function postShutdown(): Promise<{ ok?: boolean }> {
+  const r = await fetch('/api/shutdown', { method: 'POST', headers: { 'X-CLDCTRL': '1' } });
+  return r.json();
+}
+
 // ── project detail tabs ──────────────────────────────────────
 async function projectGet(tab: string, projectPath: string, extra = ''): Promise<any> {
   const r = await fetch('/api/project/' + tab + '?path=' + encodeURIComponent(projectPath) + extra);

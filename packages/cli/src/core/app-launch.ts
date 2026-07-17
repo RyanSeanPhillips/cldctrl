@@ -291,7 +291,7 @@ export type RestartResult =
  * supervisor (it outlives the stop→start gap), so a failed respawn is reported
  * here rather than leaving a dead window and no server. Loads the latest build.
  */
-export async function restartServer(port: number, opts: { browser?: 'chrome' | 'edge' } = {}): Promise<RestartResult> {
+export async function restartServer(port: number, opts: { browser?: 'chrome' | 'edge'; openWindow?: boolean } = {}): Promise<RestartResult> {
   const before = await probeServerInfo(port);
   const wasRunning = before.ok;
   const oldInstanceId = before.instanceId; // may be undefined for a legacy server
@@ -304,7 +304,9 @@ export async function restartServer(port: number, opts: { browser?: 'chrome' | '
 
   const headless = isHeadless();
   const browser = findChromiumBrowser(opts.browser);
-  const app = !headless && !!browser;
+  // openWindow:false (UI-triggered restart) — the existing browser window reloads
+  // itself via instanceId detection, so the successor must NOT open a second one.
+  const app = opts.openWindow !== false && !headless && !!browser;
 
   if (!spawnDetachedServer(port, { app, browser: opts.browser })) {
     // Couldn't spawn detached — last resort, serve in the foreground (blocks).

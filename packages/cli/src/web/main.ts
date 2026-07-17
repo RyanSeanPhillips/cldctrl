@@ -6,7 +6,7 @@ import type { CockpitTile, RestoreItem } from './store.js';
 import type { DetailTab } from './types.js';
 import {
   fetchOverview, fetchTranscript, fetchTranscriptMeta, postLaunch,
-  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, postHandoffBrief, fetchNotes,
+  fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, postHandoffBrief, fetchNotes, postRestart, postShutdown,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
 import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone, queueTilePrefill } from './cockpit.js';
@@ -15,7 +15,7 @@ import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
-import { onOverview, onOverviewError } from './lifecycle.js';
+import { onOverview, onOverviewError, announceRestarting, announceStopping } from './lifecycle.js';
 
 const appRoot = document.getElementById('app')!;
 
@@ -404,11 +404,57 @@ async function startHandoff(session: string, projectPath: string, vendor: string
   toast('Handoff → ' + agentLabel + ': review the brief in the new tile, then Send');
 }
 
+// ── dashboard power menu (⏻ restart / stop) ──────────────────
+function closePowerMenu(): void { document.getElementById('power-menu')?.remove(); }
+/** Count the OPEN conversation tiles a restart/stop would close, and how many
+ *  can auto-resume. Doc tiles aren't sessions; the CTRL dock reopens from the
+ *  sidebar (and continues via --continue), so it's not counted as "at risk". */
+function liveSessionSummary(): { total: number; atRisk: number } {
+  const tiles = getState().ui.cockpit.tiles.filter((t) => t.kind === 'new' || t.kind === 'resume');
+  const tsMap = getState().data?.terminalSessions || {};
+  let atRisk = 0;
+  for (const t of tiles) {
+    // A 'new' tile is resumable once its agent's sessionId has been discovered;
+    // until then a restart may fork it into a fresh conversation.
+    if (t.kind === 'new' && !t.discoveredSessionId && !tsMap[t.id]) atRisk++;
+  }
+  return { total: tiles.length, atRisk };
+}
+/** Open the ⏻ power menu ABOVE its button (it sits at the sidebar bottom). */
+function openPowerMenu(btn: HTMLElement): void {
+  closePowerMenu();
+  const { total, atRisk } = liveSessionSummary();
+  const menu = document.createElement('div');
+  menu.className = 'power-menu'; menu.id = 'power-menu';
+  const hd = document.createElement('div'); hd.className = 'power-menu-hd'; hd.textContent = 'Dashboard server'; menu.appendChild(hd);
+  if (total > 0) {
+    const note = document.createElement('div'); note.className = 'power-menu-note';
+    note.textContent = `${total} agent session${total > 1 ? 's' : ''} open`
+      + (atRisk > 0 ? ` — ${atRisk} just started and may not resume` : '');
+    menu.appendChild(note);
+  }
+  const mk = (act: string, label: string, sub: string) => {
+    const b = document.createElement('button'); b.className = 'power-opt'; b.dataset.act = act;
+    const l = document.createElement('span'); l.className = 'power-opt-label'; l.textContent = label;
+    const s = document.createElement('span'); s.className = 'power-opt-sub'; s.textContent = sub;
+    b.appendChild(l); b.appendChild(s); return b;
+  };
+  menu.appendChild(mk('power-restart', '↻ Restart', total > 0 ? 'Load the latest build; sessions reopen' : 'Load the latest build'));
+  menu.appendChild(mk('power-stop', '⏻ Stop server', 'Shut down — restart from a terminal with cc'));
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  menu.style.top = Math.max(8, r.top - 6 - menu.offsetHeight) + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+}
+
 // ── event delegation ─────────────────────────────────────────
 document.addEventListener('click', async (ev) => {
   // Close an open handoff menu on any outside click (option clicks are inside it).
   const hm = document.getElementById('handoff-menu');
   if (hm && !hm.contains(ev.target as Node) && !(ev.target as HTMLElement).closest('[data-act="tile-handoff"]')) closeHandoffMenu();
+  // Same for the power menu.
+  const pm = document.getElementById('power-menu');
+  if (pm && !pm.contains(ev.target as Node) && !(ev.target as HTMLElement).closest('[data-act="power-menu"]')) closePowerMenu();
   // Click on a picker backdrop (but not its panel) closes it. Notes first — its
   // backdrop also carries cp-add-backdrop for styling, so check the specific class.
   if ((ev.target as HTMLElement).classList?.contains('notes-backdrop')) { setCockpit({ notesOpen: false }); return; }
@@ -439,11 +485,20 @@ document.addEventListener('click', async (ev) => {
     try { localStorage.setItem('cldctrl-dismissed-update', el.dataset.ver || ''); } catch { /* ignore */ }
     renderApp();
   } else if (act === 'restart-open') {
-    // A newer build is on disk. Copy the restart command (the ⏻ power menu will
-    // offer a one-click restart in a later step).
-    const cmd = 'cc restart';
-    navigator.clipboard?.writeText(cmd).then(() => toast('Copied: ' + cmd + ' — run it to load the new build'))
-      .catch(() => toast('To load the new build, run:  ' + cmd));
+    // A newer build is on disk — one-click restart via the same path as the ⏻ menu.
+    closePowerMenu();
+    announceRestarting();
+    postRestart().then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); }).catch(() => { /* the reconnect overlay handles it */ });
+  } else if (act === 'power-menu') {
+    if (document.getElementById('power-menu')) closePowerMenu(); else openPowerMenu(el);
+  } else if (act === 'power-restart') {
+    closePowerMenu();
+    announceRestarting();
+    postRestart().then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); }).catch(() => { /* overlay handles it */ });
+  } else if (act === 'power-stop') {
+    closePowerMenu();
+    announceStopping();
+    postShutdown().catch(() => { /* the server is going down — a failed fetch is expected */ });
   }
   else if (act === 'openincockpit') {
     const v = el.dataset.vendor;

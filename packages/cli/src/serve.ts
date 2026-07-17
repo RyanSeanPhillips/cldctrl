@@ -1457,6 +1457,25 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         // Let the response flush before tearing down. shutdown() is idempotent,
         // so a repeat POST (or a racing signal) collapses to one teardown.
         setTimeout(() => shutdown('api'), 150);
+      } else if (req.method === 'POST' && url.pathname === '/api/restart') {
+        // In-dashboard restart button. We DON'T shut ourselves down here — we
+        // spawn a detached `cc restart` supervisor that owns the whole sequence
+        // (stop us via /api/shutdown → wait for the port → start a successor
+        // WITHOUT a new window). The browser reloads onto the successor via its
+        // instanceId-change detection. Reuses the tested CLI supervisor so the
+        // stop→start ordering + session capture all happen exactly as in `cc
+        // restart`. Refused in demo mode (no real lifecycle).
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        if (DEMO) { sendJson(res, 200, { ok: false, disabled: true }); return; }
+        log('serve', { event: 'restart_requested', terminals: terminals.size });
+        sendJson(res, 200, { ok: true, instanceId: INSTANCE_ID, terminals: terminals.size });
+        setTimeout(() => {
+          try {
+            const entry = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.js');
+            spawn(process.execPath, [entry, 'restart', '--port', String(dashboardPort || port), '--no-window'],
+              { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+          } catch (e) { log('error', { function: 'api_restart', message: String(e) }); }
+        }, 150);
       } else if (req.method === 'POST' && url.pathname === '/api/screenshot') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);

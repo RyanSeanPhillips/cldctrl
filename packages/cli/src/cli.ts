@@ -771,12 +771,13 @@ export function createCli(): Command {
     .description('Restart the dashboard server (stop + start fresh so the latest build loads). Live agent tiles are closed; they resume from the sidebar.')
     .option('--port <port>', 'Port the server is on', '2533')
     .option('--browser <name>', 'App window browser — chrome (default) or edge')
+    .option('--no-window', "Don't open an app window — the caller already has one open (used by the in-dashboard restart button)")
     .action(async (opts) => {
       const port = parseInt(opts.port, 10) || 2533;
       const browser = opts.browser === 'edge' ? 'edge' : opts.browser === 'chrome' ? 'chrome' : undefined;
       const { restartServer } = await import('./core/app-launch.js');
       console.log(`Restarting CLD CTRL on port ${port}…`);
-      const r = await restartServer(port, { browser });
+      const r = await restartServer(port, { browser, openWindow: opts.window !== false });
       if (r.status === 'restarted') console.log(`Restarted — dashboard is back up${r.version ? ` (v${r.version})` : ''}.`);
       else if (r.status === 'started') console.log(`No server was running — started a fresh one${r.version ? ` (v${r.version})` : ''}.`);
       else if (r.status === 'stop-failed') { console.error(`Could not stop the existing server on port ${port} — kill the node process listening on it manually, then run \`cc\`.`); process.exitCode = 1; }

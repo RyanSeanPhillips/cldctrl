@@ -81,6 +81,7 @@ function sideControls(): Tpl {
       ${THEMES.map((t) => html`<option value=${t.id} ?selected=${cur === t.id}>${t.label}</option>`)}
     </select>
     <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
+    <button class="btn icon power-btn" data-act="power-menu" title="Restart or stop the dashboard server">⏻</button>
   </div>`;
 }
 
