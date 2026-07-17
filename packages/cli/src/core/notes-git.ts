@@ -61,7 +61,12 @@ async function doCommit(): Promise<void> {
         'commit', '-q', '-m', 'notes: snapshot ' + new Date().toISOString()],
       dir,
     );
-  } catch { /* nothing to commit / transient git error — non-fatal */ }
+    // Advance the throttle ONLY on a real commit. The startup snapshot runs on an
+    // empty repo (nothing staged → the commit above throws), so if we advanced the
+    // throttle unconditionally it would push the FIRST real note-save ~20s out —
+    // and, since the timer is unref'd, lose it entirely if the app closes first.
+    lastCommit = Date.now();
+  } catch { /* nothing to commit / transient git error — non-fatal, throttle not advanced */ }
 }
 
 /**
@@ -73,8 +78,7 @@ export function commitNotesSoon(): void {
   const delay = Math.max(0, MIN_INTERVAL_MS - (Date.now() - lastCommit));
   timer = setTimeout(() => {
     timer = null;
-    lastCommit = Date.now();
-    void doCommit();
+    void doCommit(); // advances lastCommit itself, but only when it actually commits
   }, delay);
   timer.unref?.(); // don't keep the process alive for a pending snapshot
 }
