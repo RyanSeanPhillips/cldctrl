@@ -129,9 +129,23 @@ export function copyToClipboard(text: string): boolean {
       case 'macos':
         execFileSync('pbcopy', { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
         return true;
-      default:
-        execFileSync('xclip', ['-selection', 'clipboard'], { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
-        return true;
+      default: {
+        // Linux/BSD: no single universal tool. Try Wayland (wl-copy) first, then
+        // the X11 options (xclip, xsel) — a Wayland-only session (modern GNOME)
+        // often has no working xclip, and an X11 session has no wl-copy.
+        const attempts: Array<[string, string[]]> = [
+          ['wl-copy', []],
+          ['xclip', ['-selection', 'clipboard']],
+          ['xsel', ['--clipboard', '--input']],
+        ];
+        for (const [cmd, args] of attempts) {
+          try {
+            execFileSync(cmd, args, { input: text, stdio: ['pipe', 'ignore', 'ignore'], timeout: 3000 });
+            return true;
+          } catch { /* not installed / failed — try the next */ }
+        }
+        return false;
+      }
     }
   } catch { return false; }
 }

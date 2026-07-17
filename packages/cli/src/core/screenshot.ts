@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { getConfigDir } from '../config.js';
 import { getPlatform } from './platform.js';
@@ -15,7 +16,7 @@ export type ShotMode = 'region' | 'full';
 
 /** Locate screenshot.ps1 in the built output (mirrors getProbeScriptPath). */
 function getScreenshotScript(): string | null {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 6; i++) {
     const cand = path.join(dir, 'screenshot.ps1');
     if (fs.existsSync(cand)) return cand;
