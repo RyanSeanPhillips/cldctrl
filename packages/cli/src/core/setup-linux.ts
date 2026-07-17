@@ -274,18 +274,35 @@ export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResu
   return { success: true, message: lines.join('\n') };
 }
 
+/** Cheap content equality: compare size first, then bytes. Both files small (icons). */
+function filesEqual(a: string, b: string): boolean {
+  try {
+    if (fs.statSync(a).size !== fs.statSync(b).size) return false;
+    return fs.readFileSync(a).equals(fs.readFileSync(b));
+  } catch { return false; }
+}
+
 /**
  * Idempotently ensure the app-mode `.desktop` entry + icon exist so a Chrome
  * `--app` window launched with `--class=cldctrl` groups under our icon instead
  * of a generic Chromium/orphan entry. Called on every Linux app-mode launch;
- * fast no-op once installed. Best-effort — a missing icon must never block the
- * window from opening, so all failures are swallowed.
+ * fast no-op once installed and current.
+ *
+ * Re-installs when the bundled icon asset differs from the installed copy, so
+ * shipping a new icon (or upgrading the package) propagates automatically on the
+ * next launch — no manual `cc shortcut` needed. Best-effort: a missing/failed
+ * icon must never block the window from opening, so all failures are swallowed.
  */
 export function ensureAppShortcutLinux(): void {
   try {
     const desktopPath = path.join(applicationsDir(), DESKTOP_FILE);
-    if (fs.existsSync(desktopPath)) return; // already installed — cheap path
-    installAppShortcutLinux(); // writes .desktop + copies icon; no pin, silent
+    const iconDest = path.join(iconsDir(), DESKTOP_ID + '.png');
+    const asset = getLinuxIconAsset();
+    // Icon is stale if we have a bundled asset and the installed copy is missing
+    // or its bytes differ (i.e. the shipped icon changed).
+    const iconStale = !!asset && (!fs.existsSync(iconDest) || !filesEqual(asset, iconDest));
+    if (fs.existsSync(desktopPath) && !iconStale) return; // installed & current — cheap path
+    installAppShortcutLinux(); // (re)writes .desktop + copies the current icon; no pin, silent
   } catch { /* best-effort */ }
 }
 
