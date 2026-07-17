@@ -406,6 +406,16 @@ async function startHandoff(session: string, projectPath: string, vendor: string
 
 // ── dashboard power menu (⏻ restart / stop) ──────────────────
 function closePowerMenu(): void { document.getElementById('power-menu')?.remove(); }
+/** Restart the dashboard in place: show the "Updating…" overlay, then ask the
+ *  server to restart. The page reloads onto the new instance via the lifecycle
+ *  detector. Shared by the ⏻ menu's Restart and the "restart to load" pill. */
+function triggerRestart(): void {
+  closePowerMenu();
+  announceRestarting();
+  postRestart()
+    .then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); })
+    .catch(() => { /* the server is bouncing — the reconnect overlay handles it */ });
+}
 /** Count the OPEN conversation tiles a restart/stop would close, and how many
  *  can auto-resume. Doc tiles aren't sessions; the CTRL dock reopens from the
  *  sidebar (and continues via --continue), so it's not counted as "at risk". */
@@ -484,17 +494,11 @@ document.addEventListener('click', async (ev) => {
   } else if (act === 'update-dismiss') {
     try { localStorage.setItem('cldctrl-dismissed-update', el.dataset.ver || ''); } catch { /* ignore */ }
     renderApp();
-  } else if (act === 'restart-open') {
-    // A newer build is on disk — one-click restart via the same path as the ⏻ menu.
-    closePowerMenu();
-    announceRestarting();
-    postRestart().then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); }).catch(() => { /* the reconnect overlay handles it */ });
+  } else if (act === 'restart-open' || act === 'power-restart') {
+    // The "restart to load" pill and the ⏻ menu's Restart share one path.
+    triggerRestart();
   } else if (act === 'power-menu') {
     if (document.getElementById('power-menu')) closePowerMenu(); else openPowerMenu(el);
-  } else if (act === 'power-restart') {
-    closePowerMenu();
-    announceRestarting();
-    postRestart().then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); }).catch(() => { /* overlay handles it */ });
   } else if (act === 'power-stop') {
     closePowerMenu();
     announceStopping();

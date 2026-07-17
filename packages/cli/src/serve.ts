@@ -66,6 +66,11 @@ let DEMO = false;
 const PRODUCT = 'cldctrl';
 const PROTOCOL_VERSION = 2;
 const INSTANCE_ID = randomUUID();
+/** The identity markers stamped into both /api/id and /api/overview — one source
+ *  so the two payloads can't drift. */
+function serverIdentity(): { product: string; protocolVersion: number; instanceId: string; version: string } {
+  return { product: PRODUCT, protocolVersion: PROTOCOL_VERSION, instanceId: INSTANCE_ID, version: VERSION };
+}
 
 // Build identity — the content hash the build writes to dist/build-manifest.json.
 // We snapshot it at startup (runningBuildId) and re-read the on-disk manifest on a
@@ -287,10 +292,7 @@ async function buildOverview(): Promise<unknown> {
   })();
 
   return {
-    product: PRODUCT,
-    protocolVersion: PROTOCOL_VERSION,
-    instanceId: INSTANCE_ID,
-    version: VERSION,
+    ...serverIdentity(),
     updateAvailable: latestUpdate,
     buildUpdateReady,
     generatedAt: new Date().toISOString(),
@@ -1230,6 +1232,7 @@ function setupAgentTerminal(server: http.Server): boolean {
           let fb = url.searchParams.get('session') ?? '';
           let fbCwd = proj.path;
           let fbVendor: 'claude' | 'codex' | 'antigravity' = agent === 'codex' || agent === 'antigravity' ? agent : 'claude';
+          let fbAgent = agent; // provider-profile id (Kimi/GLM/…) drives the endpoint env
           if ((!fb || !SAFE_SESSION_ID.test(fb)) && !terminals.has(id)) {
             const persisted = persistedTermSessions[id];
             if (persisted && SAFE_SESSION_ID.test(persisted.sessionId)) {
@@ -1238,11 +1241,14 @@ function setupAgentTerminal(server: http.Server): boolean {
               // exists — that's where the session JSONL lives; else the project.
               if (persisted.cwd) { try { if (fs.existsSync(persisted.cwd)) fbCwd = persisted.cwd; } catch { /* use proj.path */ } }
               if (persisted.vendor === 'codex' || persisted.vendor === 'antigravity' || persisted.vendor === 'claude') fbVendor = persisted.vendor;
+              // Restore the persisted agent so a provider-profile tile keeps its
+              // endpoint env after a restart (not the reconnect route's default).
+              if (typeof persisted.agent === 'string' && persisted.agent) fbAgent = persisted.agent;
               log('serve_term', { event: 'resume_from_persisted', id, session: fb });
             }
           }
           if (!terminals.has(id) && fb && SAFE_SESSION_ID.test(fb)) {
-            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: fbCwd, vendor: fbVendor, agent }));
+            wss.handleUpgrade(req, socket, head, (ws: any) => attachTerm(ws, 'resume:' + fb, { kind: 'resume', sessionId: fb, projectPath: fbCwd, vendor: fbVendor, agent: fbAgent }));
             return;
           }
           let cwd = proj.path;
@@ -1303,7 +1309,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       // serves a stale instanceId across a restart.
       if (req.method === 'GET' && url.pathname === '/api/id') {
         res.setHeader('Cache-Control', 'no-store');
-        sendJson(res, 200, { product: PRODUCT, protocolVersion: PROTOCOL_VERSION, instanceId: INSTANCE_ID, version: VERSION });
+        sendJson(res, 200, serverIdentity());
         return;
       }
 
@@ -1469,10 +1475,12 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         if (DEMO) { sendJson(res, 200, { ok: false, disabled: true }); return; }
         log('serve', { event: 'restart_requested', terminals: terminals.size });
         sendJson(res, 200, { ok: true, instanceId: INSTANCE_ID, terminals: terminals.size });
-        setTimeout(() => {
+        setTimeout(async () => {
           try {
-            const entry = path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.js');
-            spawn(process.execPath, [entry, 'restart', '--port', String(dashboardPort || port), '--no-window'],
+            // resolveEntry() existsSync-guards + falls back to argv[1] instead of
+            // assuming index.js sits next to this bundle.
+            const { resolveEntry } = await import('./core/app-launch.js');
+            spawn(process.execPath, [resolveEntry(), 'restart', '--port', String(dashboardPort || port), '--no-window'],
               { detached: true, stdio: 'ignore', windowsHide: true }).unref();
           } catch (e) { log('error', { function: 'api_restart', message: String(e) }); }
         }, 150);

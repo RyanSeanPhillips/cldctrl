@@ -53,10 +53,10 @@ function looksLikeOverview(j: Record<string, unknown> | null): boolean {
 /**
  * Probe the localhost port for a cldctrl dashboard. `ok` is true ONLY when the
  * response POSITIVELY identifies as ours — either the `product: "cldctrl"`
- * marker (STRONG, `identified: 'marker'`) or the distinctive overview shape of a
- * pre-marker build (LEGACY, `identified: 'legacy'`). A foreign service on this
- * port (404/401, an HTML app, or unrelated 200-JSON) yields `ok: false`, because
- * callers escalate a positive probe to a destructive stop/kill.
+ * marker (new builds) or the distinctive overview shape of a pre-marker (legacy)
+ * build. A foreign service on this port (404/401, an HTML app, or unrelated
+ * 200-JSON) yields `ok: false`, because callers escalate a positive probe to a
+ * destructive stop/kill.
  *
  * Fast path is /api/id (instant, no rate-limit/git work — /api/overview can
  * exceed the timeout when cold). Falls back to /api/overview so already-running
@@ -66,13 +66,12 @@ function looksLikeOverview(j: Record<string, unknown> | null): boolean {
 export async function probeServerInfo(
   port: number,
   timeoutMs = 1500,
-): Promise<{ ok: boolean; version?: string; instanceId?: string; identified?: 'marker' | 'legacy' }> {
+): Promise<{ ok: boolean; version?: string; instanceId?: string }> {
   // 1. Strong identity via the lightweight id endpoint (new builds).
   const id = await getJson(port, '/api/id', timeoutMs);
   if (id && id.product === 'cldctrl') {
     return {
       ok: true,
-      identified: 'marker',
       version: typeof id.version === 'string' ? id.version : undefined,
       instanceId: typeof id.instanceId === 'string' ? id.instanceId : undefined,
     };
@@ -83,13 +82,12 @@ export async function probeServerInfo(
   if (ov && ov.product === 'cldctrl') {
     return {
       ok: true,
-      identified: 'marker',
       version: typeof ov.version === 'string' ? ov.version : undefined,
       instanceId: typeof ov.instanceId === 'string' ? ov.instanceId : undefined,
     };
   }
   if (looksLikeOverview(ov)) {
-    return { ok: true, identified: 'legacy', version: typeof ov!.version === 'string' ? ov!.version as string : undefined };
+    return { ok: true, version: typeof ov!.version === 'string' ? ov!.version as string : undefined };
   }
   return { ok: false };
 }
@@ -150,8 +148,16 @@ export async function stopServer(port: number): Promise<'not-running' | 'stopped
   const info = await probeServerInfo(port);
   if (!info.ok) return 'not-running';
   let sent = await requestShutdown(port);
-  // Older builds don't have /api/shutdown — kill the port's owner directly.
-  if (!sent) sent = killPortOwner(port);
+  // Older builds don't have /api/shutdown — kill the port's owner directly. But
+  // a failed shutdown attempt can take seconds, during which the port could have
+  // changed owner; TOCTOU guard: re-confirm it's STILL our server right before
+  // the destructive kill, so we never kill an innocent process that grabbed the
+  // port. If it's no longer ours, it already stopped (or something else took it —
+  // either way we must not kill it).
+  if (!sent) {
+    if ((await probeServerInfo(port, 800)).ok) sent = killPortOwner(port);
+    else return 'stopped';
+  }
   if (!sent) return 'failed';
   // Wait for the port to actually go quiet (shutdown has a short grace timer).
   for (let i = 0; i < 20; i++) {
@@ -261,8 +267,9 @@ function isHeadless(): boolean {
 
 /** Resolve the CLI entry (dist/index.js) from THIS module's location so a
  *  detached respawn works regardless of how we were launched (bin shim, node,
- *  npx). Falls back to argv[1]. */
-function resolveEntry(): string {
+ *  npx). Falls back to argv[1]. Exported so serve.ts's /api/restart uses the
+ *  same guarded resolution instead of assuming index.js sits next to it. */
+export function resolveEntry(): string {
   try {
     const here = fileURLToPath(new URL('./index.js', import.meta.url));
     if (fs.existsSync(here)) return here;
