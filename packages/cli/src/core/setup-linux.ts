@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import spawn from 'cross-spawn';
 import { isCommandAvailable, detectLinuxTerminal, linuxTerminalArgs } from './platform.js';
 import type { SetupResult } from './setup.js';
@@ -197,7 +198,7 @@ const DESKTOP_FILE = DESKTOP_ID + '.desktop';
 
 /** Find the bundled 512px PNG icon (package root/assets, shipped via package.json files). */
 function getLinuxIconAsset(): string | null {
-  let dir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+  let dir = path.dirname(fileURLToPath(import.meta.url)); // decodes %20 etc. — safe for paths with spaces
   for (let i = 0; i < 6; i++) {
     const candidate = path.join(dir, 'assets', 'icon-512.png');
     if (fs.existsSync(candidate)) return candidate;
@@ -271,6 +272,21 @@ export function installAppShortcutLinux(opts: { pin?: boolean } = {}): SetupResu
   else lines.push('', 'Tip: run `cc shortcut --pin` to add it to your dock/favorites (GNOME).');
 
   return { success: true, message: lines.join('\n') };
+}
+
+/**
+ * Idempotently ensure the app-mode `.desktop` entry + icon exist so a Chrome
+ * `--app` window launched with `--class=cldctrl` groups under our icon instead
+ * of a generic Chromium/orphan entry. Called on every Linux app-mode launch;
+ * fast no-op once installed. Best-effort — a missing icon must never block the
+ * window from opening, so all failures are swallowed.
+ */
+export function ensureAppShortcutLinux(): void {
+  try {
+    const desktopPath = path.join(applicationsDir(), DESKTOP_FILE);
+    if (fs.existsSync(desktopPath)) return; // already installed — cheap path
+    installAppShortcutLinux(); // writes .desktop + copies icon; no pin, silent
+  } catch { /* best-effort */ }
 }
 
 /** Add the entry to GNOME dash favorites (idempotent). Other DEs: manual pin. */

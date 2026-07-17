@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import spawn from 'cross-spawn';
 import { getConfigDir } from '../config.js';
 import { getPlatform } from './platform.js';
+import { ensureAppShortcutLinux } from './setup-linux.js';
 
 /** Is a cldctrl dashboard already serving on this localhost port? Lets a repeat
  *  app-mode launch just open a new window instead of failing on port-in-use. */
@@ -104,7 +105,12 @@ export function launchAppWindow(url: string, opts: { sharedProfile?: boolean; br
   const args = [`--app=${target}`, '--new-window'];
   // X11/Wayland: set WM_CLASS/app_id so the window groups under our .desktop icon
   // (StartupWMClass=cldctrl) instead of a generic Chromium entry in the dock.
-  if (getPlatform() === 'linux') args.push('--class=cldctrl');
+  // Ensure that .desktop + icon actually exist first (installed on-demand), else
+  // there's nothing for the WM to match `--class=cldctrl` against → generic icon.
+  if (getPlatform() === 'linux') {
+    try { ensureAppShortcutLinux(); } catch { /* best-effort — never block launch */ }
+    args.push('--class=cldctrl');
+  }
   if (!opts.sharedProfile) {
     const dir = path.join(getConfigDir(), 'app-profile');
     try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
