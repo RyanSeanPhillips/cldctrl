@@ -253,6 +253,79 @@ function isHeadless(): boolean {
   return false;
 }
 
+/** Resolve the CLI entry (dist/index.js) from THIS module's location so a
+ *  detached respawn works regardless of how we were launched (bin shim, node,
+ *  npx). Falls back to argv[1]. */
+function resolveEntry(): string {
+  try {
+    const here = fileURLToPath(new URL('./index.js', import.meta.url));
+    if (fs.existsSync(here)) return here;
+  } catch { /* fall through */ }
+  return process.argv[1];
+}
+
+/** Spawn a detached background `cc serve --idle-exit` that outlives this CLI.
+ *  `app` adds --app (chromeless window); used by both first-launch and restart. */
+function spawnDetachedServer(port: number, opts: { app?: boolean; browser?: 'chrome' | 'edge' } = {}): boolean {
+  const childArgs = [resolveEntry(), 'serve', '--idle-exit', '--port', String(port)];
+  if (opts.app) childArgs.push('--app');
+  if (opts.browser) childArgs.push('--browser', opts.browser);
+  try {
+    spawn(process.execPath, childArgs, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type RestartResult =
+  | { status: 'restarted'; version?: string }
+  | { status: 'started'; version?: string }   // nothing was running — just brought one up
+  | { status: 'stop-failed' }
+  | { status: 'start-timeout' };
+
+/**
+ * Supervised restart: stop the running server, wait for the port to go quiet,
+ * spawn a fresh one, then poll /api/id until a DIFFERENT instanceId answers —
+ * true readiness, not merely an open TCP port. The CLI process itself is the
+ * supervisor (it outlives the stop→start gap), so a failed respawn is reported
+ * here rather than leaving a dead window and no server. Loads the latest build.
+ */
+export async function restartServer(port: number, opts: { browser?: 'chrome' | 'edge' } = {}): Promise<RestartResult> {
+  const before = await probeServerInfo(port);
+  const wasRunning = before.ok;
+  const oldInstanceId = before.instanceId; // may be undefined for a legacy server
+
+  if (wasRunning) {
+    const stopped = await stopServer(port);
+    // 'not-running' = it died between our probe and the stop — fine, proceed.
+    if (stopped === 'failed') return { status: 'stop-failed' };
+  }
+
+  const headless = isHeadless();
+  const browser = findChromiumBrowser(opts.browser);
+  const app = !headless && !!browser;
+
+  if (!spawnDetachedServer(port, { app, browser: opts.browser })) {
+    // Couldn't spawn detached — last resort, serve in the foreground (blocks).
+    const { startServeServer } = await import('../serve.js');
+    startServeServer(port, { open: !headless });
+    return { status: wasRunning ? 'restarted' : 'started' };
+  }
+
+  // Poll for readiness: a marker server whose instanceId differs from the one we
+  // just stopped. The server we spawn is always a marker build, so it always
+  // reports an instanceId — no legacy-successor ambiguity. ~20s budget.
+  for (let i = 0; i < 80; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    const info = await probeServerInfo(port, 500);
+    if (info.ok && info.instanceId && info.instanceId !== oldInstanceId) {
+      return { status: wasRunning ? 'restarted' : 'started', version: info.version };
+    }
+  }
+  return { status: 'start-timeout' };
+}
+
 /**
  * The default `cc` action: open the dashboard as an app-mode window, starting a
  * background server first if one isn't already running.
@@ -293,22 +366,11 @@ export async function launchDashboardApp(opts: { port?: number; browser?: 'chrom
   }
 
   // GUI available: spawn a detached background server that serves + opens the app
-  // window, then return so this CLI exits and frees the terminal. Resolve the CLI
-  // entry from THIS module's location (dist/index.js sits next to the bundle) so
-  // it works regardless of how the process was launched (bin shim, node, etc.).
-  let entry = process.argv[1];
-  try {
-    const here = fileURLToPath(new URL('./index.js', import.meta.url));
-    if (fs.existsSync(here)) entry = here;
-  } catch { /* fall back to argv[1] */ }
-  // --idle-exit: this background server drains itself ~15 min after the last
-  // window closes and the last PTY dies, instead of running forever.
-  const childArgs = [entry, 'serve', '--app', '--idle-exit', '--port', String(port)];
-  if (opts.browser) childArgs.push('--browser', opts.browser);
-  try {
-    spawn(process.execPath, childArgs, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  // window (--idle-exit drains it ~15 min after the last window/PTY is gone),
+  // then return so this CLI exits and frees the terminal.
+  if (spawnDetachedServer(port, { app: true, browser: opts.browser })) {
     console.log(`Opening CLD CTRL…  (running at ${url} — run \`cc --tui\` for the terminal UI)`);
-  } catch {
+  } else {
     // Last resort: serve in the foreground.
     const { startServeServer } = await import('../serve.js');
     startServeServer(port, { open: true });

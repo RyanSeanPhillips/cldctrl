@@ -764,6 +764,25 @@ export function createCli(): Command {
       else { console.error(`Could not stop the server on port ${port} — kill the node process listening on it manually.`); process.exitCode = 1; }
     });
 
+  // ── restart (stop + start fresh, load latest build) ──────
+
+  program
+    .command('restart')
+    .description('Restart the dashboard server (stop + start fresh so the latest build loads). Live agent tiles are closed; they resume from the sidebar.')
+    .option('--port <port>', 'Port the server is on', '2533')
+    .option('--browser <name>', 'App window browser — chrome (default) or edge')
+    .action(async (opts) => {
+      const port = parseInt(opts.port, 10) || 2533;
+      const browser = opts.browser === 'edge' ? 'edge' : opts.browser === 'chrome' ? 'chrome' : undefined;
+      const { restartServer } = await import('./core/app-launch.js');
+      console.log(`Restarting CLD CTRL on port ${port}…`);
+      const r = await restartServer(port, { browser });
+      if (r.status === 'restarted') console.log(`Restarted — dashboard is back up${r.version ? ` (v${r.version})` : ''}.`);
+      else if (r.status === 'started') console.log(`No server was running — started a fresh one${r.version ? ` (v${r.version})` : ''}.`);
+      else if (r.status === 'stop-failed') { console.error(`Could not stop the existing server on port ${port} — kill the node process listening on it manually, then run \`cc\`.`); process.exitCode = 1; }
+      else { console.error(`Stopped the old server but the new one didn't come up within ~20s. Run \`cc\` to try again, or check ~/.config/cldctrl/debug.log.`); process.exitCode = 1; }
+    });
+
   // ── daemon ──────────────────────────────────────────────
 
   program

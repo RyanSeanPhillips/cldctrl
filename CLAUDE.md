@@ -47,6 +47,7 @@ cc daemon             # start background poller
 # Browser dashboard (localhost-only, prototype)
 cc serve [--port 2533]
 cc stop [--port 2533]  # shut down the background dashboard server (next `cc` loads the new build)
+cc restart [--port 2533]  # stop + start fresh (supervised: waits for a new instanceId) so the latest build loads
 
 # Demo mode (synthetic data for screenshots)
 cc --demo [full|fresh|no-github|minimal]
