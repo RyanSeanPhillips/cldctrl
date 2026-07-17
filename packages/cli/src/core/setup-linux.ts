@@ -268,7 +268,11 @@ export function installAppShortcutLinux(opts: { pin?: boolean; asyncRefresh?: bo
   if (isCommandAvailable('update-desktop-database')) {
     try {
       if (opts.asyncRefresh) {
-        spawn.spawn('update-desktop-database', [appDir], { detached: true, stdio: 'ignore' }).unref();
+        const child = spawn.spawn('update-desktop-database', [appDir], { detached: true, stdio: 'ignore' });
+        // No 'error' listener → an async spawn failure (binary vanished after the
+        // isCommandAvailable check) would throw uncaught in the long-lived server.
+        child.on('error', () => { /* best-effort refresh — ignore */ });
+        child.unref();
       } else {
         spawn.sync('update-desktop-database', [appDir], { stdio: 'ignore', timeout: 8000 });
       }
@@ -323,8 +327,11 @@ export function ensureAppShortcutLinux(): void {
     const asset = getLinuxIconAsset();
     const iconCurrent = !asset || installedIconIsCurrent(asset, iconDest);
     if (fs.existsSync(desktopPath) && iconCurrent) { appShortcutEnsured = true; return; }
-    installAppShortcutLinux({ asyncRefresh: true }); // (re)writes .desktop + copies icon; non-blocking refresh
-    appShortcutEnsured = true;
+    // Only latch on a SUCCESSFUL install. installAppShortcutLinux swallows write
+    // failures and returns {success:false} (it doesn't throw), so latching
+    // unconditionally would let a transient EACCES/ENOSPC permanently skip the
+    // icon install for this long-lived process — retry on the next launch instead.
+    if (installAppShortcutLinux({ asyncRefresh: true }).success) appShortcutEnsured = true;
   } catch { /* best-effort — leave the flag unset so a later launch can retry */ }
 }
 
