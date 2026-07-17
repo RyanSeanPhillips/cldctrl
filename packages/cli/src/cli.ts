@@ -735,15 +735,33 @@ export function createCli(): Command {
       // App mode: if a dashboard is already serving this port, just open another
       // window against it (so relaunching the shortcut doesn't hit port-in-use).
       if (opts.app) {
-        const { probeServer, launchAppWindow } = await import('./core/app-launch.js');
-        if (await probeServer(port)) {
+        const { probeServerInfo, launchAppWindow, staleServerNote } = await import('./core/app-launch.js');
+        const running = await probeServerInfo(port);
+        if (running.ok) {
           launchAppWindow(`http://127.0.0.1:${port}`, { sharedProfile: !!opts.sharedProfile, browser });
           console.log(`Opened an app window against the dashboard already running on ${port}.`);
+          const stale = staleServerNote(running.version);
+          if (stale) console.log(stale);
           return;
         }
       }
       const { startServeServer } = await import('./serve.js');
       startServeServer(port, { open: opts.open !== false, appMode: !!opts.app, sharedProfile: !!opts.sharedProfile, browser });
+    });
+
+  // ── stop (shut down the dashboard server) ────────────────
+
+  program
+    .command('stop')
+    .description('Stop the background dashboard server (closes any live agent-terminal tiles; the next `cc` starts fresh and picks up updates)')
+    .option('--port <port>', 'Port the server is on', '2533')
+    .action(async (opts) => {
+      const port = parseInt(opts.port, 10) || 2533;
+      const { stopServer } = await import('./core/app-launch.js');
+      const result = await stopServer(port);
+      if (result === 'not-running') console.log(`No CLD CTRL dashboard running on port ${port}.`);
+      else if (result === 'stopped') console.log(`Dashboard server on port ${port} stopped. Run \`cc\` to start fresh.`);
+      else { console.error(`Could not stop the server on port ${port} — kill the node process listening on it manually.`); process.exitCode = 1; }
     });
 
   // ── daemon ──────────────────────────────────────────────

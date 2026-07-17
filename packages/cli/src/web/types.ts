@@ -55,6 +55,9 @@ export interface ProjectInfo {
 }
 
 export interface OverviewPayload {
+  product?: string; // 'cldctrl' — positive server-identity marker for lifecycle probes
+  protocolVersion?: number;
+  instanceId?: string; // random per-process; lets a restart tell old/new apart
   version: string;
   updateAvailable?: string | null; // newer published version, or null
   generatedAt: string; // ISO

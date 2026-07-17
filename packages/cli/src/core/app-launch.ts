@@ -15,21 +15,149 @@ import { execFileSync } from 'node:child_process';
 import spawn from 'cross-spawn';
 import { getConfigDir } from '../config.js';
 import { getPlatform } from './platform.js';
+import { VERSION } from '../constants.js';
+
+/** GET a localhost JSON endpoint, resolving the parsed object (or null on any
+ *  non-200 / non-JSON / parse error / connection failure). Never rejects. */
+function getJson(port: number, path: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path, timeout: timeoutMs }, (res) => {
+      const ct = String(res.headers['content-type'] || '');
+      if (res.statusCode !== 200 || !ct.includes('application/json')) { res.resume(); resolve(null); return; }
+      let body = '';
+      res.setEncoding('utf-8');
+      res.on('data', (c) => { if (body.length < 1_000_000) body += c; });
+      res.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve(null); } });
+      res.on('error', () => resolve(null));
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+/** Does a JSON blob have the distinctive shape of an /api/overview payload? Used
+ *  to recognize a LEGACY server (built before the `product` marker existed) —
+ *  the version the user is most likely running right now. Requires several
+ *  co-occurring cldctrl-specific fields so a random 200-JSON service on the port
+ *  can't be mistaken for ours. */
+function looksLikeOverview(j: Record<string, unknown> | null): boolean {
+  if (!j || typeof j !== 'object') return false;
+  const feat = j.features as Record<string, unknown> | undefined;
+  return typeof j.version === 'string'
+    && typeof j.generatedAt === 'string'
+    && !!feat && typeof feat === 'object' && 'agentTerminal' in feat
+    && !!j.usage && typeof j.usage === 'object';
+}
+
+/**
+ * Probe the localhost port for a cldctrl dashboard. `ok` is true ONLY when the
+ * response POSITIVELY identifies as ours — either the `product: "cldctrl"`
+ * marker (STRONG, `identified: 'marker'`) or the distinctive overview shape of a
+ * pre-marker build (LEGACY, `identified: 'legacy'`). A foreign service on this
+ * port (404/401, an HTML app, or unrelated 200-JSON) yields `ok: false`, because
+ * callers escalate a positive probe to a destructive stop/kill.
+ *
+ * Fast path is /api/id (instant, no rate-limit/git work — /api/overview can
+ * exceed the timeout when cold). Falls back to /api/overview so already-running
+ * OLD servers (no /api/id route) are still recognized. Captures version +
+ * instanceId for stale-build detection and old-vs-successor discrimination.
+ */
+export async function probeServerInfo(
+  port: number,
+  timeoutMs = 1500,
+): Promise<{ ok: boolean; version?: string; instanceId?: string; identified?: 'marker' | 'legacy' }> {
+  // 1. Strong identity via the lightweight id endpoint (new builds).
+  const id = await getJson(port, '/api/id', timeoutMs);
+  if (id && id.product === 'cldctrl') {
+    return {
+      ok: true,
+      identified: 'marker',
+      version: typeof id.version === 'string' ? id.version : undefined,
+      instanceId: typeof id.instanceId === 'string' ? id.instanceId : undefined,
+    };
+  }
+  // 2. Fall back to /api/overview: a new server still carries the marker there;
+  //    an old server is recognized by its distinctive payload shape.
+  const ov = await getJson(port, '/api/overview', Math.max(timeoutMs, 2500));
+  if (ov && ov.product === 'cldctrl') {
+    return {
+      ok: true,
+      identified: 'marker',
+      version: typeof ov.version === 'string' ? ov.version : undefined,
+      instanceId: typeof ov.instanceId === 'string' ? ov.instanceId : undefined,
+    };
+  }
+  if (looksLikeOverview(ov)) {
+    return { ok: true, identified: 'legacy', version: typeof ov!.version === 'string' ? ov!.version as string : undefined };
+  }
+  return { ok: false };
+}
 
 /** Is a cldctrl dashboard already serving on this localhost port? Lets a repeat
  *  app-mode launch just open a new window instead of failing on port-in-use. */
-export function probeServer(port: number, timeoutMs = 900): Promise<boolean> {
+export async function probeServer(port: number, timeoutMs = 900): Promise<boolean> {
+  return (await probeServerInfo(port, timeoutMs)).ok;
+}
+
+/** One-line hint when the running server was built from older code than the
+ *  local install — the reason "my updates aren't showing up" happens. */
+export function staleServerNote(runningVersion: string | undefined): string | null {
+  if (!runningVersion || runningVersion === VERSION) return null;
+  return `Note: the running dashboard is v${runningVersion} but v${VERSION} is installed — run \`cc stop\` then \`cc\` to load the update.`;
+}
+
+/** POST /api/shutdown to a running dashboard server. Falls back to killing the
+ *  process that owns the port (older servers predate the endpoint). Only called
+ *  after a positive probe, so we never kill a foreign service. */
+function requestShutdown(port: number, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port, path: '/api/overview', timeout: timeoutMs }, (res) => {
-      res.resume();
-      // Only treat a 200 JSON response as "CLD CTRL is here" — a foreign service
-      // on this port (404/401/an HTML app) must NOT be mistaken for our server.
-      const ct = String(res.headers['content-type'] || '');
-      resolve(res.statusCode === 200 && ct.includes('application/json'));
-    });
+    const req = http.request({
+      host: '127.0.0.1', port, path: '/api/shutdown', method: 'POST',
+      headers: { 'X-CLDCTRL': '1', 'Content-Length': 0 }, timeout: timeoutMs,
+    }, (res) => { res.resume(); resolve(res.statusCode === 200); });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.end();
   });
+}
+
+/** Kill whatever PID is LISTENING on the port. Windows: netstat + taskkill /T
+ *  (kills the PTY children too, so agent processes don't orphan). Unix: lsof. */
+function killPortOwner(port: number): boolean {
+  try {
+    if (getPlatform() === 'windows') {
+      const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const line = out.split(/\r?\n/).find((l) => l.includes('LISTENING') && new RegExp(`[:.]${port}\\s`).test(l));
+      const pid = line?.trim().split(/\s+/).pop();
+      if (!pid || !/^\d+$/.test(pid) || pid === '0') return false;
+      execFileSync('taskkill', ['/PID', pid, '/T', '/F'], { stdio: 'ignore' });
+      return true;
+    }
+    const pids = execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split(/\s+/).filter((p) => /^\d+$/.test(p));
+    if (!pids.length) return false;
+    for (const pid of pids) { try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already gone */ } }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stop the dashboard server on `port`. Returns what happened so the CLI can
+ *  report it. Verifies the port actually went quiet before claiming success. */
+export async function stopServer(port: number): Promise<'not-running' | 'stopped' | 'failed'> {
+  const info = await probeServerInfo(port);
+  if (!info.ok) return 'not-running';
+  let sent = await requestShutdown(port);
+  // Older builds don't have /api/shutdown — kill the port's owner directly.
+  if (!sent) sent = killPortOwner(port);
+  if (!sent) return 'failed';
+  // Wait for the port to actually go quiet (shutdown has a short grace timer).
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (!(await probeServerInfo(port, 400)).ok) return 'stopped';
+  }
+  return 'failed';
 }
 
 /** Locate a Chromium-based browser that supports `--app=`. Prefers CHROME by
@@ -142,12 +270,15 @@ export async function launchDashboardApp(opts: { port?: number; browser?: 'chrom
   const headless = isHeadless();
   const browser = findChromiumBrowser(opts.browser);
 
-  if (await probeServer(port)) {
+  const running = await probeServerInfo(port);
+  if (running.ok) {
     if (!headless && browser && launchAppWindow(url, { browser: opts.browser })) {
       console.log(`Opened CLD CTRL (already running at ${url}).`);
     } else {
       console.log(`CLD CTRL is running at ${url}`);
     }
+    const stale = staleServerNote(running.version);
+    if (stale) console.log(stale);
     return;
   }
 

@@ -14,6 +14,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import spawn from 'cross-spawn';
 import { fileURLToPath } from 'node:url';
 import { VERSION } from './constants.js';
@@ -56,6 +57,15 @@ let latestUpdate: string | null = null;
 // Demo mode (`cc serve --demo`) — synthetic data (well-known OSS repos) instead
 // of the user's real projects; for marketing/screenshots. Set at startup.
 let DEMO = false;
+
+// Server identity — stamped into /api/overview so a probe can POSITIVELY confirm
+// "this is a CLD CTRL server" before ever issuing a destructive stop/kill (a
+// foreign 200-JSON service on this port must never be mistaken for us). PRODUCT
+// gates the fallback port-owner kill; INSTANCE_ID lets a restart supervisor tell
+// the OLD process apart from its freshly-spawned successor on the same port.
+const PRODUCT = 'cldctrl';
+const PROTOCOL_VERSION = 2;
+const INSTANCE_ID = randomUUID();
 
 async function getRateLimits(): Promise<RateLimitInfo | null> {
   // Re-probe when our last probe is older than the TTL (the 5h window moves and
@@ -263,6 +273,9 @@ async function buildOverview(): Promise<unknown> {
   })();
 
   return {
+    product: PRODUCT,
+    protocolVersion: PROTOCOL_VERSION,
+    instanceId: INSTANCE_ID,
     version: VERSION,
     updateAvailable: latestUpdate,
     generatedAt: new Date().toISOString(),
@@ -1183,6 +1196,19 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
 
+      // Lightweight identity + readiness probe. Handled FIRST (before the demo
+      // branch and before any heavy route) so it answers instantly regardless of
+      // mode — the full /api/overview does rate-limit/git/usage work and can take
+      // >900ms cold, which is too slow/racy for "is a CLD CTRL server here?" and
+      // for a restart supervisor polling "is the NEW instance up yet?". Carries
+      // the same identity markers /api/overview does. No-store so a browser never
+      // serves a stale instanceId across a restart.
+      if (req.method === 'GET' && url.pathname === '/api/id') {
+        res.setHeader('Cache-Control', 'no-store');
+        sendJson(res, 200, { product: PRODUCT, protocolVersion: PROTOCOL_VERSION, instanceId: INSTANCE_ID, version: VERSION });
+        return;
+      }
+
       // Demo mode is INERT against the real machine: only static assets + a few
       // demo-aware READ endpoints are served (synthetic data); every other
       // endpoint — launch, file, notes, reveal, screenshot, bridge, real
@@ -1321,6 +1347,16 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         const body = await readJsonBody(req);
         const result = await handleLaunch(body);
         sendJson(res, result.status, result.body);
+      } else if (req.method === 'POST' && url.pathname === '/api/shutdown') {
+        // `cc stop`: deliberate remote shutdown so a relaunch picks up a new
+        // build. Kills live PTYs (agent sessions in tiles) via the same sweep
+        // as Ctrl+C — the caller is expected to have warned the user.
+        if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
+        log('serve', { event: 'shutdown_requested', terminals: terminals.size });
+        sendJson(res, 200, { ok: true, product: PRODUCT, instanceId: INSTANCE_ID, terminals: terminals.size, version: VERSION });
+        // Let the response flush before tearing down. shutdown() is idempotent,
+        // so a repeat POST (or a racing signal) collapses to one teardown.
+        setTimeout(() => shutdown('api'), 150);
       } else if (req.method === 'POST' && url.pathname === '/api/screenshot') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         const body = await readJsonBody(req);
@@ -1540,7 +1576,17 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
   // orphans, then exit. Covers Ctrl+C (foreground `cc serve`) and SIGTERM;
   // nothing can run on an external force-kill (Stop-Process) — that path is
   // mitigated by idle-exit draining the server when it's no longer used.
+  //
+  // IDEMPOTENT: four paths can trigger teardown (SIGINT, SIGTERM, idle-exit,
+  // POST /api/shutdown) and they can overlap (e.g. Ctrl+C while an idle tick
+  // fires). Guard so the PTY sweep + exit runs exactly once — a second sweep
+  // over an already-killing terminal set is harmless but the double `exit()`
+  // timers and log spam aren't worth it.
+  let shuttingDown = false;
   const shutdown = (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log('serve', { event: 'shutdown', reason: sig, terminals: terminals.size });
     shutdownTerminals(sig);
     try { server.close(); } catch { /* ignore */ }
     setTimeout(() => process.exit(0), 250).unref?.();

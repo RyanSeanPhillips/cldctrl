@@ -75,6 +75,7 @@ function heat(now: number, scale: number): HeatCell[] {
 export function buildDemoOverview(now: number): OverviewPayload {
   const activeNames = new Set(DEMO_SESSIONS.map((s) => s.project));
   return {
+    product: 'cldctrl',
     version: VERSION,
     updateAvailable: null,
     generatedAt: new Date(now).toISOString(),
