@@ -67,6 +67,20 @@ const PRODUCT = 'cldctrl';
 const PROTOCOL_VERSION = 2;
 const INSTANCE_ID = randomUUID();
 
+// Build identity — the content hash the build writes to dist/build-manifest.json.
+// We snapshot it at startup (runningBuildId) and re-read the on-disk manifest on a
+// slow timer; when it differs, a NEWER build has landed and the dashboard offers
+// "restart to load". This is what turns "I rebuilt but my changes aren't showing"
+// into a visible prompt instead of a silent stale server.
+let runningBuildId: string | null = null;
+let buildUpdateReady = false;
+function readDiskBuildId(): string | null {
+  try {
+    const p = path.join(path.dirname(fileURLToPath(import.meta.url)), 'build-manifest.json');
+    return JSON.parse(fs.readFileSync(p, 'utf-8'))?.buildId ?? null;
+  } catch { return null; }
+}
+
 async function getRateLimits(): Promise<RateLimitInfo | null> {
   // Re-probe when our last probe is older than the TTL (the 5h window moves and
   // resets — a once-at-startup value goes badly stale, e.g. showing 12% while the
@@ -278,6 +292,7 @@ async function buildOverview(): Promise<unknown> {
     instanceId: INSTANCE_ID,
     version: VERSION,
     updateAvailable: latestUpdate,
+    buildUpdateReady,
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
     features: {
@@ -1265,6 +1280,8 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
   // Rehydrate the tileId -> resume map a prior instance persisted, so 'new' tiles
   // whose sessionId the browser never polled can still --resume after a restart.
   if (!DEMO) loadPersistedTermSessions();
+  // Snapshot the build we're running so a later rebuild is detectable as an update.
+  runningBuildId = readDiskBuildId();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -1697,6 +1714,25 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       }
     }, Math.min(60_000, Math.max(1000, Math.floor(IDLE_EXIT_MS / 3))));
     idleTick.unref?.();
+  }
+
+  // Build-update watch: re-read the on-disk manifest on a slow tick; when its
+  // buildId differs from the one we started with, a newer build has landed →
+  // flip the flag the overview surfaces as a "restart to load" pill. Latch-once
+  // (a rebuild stays "update ready" until the server is restarted). The manifest
+  // is written atomically, so a single read is always a complete build.
+  if (!DEMO && runningBuildId) {
+    const BUILD_CHECK_MS = Number(process.env.CLDCTRL_BUILD_CHECK_MS) || 20_000; // env override for tests
+    const buildTick = setInterval(() => {
+      if (buildUpdateReady) { clearInterval(buildTick); return; }
+      const disk = readDiskBuildId();
+      if (disk && disk !== runningBuildId) {
+        buildUpdateReady = true;
+        log('serve', { event: 'build_update_ready', running: runningBuildId, disk });
+        clearInterval(buildTick);
+      }
+    }, Math.max(1000, BUILD_CHECK_MS));
+    buildTick.unref?.();
   }
 
   // Localhost ONLY — transcripts, terminal, and launch must not reach the network.

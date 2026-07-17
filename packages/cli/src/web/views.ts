@@ -108,6 +108,19 @@ function updatePill(d: OverviewPayload): Tpl | string {
   </span>`;
 }
 
+// "Restart to load" pill — a NEWER LOCAL BUILD is on disk than the one this
+// server is running (rebuilt while up). Distinct from updatePill (a newer
+// PUBLISHED release). Clicking copies `cc restart`; the ⏻ power menu offers a
+// one-click restart. Not dismissable — it clears itself once you actually
+// restart (the new server's buildId matches disk again).
+function restartPill(d: OverviewPayload): Tpl | string {
+  if (!d.buildUpdateReady) return '';
+  return html`<span class="update-pill restart-pill" data-act="restart-open"
+    title="A newer build is on disk — restart the dashboard to load it (copies \`cc restart\`)">
+    ${iUp()}<span class="up-ver">restart to load</span>
+  </span>`;
+}
+
 
 // ── sidebar (projects) ───────────────────────────────────────
 function gitBadge(p: ProjectInfo): Tpl | string {
@@ -244,6 +257,7 @@ function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
         ${d.version ? html`<span class="side-usage-ver num" title=${'cldctrl v' + d.version + ' · updated ' + new Date(d.generatedAt).toLocaleTimeString()}>v${d.version}</span>` : ''}
       </span>
       ${updatePill(d)}
+      ${restartPill(d)}
       <span class="sp"></span>
       <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>

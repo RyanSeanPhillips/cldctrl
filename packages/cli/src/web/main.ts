@@ -438,6 +438,12 @@ document.addEventListener('click', async (ev) => {
   } else if (act === 'update-dismiss') {
     try { localStorage.setItem('cldctrl-dismissed-update', el.dataset.ver || ''); } catch { /* ignore */ }
     renderApp();
+  } else if (act === 'restart-open') {
+    // A newer build is on disk. Copy the restart command (the ⏻ power menu will
+    // offer a one-click restart in a later step).
+    const cmd = 'cc restart';
+    navigator.clipboard?.writeText(cmd).then(() => toast('Copied: ' + cmd + ' — run it to load the new build'))
+      .catch(() => toast('To load the new build, run:  ' + cmd));
   }
   else if (act === 'openincockpit') {
     const v = el.dataset.vendor;

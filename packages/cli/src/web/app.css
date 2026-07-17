@@ -141,6 +141,10 @@ body.sidebar-collapsed { --sidebar-w: 0px; }
 .update-pill:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .update-pill svg { width: 12px; height: 12px; stroke: currentColor; }
 .update-pill .up-ver { letter-spacing: 0.01em; }
+/* "restart to load" (newer local build) — teal-green to read as "ready", distinct
+   from the orange "new release available" pill. */
+.restart-pill { background: var(--green, #2dd4bf); border-color: var(--green, #2dd4bf); color: #06080d; }
+.restart-pill:hover { filter: brightness(1.08); background: var(--green, #2dd4bf); border-color: var(--green, #2dd4bf); }
 .update-x { background: none; border: none; color: currentColor; opacity: 0.7; cursor: pointer;
   font-size: 11px; line-height: 1; padding: 0 0 0 2px; }
 .update-x:hover { opacity: 1; }

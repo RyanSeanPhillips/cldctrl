@@ -60,6 +60,7 @@ export interface OverviewPayload {
   instanceId?: string; // random per-process; lets a restart tell old/new apart
   version: string;
   updateAvailable?: string | null; // newer published version, or null
+  buildUpdateReady?: boolean;      // a newer LOCAL build is on disk — restart to load it
   generatedAt: string; // ISO
   tier: string | null;
   features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; providers?: Array<{ id: string; label: string; model?: string; available: boolean; keyHint: string }>; openExplorer?: boolean; openVscode?: boolean };
