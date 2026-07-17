@@ -6,7 +6,10 @@ import type {
 export type { NoteEntry } from './types.js';
 
 export async function fetchOverview(): Promise<OverviewPayload> {
-  const r = await fetch('/api/overview');
+  // Timeout so a half-dead server (accepting connections but not responding
+  // mid-restart) surfaces as a failed poll promptly instead of hanging — the
+  // lifecycle detector needs that signal to show the reconnect overlay.
+  const r = await fetch('/api/overview', { signal: AbortSignal.timeout(4000) });
   if (!r.ok) throw new Error('overview ' + r.status);
   return r.json();
 }

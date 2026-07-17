@@ -15,6 +15,7 @@ import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
+import { onOverview, onOverviewError } from './lifecycle.js';
 
 const appRoot = document.getElementById('app')!;
 
@@ -269,6 +270,9 @@ async function poll(): Promise<void> {
   try {
     const data = await fetchOverview();
     setData(data);
+    // Detect a server restart (instanceId changed / recovered from an outage) and
+    // reload so a fresh build + dead WebSockets resync against the new process.
+    onOverview(data.instanceId);
     // Record the real sessionId each 'new' tile's agent created, so a restart can
     // resume the SAME conversation (no manual /resume). Persisted with the tile.
     const tsMap = data.terminalSessions;
@@ -349,7 +353,7 @@ async function poll(): Promise<void> {
     }
     // Listen mode: speak each new assistant reply of the active session.
     if (isHandsFree()) { const t = latestActiveSession(); if (t) autoRead({ id: t.id, assistantTurns: t.assistantTurns }); }
-  } catch { setConnError(true); }
+  } catch { setConnError(true); onOverviewError(); }
   await refreshTranscript();
 }
 

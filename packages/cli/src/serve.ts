@@ -1302,7 +1302,7 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
           || p === '/manifest.webmanifest' || p === '/icon-192.png' || p === '/icon-512.png');
         if (!staticGet) {
           const demo = await import('./core/serve-demo.js');
-          if (m === 'GET' && p === '/api/overview') { sendJson(res, 200, demo.buildDemoOverview(Date.now())); return; }
+          if (m === 'GET' && p === '/api/overview') { sendJson(res, 200, { ...demo.buildDemoOverview(Date.now()), instanceId: INSTANCE_ID }); return; }
           if (m === 'GET' && p === '/api/stats') {
             const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 7));
             sendJson(res, 200, demo.buildDemoStats(days, Date.now())); return;
@@ -1318,7 +1318,9 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
       }
 
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        // no-cache: the shell references /web/app.js (also no-cache), so a reload
+        // after a restart always revalidates and can't serve a stale bundle.
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
         res.end(SHELL);
       } else if (req.method === 'GET' && url.pathname === '/vendor/xterm.js') {
         serveStaticFile(res, XTERM_JS, 'text/javascript');
