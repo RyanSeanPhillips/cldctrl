@@ -104,6 +104,14 @@ prove the thesis before investing behind it:
 
 ## 🚀 Release readiness (NEW — surfaced by the 2026-07-17 review)
 
+**The core is already proven** — the primary user finds it essential daily (project
+management + re-entry). So this list is NOT "is the tool good?" — it's "does a
+STRANGER's first 10 minutes and the trust story hold up?" That's a much shorter,
+more shippable gate than the reviews implied. The likely true blockers are just:
+**(1) accurate README/positioning, (2) a security once-over of the localhost
+control plane, (3) verified clean install + uninstall on a fresh machine (esp.
+non-Windows).** The rest can follow a v0.x launch.
+
 **Minimum bar:** a new user on Windows/macOS/Linux can install, auto-discover
 existing Claude/Codex history, open+resume a session, **restart without
 duplication or context replay**, search across vendors, and **fully uninstall
@@ -123,13 +131,15 @@ without manual repair**. Plus:
   persistence / vendor routing / foreign-process protection. The strategic modules
   (search, vector index, handoff, MCP coordination) aren't in the suite. Add real
   integration tests + app/server smoke; run `npm test` in CI.
-- [ ] **Telemetry: opt-IN background beacons + a one-click problem report.** Opt-in
-  is right for the local-first promise — but pure opt-in leaves you blind exactly
-  when you need signal (the "5–10 external installs" teach nothing if none phone
-  home). Pair it with an in-app **"send this session's anonymized problem report"**
-  so bug-hitters can hand you structured signal on demand. Clear first-run
-  disclosure of exactly what's read/stored/embedded/transmitted; no secrets or
-  transcript content in any beacon.
+- [ ] **Telemetry: opt-OUT, but DISCLOSED + one-flag-off** *(owner's decision
+  2026-07-17 — opt-out, not opt-in; both reviews argued opt-in, overruled by the
+  owner)*. The trust risk isn't opt-out per se — it's *undisclosed* collection
+  discovered at launch. So keep it opt-out but ship a plain privacy line naming the
+  **launch/heartbeat analytics beacon** (the surface-tagged one) + the single flag
+  to disable it. **The version-check ping is exempt** — it's low-sensitivity
+  operational (like npm's), not analytics; no disclosure burden. No secrets or
+  transcript content in any beacon, ever. (Optional: an in-app "send anonymized
+  problem report" for structured bug signal — but not required.)
 - [ ] **Recovery + migrations** — corrupt config/index/session-metadata → backup or
   rebuild path; versioned data migrations with rollback expectations.
 - [ ] **`node-pty` → `optionalDependency`** — a failed native build shouldn't abort
@@ -157,6 +167,20 @@ without manual repair**. Plus:
 
 ## 🧭 Direction / strategic notes (updated 2026-07-17)
 
+- **⭐ REAL-USAGE SIGNAL (primary user, 2026-07-17) — the daily-driver value is
+  cross-project MANAGEMENT + frictionless RE-ENTRY, NOT the "brain."** The one
+  person who lives in cldctrl finds it *essential* — for managing many projects and
+  getting back into them — and explicitly NOT for the memory/verify/delegation
+  stuff. That is already-built (sidebar + cross-vendor search + resume routing +
+  cockpit + the restart-lifecycle re-entry). This OVERRIDES both AI reviews'
+  "moat = brain, terminal-hosting = plumbing" thesis (neither reviewer uses the
+  tool): the "plumbing" IS the current value, and the risk of "a dashboard people
+  admire but don't need" is already disproven for the wedge user. **Implications:**
+  (1) the brain (verify/continuity/memory) is an EXPANSION bet, not the reason to
+  use it today — don't gate release on it; (2) polishing management + re-entry and
+  SHIPPING is competitive with, maybe ahead of, the brain work for near-term
+  leverage; (3) the pitch should lead with "manage + re-enter every project across
+  every agent," with the brain as the where-it's-going story.
 - **Users want outcomes, but transcripts stay canonical.** Power users want: what did
   we decide? is it still current? what changed? what failed? where's the evidence? —
   not "the conversation where we discussed X." BUT an outcome is a *lossy summary*;
