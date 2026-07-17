@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import spawn from 'cross-spawn';
-import { isCommandAvailable, detectLinuxTerminal } from './platform.js';
+import { isCommandAvailable, detectLinuxTerminal, linuxTerminalArgs } from './platform.js';
 import type { SetupResult } from './setup.js';
 
 function detectDesktop(): string | null {
@@ -50,7 +50,7 @@ if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && command -v hyprctl >/dev/null 2>&1; 
 fi
 
 # No existing window found — launch new one
-${terminal} ${terminal === 'gnome-terminal' ? '-- cc' : terminal === 'kitty' ? 'cc' : '-e cc'}
+${[terminal, ...linuxTerminalArgs(terminal, ['cc'])].join(' ')}
 `;
 }
 

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import spawn from 'cross-spawn';
-import { getPlatform, isCommandAvailable, isInTmux, detectLinuxTerminal, pathIsSafe } from './platform.js';
+import { getPlatform, isCommandAvailable, isInTmux, detectLinuxTerminal, linuxTerminalArgs, pathIsSafe } from './platform.js';
 import { getConfigDir } from '../config.js';
 import { trackSession } from './tracker.js';
 import { log } from './logger.js';
@@ -307,15 +307,7 @@ export function launchClaude(opts: LaunchOptions): LaunchResult {
           };
         }
 
-        let termArgs: string[];
-        if (terminal === 'gnome-terminal') {
-          termArgs = ['--', 'bash', scriptPath];
-        } else if (terminal === 'kitty') {
-          termArgs = ['bash', scriptPath];
-        } else {
-          // konsole, alacritty, wezterm, foot, xfce4-terminal, xterm, x-terminal-emulator
-          termArgs = ['-e', 'bash', scriptPath];
-        }
+        const termArgs = linuxTerminalArgs(terminal, ['bash', scriptPath]);
 
         const child = spawn.spawn(terminal, termArgs, {
           detached: true,

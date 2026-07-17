@@ -232,6 +232,33 @@ export function detectLinuxTerminal(): string | null {
 }
 
 /**
+ * Build the argv that makes a given Linux terminal emulator run `command`.
+ *
+ * The naive `-e <cmd...>` form is NOT universal: gnome-terminal wants `--`,
+ * kitty/foot take the command bare, wezterm needs `start --`, and
+ * xfce4-terminal needs `-x` (execute the rest of the line) rather than `-e`
+ * (which expects a single quoted string). Getting this wrong makes the launch
+ * silently fail (the spawn error is swallowed), so keep this table authoritative.
+ */
+export function linuxTerminalArgs(terminal: string, command: string[]): string[] {
+  const base = terminal.split('/').pop() ?? terminal; // tolerate absolute paths
+  switch (base) {
+    case 'gnome-terminal':
+      return ['--', ...command];
+    case 'kitty':
+    case 'foot':
+      return [...command]; // command passed directly, no flag
+    case 'wezterm':
+      return ['start', '--', ...command];
+    case 'xfce4-terminal':
+      return ['-x', ...command]; // -x = execute remainder of the command line
+    // konsole, alacritty, xterm, x-terminal-emulator and other compliant emulators
+    default:
+      return ['-e', ...command];
+  }
+}
+
+/**
  * Focus a terminal window by title substring. Cross-platform.
  * Returns true if a window was found and focused.
  */
