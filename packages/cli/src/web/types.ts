@@ -61,6 +61,10 @@ export interface OverviewPayload {
   version: string;
   updateAvailable?: string | null; // newer published version, or null
   buildUpdateReady?: boolean;      // a newer LOCAL build is on disk — restart to load it
+  // Anonymous-usage state, so the About panel's toggle reflects reality. `enabled`
+  // is the effective on/off; `envLocked` = forced off by DO_NOT_TRACK / the kill
+  // switch, so the in-app toggle can't override it.
+  telemetry?: { enabled: boolean; envLocked: boolean };
   generatedAt: string; // ISO
   tier: string | null;
   features: { agentTerminal: boolean; agents: Array<{ id: string; label: string; available: boolean }>; providers?: Array<{ id: string; label: string; model?: string; available: boolean; keyHint: string }>; openExplorer?: boolean; openVscode?: boolean };

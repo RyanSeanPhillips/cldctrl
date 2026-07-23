@@ -51,7 +51,7 @@ export async function postLaunch(body: { path: string; prompt?: string; resume?:
 
 /** Restart the dashboard server (spawns a supervisor that stops us + starts a
  *  successor; the page reloads onto it via instanceId detection). */
-export async function postRestart(): Promise<{ ok?: boolean; disabled?: boolean }> {
+export async function postRestart(): Promise<{ ok?: boolean; disabled?: boolean; error?: string }> {
   const r = await fetch('/api/restart', { method: 'POST', headers: { 'X-CLDCTRL': '1' } });
   return r.json();
 }

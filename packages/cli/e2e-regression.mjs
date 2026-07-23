@@ -37,15 +37,18 @@ try {
   await page.$('[data-act="cockpit-add-close"]').then(b => b && b.click()).catch(() => {});
   await page.waitForTimeout(200);
 
-  // 3. Open a conversation tile → head buttons present
+  // 3. Open a conversation tile → controls present. The header now carries only
+  //    notepad + ⋯ + the window controls; the rest are labelled rows inside ⋯.
   await (await page.$('.side-conv[data-act="openincockpit"]')).click();
   await page.waitForTimeout(700);
   check('tile mounted', await page.$$eval('.tile', e => e.length) > 0);
-  for (const [act, label] of [['tile-note','notepad'],['tile-handoff','handoff'],['tile-popout','popout'],['tile-max','maximize'],['tile-close','close']]) {
-    check('tile head: ' + label + ' button', await page.$$eval(`[data-act="${act}"]`, e => e.length) > 0);
+  for (const [act, label] of [['tile-more','overflow'],['tile-handoff','handoff'],['tile-popout','popout'],['tile-min','minimize'],['tile-max','maximize'],['tile-close','close']]) {
+    check('tile control: ' + label, await page.$$eval(`[data-act="${act}"]`, e => e.length) > 0);
   }
 
-  // 4. Handoff menu opens with other agents
+  // 4. Handoff menu opens with other agents (handoff lives in the ⋯ overflow now)
+  await page.$('[data-act="tile-more"]').then(b => b && b.click());
+  await page.waitForTimeout(250);
   await page.$('[data-act="tile-handoff"]').then(b => b && b.click());
   await page.waitForTimeout(300);
   const hoMenu = await page.evaluate(() => { const m = document.getElementById('handoff-menu'); return m ? [...m.querySelectorAll('.handoff-opt')].map(o => o.textContent) : null; });
@@ -57,9 +60,9 @@ try {
   // 5. Notepad opens + mode toggle. NOTE: the LaTeX menu items and KaTeX preview
   //    require a real note file (notePath from /api/scratch), which DEMO mode
   //    stubs out — so they're covered by dedicated real/standalone tests, not here.
-  await page.$('[data-act="tile-note"]').then(b => b && b.click());
+  await page.$('.tile .note-rail').then(b => b && b.click());
   await page.waitForTimeout(400);
-  check('notepad pane visible', await page.$eval('.tile .tile-note', e => getComputedStyle(e).display !== 'none').catch(() => false));
+  check('notepad pane visible', await page.$eval('.tile .tile-note', e => !e.classList.contains('collapsed')).catch(() => false));
   check('notepad KaTeX render path present', await page.evaluate(() => typeof document.querySelector('.tile .note-preview') !== 'undefined'));
   const noteMenuOpens = await page.evaluate(async () => {
     document.querySelector('.tile [data-note="menu"]')?.click();

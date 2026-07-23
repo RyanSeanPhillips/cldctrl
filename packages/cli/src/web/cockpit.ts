@@ -61,9 +61,42 @@ export function focusWaitingTile(): void {
   const id = (cp.attnTiles ?? [])[0];
   if (!id) return;
   if (cp.maximized) setCockpit({ maximized: id }); // swap the full-bleed tile to this one
+  restoreTile(id); // a minimized conversation that wants input comes back to the grid
   clearAttn(id);
   const t = tiles.get(id);
   if (t) { try { t.el.scrollIntoView({ block: 'nearest' }); t.focus?.(); } catch { /* ignore */ } }
+}
+
+/**
+ * Minimize: park a conversation OUT of the grid without tearing anything down. The
+ * tile node stays mounted (just `display:none`, same mechanism a non-maximized tile
+ * already uses) so its WebSocket, PTY, scrollback, notepad and "waiting" detection
+ * all keep running — it simply lives in the sidebar conversation list until you
+ * click it back. This is the answer to "I want it out of the way", which previously
+ * only ✕ close could do, at the cost of dropping the live session.
+ */
+export function minimizeTile(id: string): void {
+  const cp = getState().ui.cockpit;
+  if (!cp.tiles.some((t) => t.id === id && !t.minimized)) return;
+  setCockpit({
+    tiles: cp.tiles.map((t) => (t.id === id ? { ...t, minimized: true } : t)),
+    maximized: cp.maximized === id ? null : cp.maximized, // don't leave the grid stuck on a hidden tile
+  });
+}
+
+/** Bring a minimized conversation back into the grid and focus its terminal. */
+export function restoreTile(id: string): void {
+  const cp = getState().ui.cockpit;
+  if (!cp.tiles.some((t) => t.id === id && t.minimized)) return;
+  setCockpit({ tiles: cp.tiles.map((t) => (t.id === id ? { ...t, minimized: false } : t)) });
+  // The tile was display:none, so xterm never saw the grid's size — refit before
+  // handing it focus, or the agent's next output wraps at the stale column count.
+  setTimeout(() => { tiles.get(id)?.fit?.(); focusTile(id); }, 60);
+}
+
+/** True when this tile is parked in the sidebar rather than shown in the grid. */
+export function isTileMinimized(id: string): boolean {
+  return !!getState().ui.cockpit.tiles.find((t) => t.id === id)?.minimized;
 }
 
 /** Scroll a tile into view and focus its terminal (used by openControlTile + the
@@ -84,6 +117,7 @@ export function openControlTile(): void {
   const existing = cp.tiles.find((t) => t.kind === 'control');
   if (existing) {
     if (cp.maximized && cp.maximized !== existing.id) setCockpit({ maximized: null }); // un-bury it
+    if (existing.minimized) { restoreTile(existing.id); return; } // parked → bring it back (restoreTile focuses)
     setTimeout(() => focusTile(existing.id), 0);
     return;
   }
@@ -254,19 +288,26 @@ function createTermTile(meta: CockpitTile): LiveTile {
   const mg = monogram(meta.title);
   const feats = getState().data?.features;
   const pp = esc(meta.projectPath);
+  // Everything below is a MENU ROW (icon + label) inside the ⋯ overflow, not a bare
+  // header button. They keep their original data-act values and stay in the DOM
+  // (just hidden), so every existing handler and the show/hide wiring in
+  // syncCockpit/setReadSession keeps working untouched.
+  const mi = (act: string, icon: string, label: string, attrs = '', hidden = false) =>
+    `<button class="tile-mi" data-act="${act}" data-id="${esc(meta.id)}"${attrs}${hidden ? ' style="display:none"' : ''}><span class="tile-mi-ic">${icon}</span><span class="tile-mi-lbl">${label}</span></button>`;
   const locBtns = isControl ? '' :
-    (feats?.openExplorer ? `<button class="btn icon" data-act="tile-reveal" data-path="${pp}" title="Open project folder">&#128193;</button>` : '') +
-    (feats?.openVscode ? `<button class="btn icon" data-act="tile-code" data-path="${pp}" title="Open in VS Code">&lt;/&gt;</button>` : '');
+    (feats?.openExplorer ? mi('tile-reveal', '&#128193;', 'Open project folder', ` data-path="${pp}"`) : '') +
+    (feats?.openVscode ? mi('tile-code', '&lt;/&gt;', 'Open in VS Code', ` data-path="${pp}"`) : '');
   // Read the latest agent reply aloud. Always rendered, but hidden until we know a
   // session id — fresh ('new') tiles only discover theirs after claude writes the
   // first JSONL, so setReadSession() reveals + binds it later (in syncCockpit).
   // The control tile has no session id, so it omits read-aloud entirely.
   const readBtn = isControl ? '' :
-    `<button class="btn icon" data-act="tile-readout" data-session="${esc(meta.sessionId ?? '')}" title="Read the latest reply aloud"${meta.sessionId ? '' : ' style="display:none"'}>&#128266;</button>`;
+    mi('tile-readout', '&#128266;', 'Read the latest reply aloud', ` data-session="${esc(meta.sessionId ?? '')}"`, !meta.sessionId);
   const grip = isControl ? '<span class="tile-pin" title="Pinned — mission-control agent">&#9670;</span>'
     : '<span class="tile-grip" draggable="true" title="Drag to reorder">&#10303;</span>';
-  const noteBtn =
-    `<button class="btn icon" data-act="tile-note" data-id="${esc(meta.id)}" title="Notepad — a draft docked to this conversation that persists with it (autosaves; the agent's edits sync in)">&#128211;</button>`;
+  // The notepad has ONE entry point: the drawer rail on the tile's right edge (see
+  // ICON_DRAWER_*). A separate 📓 header button meant the opener and the closer
+  // lived in different places, which read as two unrelated controls.
   // Pop out into its own chromeless window. Resume tiles always can (stable
   // sessionId → the widget attaches to the same 'resume:<id>' PTY). 'new' tiles
   // start HIDDEN and are revealed by syncCockpit once their sessionId is
@@ -274,7 +315,7 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // (never as a resume while that PTY lives — that would double-spawn), with the
   // discovered session as a server-side reattach fallback after an idle-kill.
   const popBtn = isControl ? '' :
-    `<button class="btn icon" data-act="tile-popout" data-id="${esc(meta.id)}" title="Pop out into its own window"${meta.kind === 'new' ? ' style="display:none"' : ''}>${ICON_POPOUT}</button>`;
+    mi('tile-popout', ICON_POPOUT, 'Pop out into its own window', '', meta.kind === 'new');
   // Dock a popped-out conversation BACK into the main window. Rendered always,
   // shown only in widget mode (CSS) — the widget signals the main window over the
   // shared-origin localStorage bridge and closes itself on ack.
@@ -284,52 +325,71 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // when a provider runs low on tokens. Needs a stable sessionId (resume tiles
   // have one; 'new' tiles reveal it after discovery, like popout).
   const handoffBtn = isControl ? '' :
-    `<button class="btn icon" data-act="tile-handoff" data-id="${esc(meta.id)}" title="Hand off this conversation to another agent"${meta.kind === 'new' ? ' style="display:none"' : ''}>${ICON_HANDOFF}</button>`;
+    mi('tile-handoff', ICON_HANDOFF, 'Hand off to another agent…', '', meta.kind === 'new');
   const title = isControl ? 'pinned · CTRL · mission-control agent' : esc(meta.title);
-  // Layout: the header belongs to the CONVERSATION pane (.tile-conv wraps head +
-  // terminal). When the notepad opens, its own header sits BESIDE the conversation
-  // header at the same height — each pane's controls live above that pane, instead
-  // of one full-width strip mixing chat and notepad actions.
+  // Layout: ONE full-width toolbar spans the whole tile (window controls, ⋯, title,
+  // context meter). When the notepad docks, it gets its OWN light SUBHEADER over the
+  // notepad column only — so the min/max/close controls never end up stranded in the
+  // middle of the tile, and the notepad's own actions read as nested beneath the
+  // toolbar rather than a second co-equal header.
   el.innerHTML = `
-    <div class="tile-main">
-      <div class="tile-conv">
-        <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
-          ${grip}
-          ${isControl ? '' : `<span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>`}
-          <span class="dot on"></span>
-          <span class="tile-title">${title}</span>
-          <span class="tile-ctx-pct" style="display:none" title=""></span>
-          <span class="tile-status">connecting…</span>
-          <span class="sp"></span>
-          <i class="tile-ctxline" style="display:none"></i>
-          ${noteBtn}
+    <div class="tile-head" data-act="tile-focus" data-id="${esc(meta.id)}">
+      ${grip}
+      ${isControl ? '' : `<span class="tile-ava" style="background:hsl(${mg.hue} 52% 42%)">${esc(mg.initials)}</span>`}
+      <span class="dot on"></span>
+      <span class="tile-title">${title}</span>
+      <span class="tile-ctx-pct" style="display:none" title=""></span>
+      <span class="tile-status">connecting…</span>
+      <span class="sp"></span>
+      <i class="tile-ctxline" style="display:none"></i>
+      <span class="tile-more-wrap">
+        <button class="btn icon" data-act="tile-more" data-id="${esc(meta.id)}" title="More actions" aria-haspopup="true">${ICON_MORE}</button>
+        <div class="tile-menu" style="display:none">
           ${readBtn}
           ${locBtns}
-          <button class="btn icon" data-act="tile-shot" data-id="${esc(meta.id)}" title="Screenshot into this session">&#128247;</button>
-          <button class="btn icon" data-act="tile-restart" data-id="${esc(meta.id)}" title="Restart">&#8635;</button>
+          ${mi('tile-shot', '&#128247;', 'Screenshot into this session')}
+          ${mi('tile-restart', '&#8635;', 'Restart this conversation')}
           ${handoffBtn}
           ${popBtn}
-          ${dockBtn}
-          <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
-          <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
         </div>
+      </span>
+      ${dockBtn}
+      <span class="tile-wc">
+        <button class="btn icon" data-act="tile-min" data-id="${esc(meta.id)}" title="Minimize — keeps running, parks in the sidebar list">${ICON_MIN}</button>
+        <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
+        <button class="btn icon wc-close" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
+      </span>
+    </div>
+    <div class="tile-main">
+      <div class="tile-conv">
         <div class="tile-term"></div>
       </div>
-      <div class="tile-note" style="display:none">
-        <div class="note-head">
-          <span class="note-mark">&#128211;</span>
-          <button class="note-name" data-note="menu" title="Switch note · new · open from this project"><span class="note-name-text">notepad</span> <span class="note-caret">&#9662;</span></button>
-          <span class="note-status"></span>
-          <span class="sp"></span>
-          <button class="btn icon" data-note="chat" title="Send this draft to the agent to read &amp; review">&#128206;</button>
-          <button class="btn icon" data-note="read" title="Read this note aloud (selection, else all)">&#128266;</button>
-          <button class="btn icon" data-note="mode" title="Edit / preview">&#9998;</button>
-          <button class="btn icon" data-note="save" title="Save (Ctrl+S)">&#128190;</button>
-          <div class="note-menu" style="display:none"></div>
+      <div class="tile-note collapsed">
+        <div class="note-split" title="Drag to resize · double-click for an even split"></div>
+        <div class="note-body">
+          <div class="note-head">
+            <span class="note-mark">&#128211;</span>
+            <button class="note-name" data-note="menu" title="Switch note · new · open from this project"><span class="note-name-text">notepad</span> <span class="note-caret">&#9662;</span></button>
+            <span class="note-status"></span>
+            <span class="sp"></span>
+            <span class="tile-more-wrap">
+              <button class="btn icon" data-act="tile-more" title="More note actions" aria-haspopup="true">${ICON_MORE}</button>
+              <div class="tile-menu" style="display:none">
+                <button class="tile-mi" data-note="chat"><span class="tile-mi-ic">&#128206;</span><span class="tile-mi-lbl">Send this draft to the agent</span></button>
+                <button class="tile-mi" data-note="read"><span class="tile-mi-ic">&#128266;</span><span class="tile-mi-lbl">Read this note aloud</span></button>
+                <button class="tile-mi" data-note="save"><span class="tile-mi-ic">&#128190;</span><span class="tile-mi-lbl">Save (Ctrl+S)</span></button>
+              </div>
+            </span>
+            <div class="note-menu" style="display:none"></div>
+          </div>
+          <textarea class="note-edit" spellcheck="true"
+            placeholder="Draft beside the chat — autosaves · Ctrl+S · the agent's edits to this file sync in"></textarea>
+          <div class="note-preview markdown" style="display:none"></div>
         </div>
-        <textarea class="note-edit" spellcheck="true"
-          placeholder="Draft beside the chat — autosaves · Ctrl+S · the agent's edits to this file sync in"></textarea>
-        <div class="note-preview markdown" style="display:none"></div>
+        <button class="note-rail" data-note="collapse" title="Notepad — a draft docked to this conversation"
+          aria-label="Show or hide the notepad"
+          ><span class="note-rail-mark" aria-hidden="true">${ICON_NOTE}</span
+          ><span class="note-rail-chev">${ICON_DRAWER_OPEN}</span></button>
       </div>
     </div>
     <div class="tile-compose" style="display:none">
@@ -524,7 +584,6 @@ function createTermTile(meta: CockpitTile): LiveTile {
   // via linkSession() once claude creates one — so a later fresh relaunch
   // (resume:<sid>) finds the SAME draft instead of minting a blank one.
   let convKey = meta.sessionId || meta.id;
-  let noteAnnounced = !!meta.noteAnnounced; // one-time "a notepad is linked" notice already sent?
   let noteContent = '', noteMtime = 0, noteDirty = false, noteMode: 'edit' | 'preview' = 'edit';
   let notePoll: ReturnType<typeof setInterval> | null = null;
   let noteSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -613,33 +672,58 @@ function createTermTile(meta: CockpitTile): LiveTile {
       else noteStatus.textContent = '✗ ' + (r.error || 'save failed');
     } catch { noteStatus.textContent = '✗ save failed'; }
   };
-  const persistNoteAnnounced = () => {
-    const cp = getState().ui.cockpit;
-    if (cp.tiles.find((t) => t.id === meta.id)?.noteAnnounced) return; // already flagged
-    setCockpit({ tiles: cp.tiles.map((t) => (t.id === meta.id ? { ...t, noteAnnounced: true } : t)) });
-  };
-  // One-time: the FIRST time you edit the notepad, tell the agent it's linked (with
-  // the absolute path) so it never hunts for a "scratchpad" it knows nothing about.
-  // Fires once per conversation (persisted on the tile) and only while you're typing
-  // in the notepad — focus is here, not the terminal, so it won't mangle a half-typed
-  // command. Framed as FYI/"no action needed" to minimise interruption.
-  const announceNote = (): void => {
-    if (noteAnnounced || !notePath) return;
-    noteAnnounced = true;
-    persistNoteAnnounced();
-    const msg = `(cldctrl) FYI: I've linked a notepad to this conversation — a scratchpad file at ${notePath}. When I refer to "the notepad" or "scratchpad", read or edit that file directly (no need to search). It's auto-versioned in git — if I ask to undo or go back to an earlier draft, use the list_note_revisions / restore_note tools on this path. No action needed right now.`;
-    if (!send({ type: 'input', data: msg + '\r' })) connect();
-  };
+  // Opening the notepad no longer injects anything into the conversation. If the
+  // agent needs to know the file path, "Send this draft to the agent" (the 📎 note
+  // action) passes it on demand — an automatic FYI message on first edit was noise.
   noteEdit.addEventListener('input', () => {
     noteContent !== noteEdit.value && (noteDirty = true);
     if (noteDirty) noteStatus.textContent = 'unsaved';
-    if (noteEdit.value.trim()) announceNote(); // first real edit → one-time linked-notepad notice
     if (noteSaveTimer) clearTimeout(noteSaveTimer);
     noteSaveTimer = setTimeout(noteSave, 900); // debounced autosave
   });
   noteEdit.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); noteSave(); } });
   (el.querySelector('[data-note="save"]') as HTMLButtonElement).addEventListener('click', noteSave);
-  (el.querySelector('[data-note="mode"]') as HTMLButtonElement).addEventListener('click', () => noteSetMode(noteMode === 'edit' ? 'preview' : 'edit'));
+  // Drawer rail on the notepad's OUTER edge: the notepad slides shut from the side
+  // it opened from, so closing it doesn't mean hunting back to the 📓 toggle in the
+  // conversation header. Save first — collapsing must never drop a pending edit.
+  (el.querySelector('[data-note="collapse"]') as HTMLButtonElement).addEventListener('click', () => {
+    if (noteOpen && noteDirty) void noteSave(); // never lose a draft on the way shut
+    toggleNote();
+  });
+
+  // ── notepad splitter ──────────────────────────────────────
+  // Drag the notepad's inner edge to rebalance the split (default 50/50, which is
+  // cramped for both panes in a 2-up grid); double-click restores even. Sized in
+  // px on .tile-note while .tile-conv keeps flex:1, so the conversation takes the
+  // remainder and the pair always fills the tile.
+  const noteSplit = el.querySelector('.note-split') as HTMLElement;
+  const tileMain = el.querySelector('.tile-main') as HTMLElement;
+  const MIN_PANE = 140; // px — below this a pane is useless, not just narrow
+  let dragFrom = 0, dragW = 0, dragged = false;
+  noteSplit.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    dragFrom = e.clientX; dragW = noteBar.getBoundingClientRect().width; dragged = false;
+    noteSplit.setPointerCapture(e.pointerId);
+    noteSplit.classList.add('dragging'); el.classList.add('splitting');
+  });
+  noteSplit.addEventListener('pointermove', (e) => {
+    if (!noteSplit.hasPointerCapture(e.pointerId)) return;
+    const dx = e.clientX - dragFrom;
+    if (Math.abs(dx) > 2) dragged = true;
+    // Splitter sits on the notepad's LEFT edge → dragging left widens the notepad.
+    const total = tileMain.getBoundingClientRect().width;
+    const want = Math.max(MIN_PANE, Math.min(total - MIN_PANE, dragW - dx));
+    noteBar.style.flex = `0 0 ${Math.round(want)}px`;
+    doFit(); // keep the terminal's cols/rows honest as the pane changes width
+  });
+  const endDrag = (e: PointerEvent) => {
+    if (noteSplit.hasPointerCapture(e.pointerId)) noteSplit.releasePointerCapture(e.pointerId);
+    noteSplit.classList.remove('dragging'); el.classList.remove('splitting');
+    if (dragged) doFit();
+  };
+  noteSplit.addEventListener('pointerup', endDrag);
+  noteSplit.addEventListener('pointercancel', endDrag);
+  noteSplit.addEventListener('dblclick', () => { noteBar.style.flex = ''; doFit(); });
   // "→ chat": hand the draft to the agent. We inject a self-describing instruction
   // (not a bare path) so the agent reads the file DIRECTLY instead of hunting for a
   // "scratchpad" it knows nothing about — that search wastes turns and pollutes the
@@ -675,7 +759,16 @@ function createTermTile(meta: CockpitTile): LiveTile {
     .replace(/\s{2,}/g, ' ');
   const noteReadBtn = el.querySelector('[data-note="read"]') as HTMLButtonElement;
   const setNoteSpeaking = (on: boolean) => {
-    noteReadBtn.innerHTML = on ? '&#9209;' : '&#128266;'; // ⏹ stop / 🔊 speaker
+    // Read-aloud is a labelled row in the note's ⌄ menu now — swap the icon and
+    // label in place; replacing innerHTML would destroy the row's structure.
+    const ic = noteReadBtn.querySelector('.tile-mi-ic');
+    const lbl = noteReadBtn.querySelector('.tile-mi-lbl');
+    if (ic) {
+      ic.innerHTML = on ? '&#9209;' : '&#128266;'; // ⏹ stop / 🔊 speaker
+      if (lbl) lbl.textContent = on ? 'Stop reading' : 'Read this note aloud';
+    } else {
+      noteReadBtn.innerHTML = on ? '&#9209;' : '&#128266;';
+    }
     noteReadBtn.title = on ? 'Stop reading' : 'Read aloud (selection, else the whole note)';
     noteReadBtn.classList.toggle('on', on);
   };
@@ -899,10 +992,21 @@ function createTermTile(meta: CockpitTile): LiveTile {
     if (cp.tiles.find((t) => t.id === meta.id)?.noteOpen === !!open) return; // no-op (don't churn the store)
     setCockpit({ tiles: cp.tiles.map((t) => (t.id === meta.id ? { ...t, noteOpen: open } : t)) });
   };
+  // Remembers a dragged split width across a close/open cycle. Collapsing must
+  // clear the inline flex-basis (it would otherwise pin the collapsed rail to the
+  // dragged width), so we stash it and put it back on reopen.
+  let noteFlex = '';
   const toggleNote = (force?: boolean): void => {
     noteOpen = force ?? !noteOpen;
-    noteBar.style.display = noteOpen ? '' : 'none';
-    el.querySelector('[data-act="tile-note"]')?.classList.toggle('on', noteOpen);
+    // The rail is always on screen — only the notepad BODY collapses, so the
+    // drawer handle never disappears (it's the single entry point).
+    noteBar.classList.toggle('collapsed', !noteOpen);
+    if (noteOpen) { if (noteFlex) noteBar.style.flex = noteFlex; }
+    else { noteFlex = noteBar.style.flex; noteBar.style.flex = ''; }
+    const chev = el.querySelector('.note-rail-chev');
+    if (chev) chev.innerHTML = noteOpen ? ICON_DRAWER_CLOSE : ICON_DRAWER_OPEN;
+    const rail = el.querySelector('.note-rail') as HTMLElement | null;
+    if (rail) rail.title = noteOpen ? 'Hide the notepad' : 'Notepad — a draft docked to this conversation';
     persistNoteOpen(noteOpen);
     setTimeout(doFit, 60); // term shrank/grew — refit xterm
     if (noteOpen) {
@@ -977,7 +1081,11 @@ function createTermTile(meta: CockpitTile): LiveTile {
       if (idleAttnTimer) clearTimeout(idleAttnTimer);
       if (armTimer) clearTimeout(armTimer);
       if (notePoll) clearInterval(notePoll);
-      if (noteSaveTimer) clearTimeout(noteSaveTimer);
+      // Flush a pending notepad autosave BEFORE cancelling its timer. Cancelling
+      // alone silently dropped the last edits whenever a tile was closed inside
+      // the 900ms debounce window — type, hit ✕, keystrokes gone. The page stays
+      // alive when a tile closes, so the in-flight PUT completes normally.
+      if (noteSaveTimer) { clearTimeout(noteSaveTimer); noteSaveTimer = null; if (noteDirty) void noteSave(); }
       document.removeEventListener('visibilitychange', onWake);
       document.removeEventListener('mousedown', onDocMouseForNote);
       window.removeEventListener('online', onWake);
@@ -1009,8 +1117,10 @@ function createDocTile(meta: CockpitTile): LiveTile {
       <button class="btn icon" data-act="doc-toggle" data-id="${esc(meta.id)}" title="Edit / preview">&#9998;</button>
       <button class="btn icon" data-act="doc-speak" data-id="${esc(meta.id)}" title="Read aloud (selection, else whole doc)">&#128266;</button>
       <button class="btn icon" data-act="doc-save" data-id="${esc(meta.id)}" title="Save (Ctrl+S)">&#128190;</button>
-      <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
-      <button class="btn icon" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
+      <span class="tile-wc">
+        <button class="btn icon" data-act="tile-max" data-id="${esc(meta.id)}" title="Maximize">${ICON_MAX}</button>
+        <button class="btn icon wc-close" data-act="tile-close" data-id="${esc(meta.id)}" title="Close">&#10005;</button>
+      </span>
     </div>
     <div class="doc-body">
       <textarea class="doc-edit" spellcheck="false" style="display:none"></textarea>
@@ -1142,14 +1252,29 @@ function createTile(meta: CockpitTile): LiveTile {
   return meta.kind === 'doc' ? createDocTile(meta) : createTermTile(meta);
 }
 
-// Distinct window-action icons (SVG, not lookalike arrow glyphs): pop-out reads
-// as "window leaving", maximize as corners-out, restore as corners-in. The ⤡/↗
-// entity pair was reported as visually confusable.
+// Window controls follow the OS convention (Windows / Segoe MDL2 geometry) rather
+// than inventing glyphs: minimize is a single rule, maximize an empty square,
+// restore the two offset squares, close an ✕. These are the shapes every user
+// already knows from their titlebar, so they need no tooltip to decode.
 export const ICON_POPOUT = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V7"/><path d="M7.5 1.5h3v3"/><path d="M10.5 1.5 6 6"/></svg>';
-export const ICON_MAX = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4.5 1.5h-3v3M7.5 1.5h3v3M4.5 10.5h-3v-3M7.5 10.5h3v-3"/></svg>';
-export const ICON_RESTORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 4.5h3v-3M10.5 4.5h-3v-3M1.5 7.5h3v3M10.5 7.5h-3v3"/></svg>';
+export const ICON_MAX = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.6" y="1.6" width="8.8" height="8.8"/></svg>';
+export const ICON_RESTORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3.6 3.6V1.6h6.8v6.8h-2"/><rect x="1.6" y="3.6" width="6.8" height="6.8"/></svg>';
 export const ICON_DOCK = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.5h2.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V7"/><path d="M4.5 1.5h-3v3"/><path d="M1.5 1.5 6 6"/></svg>';
 export const ICON_HANDOFF = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h6M6 1.5 8.5 4 6 6.5"/><path d="M10 8H4M6 10.5 3.5 8 6 5.5"/></svg>';
+// Minimize — the OS single-rule glyph. The sidebar list is our taskbar.
+export const ICON_MIN = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="square"><path d="M1.6 6h8.8"/></svg>';
+// Overflow: a dropdown chevron rather than "⋯" — it names the interaction (a menu
+// drops from here) instead of just saying "more stuff exists".
+export const ICON_MORE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.6 4.4 6 7.8l3.4-3.4"/></svg>';
+// The notepad rail is a PERSISTENT drawer handle on the tile's right edge — the
+// single entry point, open and closed. Because one control now carries both
+// states, the glyph has to differ between them: closed pulls the drawer IN
+// (left), open pushes it back OUT (right).
+// Says what the closed drawer holds. Monochrome (not the 📓 emoji) — at rail size
+// the emoji is a coloured smudge next to the crisp stroke glyphs beside it.
+export const ICON_NOTE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"><rect x="2.2" y="1.4" width="7.6" height="9.2" rx="1.1"/><path d="M4.3 4h3.4M4.3 6h3.4M4.3 8h2"/></svg>';
+export const ICON_DRAWER_OPEN ='<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M10.4 1.8v8.4"/><path d="M7.4 6H1.8"/><path d="M4.1 3.7 1.8 6l2.3 2.3"/></svg>';
+export const ICON_DRAWER_CLOSE = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M1.6 1.8v8.4"/><path d="M4.6 6h5.6"/><path d="M7.9 3.7 10.2 6 7.9 8.3"/></svg>';
 
 // A new tile can arrive with a pending brief to prefill (agent handoff): the tile
 // isn't mounted when the handoff is triggered, so the brief waits here and is
@@ -1273,6 +1398,8 @@ export function syncCockpit(): void {
     }
     const maxed = cp.maximized === meta.id;
     t.el.classList.toggle('maxed', maxed);
+    // Parked in the sidebar: hidden, but mounted and connected (see minimizeTile).
+    t.el.classList.toggle('minimized', !!meta.minimized);
     // Swap the maximize button to a "restore" affordance while this tile is full-bleed.
     const mb = t.el.querySelector('[data-act="tile-max"]') as HTMLElement | null;
     if (mb && mb.dataset.maxed !== String(maxed)) {
@@ -1337,10 +1464,27 @@ export function syncCockpit(): void {
     }
   }
 
+  // All tiles parked (or muted by focus chips)? The `:empty` placeholder can't fire —
+  // the nodes are still there, just hidden — so say where they went explicitly,
+  // otherwise minimizing the last conversation looks like it closed everything.
+  const visible = cp.tiles.filter((m) => !m.minimized && !(m.kind !== 'control' && hidden.has(m.projectPath)));
+  const parked = cp.tiles.filter((m) => m.minimized).length;
+  let hint = grid.querySelector('.cp-parked-note') as HTMLElement | null;
+  if (!visible.length && parked) {
+    if (!hint) { hint = document.createElement('div'); hint.className = 'cp-parked-note'; }
+    hint.textContent = parked === 1
+      ? '1 conversation is minimized and still running — click it in the sidebar to bring it back.'
+      : parked + ' conversations are minimized and still running — click one in the sidebar to bring it back.';
+    if (hint.parentElement !== grid || hint.nextElementSibling) grid.appendChild(hint); // keep it last so tile ordering above is unaffected
+  } else hint?.remove();
+
   if (show || domChanged) { setTimeout(refitAll, 70); setTimeout(refitAll, 280); }
 }
 
-function refitAll(): void { for (const t of tiles.values()) t.fit?.(); }
+// Fitting a terminal whose container is hidden (minimized, non-maximized, muted by
+// a focus chip) measures 0×0 and would propose a nonsense resize to the PTY — skip
+// those; restoreTile refits on the way back in.
+function refitAll(): void { for (const t of tiles.values()) if (t.el.clientWidth && t.el.clientHeight) t.fit?.(); }
 
 export function restartTile(id: string): void { tiles.get(id)?.restart?.(); }
 export function toggleTileNote(id: string): void { tiles.get(id)?.toggleNote?.(); }
@@ -1357,8 +1501,12 @@ function pickActiveTermTileId(): string | null {
   const cp = getState().ui.cockpit;
   // Exclude the CTRL control tile — it has no project/conversation, so scratchpads
   // and the notes library must never route into it.
-  const termTiles = cp.tiles.filter((t) => t.kind !== 'doc' && t.kind !== 'control');
-  if (!termTiles.length) return null;
+  const all = cp.tiles.filter((t) => t.kind !== 'doc' && t.kind !== 'control');
+  if (!all.length) return null;
+  // Prefer a conversation that's actually on screen — docking a draft into a
+  // minimized tile would drop it somewhere invisible. Fall back to the parked ones
+  // only if every conversation is minimized, so a draft is never lost.
+  const termTiles = all.some((t) => !t.minimized) ? all.filter((t) => !t.minimized) : all;
   const focusedId = termTiles.find((t) => tiles.get(t.id)?.el.contains(document.activeElement))?.id;
   return (cp.maximized && termTiles.some((t) => t.id === cp.maximized) ? cp.maximized : null)
     ?? focusedId ?? termTiles[0].id;

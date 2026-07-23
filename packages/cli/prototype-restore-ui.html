@@ -1,0 +1,384 @@
+<!doctype html>
+<!-- PROTOTYPE — THROWAWAY. Not wired to the app. Answers: "what should the
+     restore-workspace picker look like?" Three variants on one page,
+     switchable via ?variant=A|B|C, ← / → keys, or the floating pill.
+     A = spatial drag map · B = list curator · C = three-lane kanban.
+     Uses the real app.css design tokens (copied). Delete after a winner is folded in. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — restore workspace UI</title>
+<style>
+/* ── real tokens from packages/cli/src/web/app.css (dark) ── */
+:root {
+  --bg:#070a10; --surface-1:#0d121d; --surface-2:#131a28; --surface-3:#1a2333;
+  --overlay:#161d2b; --border:#1f2a3b; --border-strong:#2c3a50; --border-faint:#161e2b;
+  --text:#e4e8ef; --text-bright:#fff; --text-secondary:#aab4c2; --text-muted:#848ea0; --text-faint:#6a7488;
+  --accent:#e87632; --accent-hover:#f08945; --accent-soft:rgba(232,118,50,.12); --on-accent:#1a1208;
+  --success:#2dd4bf; --warn:#f59e0b; --crit:#ef4444; --info:#4f9cff;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  --r-sm:6px; --r-md:10px; --r-pill:999px;
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Mono","JetBrains Mono",Consolas,Menlo,monospace;
+  --shadow:rgba(0,0,0,.5);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.5 var(--ui);font-feature-settings:"tnum" 1;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── fake dashboard backdrop (context density only) ── */
+.shell{display:flex;height:100vh}
+.side{width:264px;flex:none;background:var(--surface-1);border-right:1px solid var(--border);padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2)}
+.brand{color:var(--accent);font-weight:700;letter-spacing:.08em;font-size:14px;padding:var(--s2) var(--s2) var(--s3)}
+.side .row{height:22px;border-radius:var(--r-sm);background:var(--surface-2);opacity:.55}
+.side .row.w1{width:78%}.side .row.w2{width:92%}.side .row.w3{width:64%}.side .row.w4{width:85%}
+.main{flex:1;position:relative;display:flex;flex-direction:column;min-width:0}
+.gridbg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);padding:var(--s3)}
+.gridbg .ghost{border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-1);opacity:.5;display:flex;flex-direction:column}
+.gridbg .ghost .gh{height:30px;border-bottom:1px solid var(--border-faint);display:flex;align-items:center;padding:0 var(--s3);color:var(--text-faint);font-size:12px}
+.gridbg .ghost .gb{flex:1;background:repeating-linear-gradient(0deg,transparent 0 18px,rgba(255,255,255,.015) 18px 19px)}
+
+/* ── banner (shared by all variants) ── */
+.restore-banner{position:absolute;top:0;left:0;right:0;z-index:40;display:flex;align-items:center;gap:var(--s3);
+  padding:var(--s2) var(--s4);background:var(--accent-soft);border-bottom:1px solid var(--border);font-size:13px}
+.restore-banner .sp{margin-left:auto}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border:1px solid var(--border-strong);
+  border-radius:var(--r-sm);background:var(--surface-2);color:var(--text);font-size:12.5px}
+.btn:hover{border-color:var(--accent);color:var(--text-bright)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.ghost{border-color:transparent;color:var(--text-muted)}
+.btn.ghost:hover{color:var(--text)}
+
+/* ── modal scaffold ── */
+.mback{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);z-index:60;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--overlay);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 18px 60px var(--shadow);
+  display:flex;flex-direction:column;max-height:88vh;overflow:hidden}
+.mhead{display:flex;align-items:baseline;gap:var(--s3);padding:var(--s4) var(--s5) var(--s3);border-bottom:1px solid var(--border-faint)}
+.mhead h2{font-size:15px;color:var(--text-bright)}
+.mhead .sub{font-size:12px;color:var(--text-muted)}
+.mfoot{display:flex;align-items:center;gap:var(--s2);padding:var(--s3) var(--s5);border-top:1px solid var(--border-faint)}
+.mfoot .sp{margin-left:auto}
+.mbody{padding:var(--s4) var(--s5);overflow:auto}
+.hint{font-size:11.5px;color:var(--text-faint)}
+
+/* ── conversation card bits (shared) ── */
+.chip{display:inline-flex;align-items:center;padding:0 6px;border-radius:var(--r-pill);font-size:10px;font-weight:600;letter-spacing:.03em;line-height:16px}
+.chip.claude{background:var(--accent-soft);color:var(--accent)}
+.chip.codex{background:rgba(79,156,255,.14);color:var(--info)}
+.chip.antigravity{background:rgba(45,212,191,.14);color:var(--success)}
+.chip.win{background:var(--surface-3);color:var(--text-secondary);font-weight:500}
+.meter{height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;flex:1}
+.meter>i{display:block;height:100%;border-radius:2px;background:var(--success)}
+.meter.warn>i{background:var(--warn)}.meter.crit>i{background:var(--crit)}
+.ctxrow{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted)}
+.ctxrow .pct{font-family:var(--mono);min-width:34px;text-align:right}
+.card{border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-1);padding:var(--s2) var(--s3);
+  display:flex;flex-direction:column;gap:6px;cursor:grab;user-select:none;position:relative}
+.card:hover{border-color:var(--border-strong)}
+.card.dragging{opacity:.35}
+.card.skip{opacity:.4;filter:grayscale(.6)}
+.card .t{display:flex;align-items:center;gap:8px;min-width:0}
+.card{min-width:0}
+.card .title{font-weight:600;color:var(--text-bright);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.card .proj{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.card .when{font-size:10.5px;color:var(--text-faint);margin-left:auto;white-space:nowrap}
+.card input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;flex:none;cursor:pointer}
+.sum{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ctxpk{display:flex;align-items:center;gap:6px}
+.ctxpk .ctxrow{flex:1}
+.pkbtn{flex:none;color:var(--text-faint);font-size:10px;padding:0 4px;border-radius:4px}
+.pkbtn:hover,.pkbtn.on{color:var(--accent)}
+.peek{border-top:1px solid var(--border-faint);padding-top:6px;display:flex;flex-direction:column;gap:3px}
+.pk-h{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)}
+.pk-p{font-size:11px;color:var(--text-secondary);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── VARIANT A: spatial map ── */
+.vA .modal{width:min(1240px,95vw)}
+.vA .mbody{overflow:auto}
+.vA .zones{display:flex;gap:var(--s4);align-items:stretch}
+.vA .zone{min-width:0;border:1.5px dashed var(--border-strong);border-radius:var(--r-md);padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);min-height:300px;transition:border-color .12s, background .12s}
+.vA .zone.dropover{border-color:var(--accent);background:var(--accent-soft)}
+.vA .zone h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);display:flex;gap:8px;align-items:center}
+.vA .zone h3 .cnt{color:var(--text-faint);font-weight:400}
+.vA .zone.cockpit{flex:1.6;background:linear-gradient(180deg,var(--surface-1),transparent)}
+.vA .zone.cockpit .cards{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);align-content:start;flex:1}
+.vA .zone.cockpit .cards>*{min-width:0}
+.vA .zone.ext{flex:1;background:transparent}
+.vA .zone.ext .cards{display:flex;flex-direction:column;gap:var(--s2);flex:1}
+.vA .zone.ext .card{box-shadow:0 6px 18px var(--shadow);border-color:var(--border-strong)}
+.vA .zone.ext .card::before{content:"";display:block;height:6px;margin:-8px -12px 4px;border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,var(--surface-3),transparent);border-radius:9px 9px 0 0}
+.vA .zone.skipzone{flex:.8;min-height:0;border-style:dotted;opacity:.9}
+.vA .zone.skipzone .cards{display:flex;flex-direction:column;gap:var(--s2);flex:1}
+
+/* ── VARIANT B: list curator ── */
+.vB .modal{width:min(760px,92vw)}
+.vB .grp{margin-bottom:var(--s4)}
+.vB .grp h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--s2)}
+.vB table{width:100%;border-collapse:collapse}
+.vB tr{border-bottom:1px solid var(--border-faint)}
+.vB tr.skip td{opacity:.4}
+.vB td{padding:8px 8px;vertical-align:middle}
+.vB td.ck{width:26px}.vB td.when{width:110px;color:var(--text-faint);font-size:11px;text-align:right}
+.vB td.ctx{width:170px}
+.vB td.dest{width:104px}
+.vB .title{font-weight:600;color:var(--text-bright);font-size:12.5px}
+.vB .proj{font-size:11px;color:var(--text-muted)}
+.vB .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-sm);overflow:hidden}
+.vB .seg button{padding:3px 9px;font-size:11px;color:var(--text-muted);background:var(--surface-2)}
+.vB .seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+.vB input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+
+/* ── VARIANT C: three-lane kanban ── */
+.vC .modal{width:min(1040px,95vw)}
+.vC .lanes{display:flex;gap:var(--s3)}
+.vC .lane{flex:1;border-radius:var(--r-md);background:var(--surface-1);border:1px solid var(--border);padding:var(--s3);display:flex;flex-direction:column;gap:var(--s2);min-height:340px;transition:border-color .12s,background .12s}
+.vC .lane.dropover{border-color:var(--accent);background:var(--accent-soft)}
+.vC .lane h3{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px}
+.vC .lane h3 .cnt{margin-left:auto;color:var(--text-faint);font-family:var(--mono);font-size:11px}
+.vC .lane.skiplane{background:transparent;border-style:dashed;opacity:.9}
+.vC .lane .cards{display:flex;flex-direction:column;gap:var(--s2);flex:1}
+.vC .card{cursor:grab}
+
+/* toast */
+.toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface-3);border:1px solid var(--border-strong);
+  color:var(--text);padding:8px 16px;border-radius:var(--r-md);font-size:12.5px;box-shadow:0 8px 24px var(--shadow);z-index:99;opacity:0;transition:opacity .15s}
+.toast.on{opacity:1}
+
+/* floating variant switcher (not part of the design) */
+.proto-bar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:100;display:flex;align-items:center;gap:10px;
+  background:#000;border:1px solid #444;border-radius:999px;padding:6px 14px;font-size:12px;color:#ddd;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+.proto-bar b{color:#fff;font-family:var(--mono)}
+.proto-bar button{color:#aaa;font-size:14px;padding:0 4px}
+.proto-bar button:hover{color:#fff}
+.proto-tag{position:fixed;top:10px;right:12px;z-index:100;background:#000;color:#f0c000;border:1px solid #665500;border-radius:6px;
+  padding:2px 8px;font:11px var(--mono);letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="proto-tag">PROTOTYPE — throwaway</div>
+
+<!-- fake dashboard for context -->
+<div class="shell">
+  <div class="side">
+    <div class="brand">CLD CTRL</div>
+    <div class="row w1"></div><div class="row w2"></div><div class="row w3"></div><div class="row w4"></div>
+    <div class="row w2"></div><div class="row w1"></div><div class="row w3"></div><div class="row w4"></div>
+    <div class="row w1"></div><div class="row w3"></div>
+  </div>
+  <div class="main">
+    <div class="restore-banner" id="banner">
+      <span>↩ <b id="bn-count">6</b> conversations from yesterday — restore your workspace?</span>
+      <span class="sp"></span>
+      <button class="btn primary" onclick="toast('Would restore everything to where it was (4 tiles + 2 windows)')">Restore all</button>
+      <button class="btn" onclick="openModal()">Choose…</button>
+      <button class="btn ghost" onclick="toast('Dismissed — saved layout cleared')">Dismiss</button>
+    </div>
+    <div class="gridbg" style="margin-top:37px">
+      <div class="ghost"><div class="gh">empty cockpit…</div><div class="gb"></div></div>
+      <div class="ghost"><div class="gh"></div><div class="gb"></div></div>
+      <div class="ghost"><div class="gh"></div><div class="gb"></div></div>
+      <div class="ghost"><div class="gh"></div><div class="gb"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div class="toast" id="toast"></div>
+
+<div class="proto-bar">
+  <button onclick="cycle(-1)" title="Previous (←)">◀</button>
+  <span><b id="pv"></b> — <span id="pn"></span></span>
+  <button onclick="cycle(1)" title="Next (→)">▶</button>
+</div>
+
+<script>
+// ── mock data (what the real thing reads from persisted session + overview) ──
+const CONVOS = [
+  {id:'c1', title:'Restore-UI design + grilling', proj:'CLDCTRL',       vendor:'claude',      ctx:62, when:'yesterday 6:12 pm', dest:'grid',
+   summary:'Designing the restore-workspace picker: banner + spatial modal, pop-out tracking via heartbeat registry.',
+   prompts:['so with cldctrl it looks like conversations that were open in an external window dont get restarted?','Time to use the grill me skill to figure out what we actually need here','Can you generate a prototype that I can see before we actually add this in?']},
+  {id:'c2', title:'Fix incremental indexer crash', proj:'codeindex',    vendor:'claude',      ctx:91, when:'yesterday 4:40 pm', dest:'grid',
+   summary:'Debugging a crash in the incremental indexer when a file is deleted mid-scan; repro found, fix in progress.',
+   prompts:['the indexer dies with ENOENT when I delete a file while it runs','add a test that deletes a file between stat and read','run the full suite again and check the watcher path too']},
+  {id:'c3', title:'Migrate charts to webapp',      proj:'physiometrics',vendor:'codex',       ctx:34, when:'yesterday 2:05 pm', dest:'grid',
+   summary:'Moving the matplotlib charts to a local web app with plotly; layout shell done, 3 of 7 charts ported.',
+   prompts:['port the HRV trend chart next','make the date range picker sticky at the top']},
+  {id:'c4', title:'PDF ingest dedupe',             proj:'stemma',       vendor:'claude',      ctx:18, when:'yesterday 11:20 am',dest:'grid',
+   summary:'Deduplicating ingested PDFs by DOI + fuzzy title match before they hit the citation graph.',
+   prompts:['ingest the new folder of pdfs and flag duplicates','why did the two arXiv versions not get merged?']},
+  {id:'c5', title:'Beacon opt-out release notes',  proj:'CLDCTRL',      vendor:'claude',      ctx:47, when:'yesterday 6:30 pm', dest:'win',
+   summary:'Drafting v0.4.0 release notes covering the beacon opt-out, docked notepad, and scratchpad routing.',
+   prompts:['draft the privacy section about the beacon opt-out','tighten the changelog to one line per feature']},
+  {id:'c6', title:'Dashboard layout pass',         proj:'cagemetrics',  vendor:'antigravity', ctx:12, when:'yesterday 5:15 pm', dest:'win',
+   summary:'Reworking the cage-activity dashboard grid: KPI row on top, heatmap full-width below.',
+   prompts:['try the KPI tiles across the top instead of the sidebar','make the heatmap span the full width']},
+];
+// dest: 'grid' | 'win' | 'skip'  (mutable prototype state)
+const state = Object.fromEntries(CONVOS.map(c => [c.id, {...c}]));
+
+const VARIANTS = { A:'Spatial map (drag between cockpit & windows)', B:'List curator (rows + destination toggle)', C:'Three-lane kanban (destination = column)' };
+let variant = new URLSearchParams(location.search).get('variant');
+if (!VARIANTS[variant]) variant = 'A';
+
+const $ = (s,el)=> (el||document).querySelector(s);
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'),2600); }
+function esc(s){ return s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function meterCls(p){ return p>=85?'crit':p>=65?'warn':''; }
+function chip(v){ const g={claude:'claude',codex:'⬡ codex',antigravity:'✦ agy'}[v]; return `<span class="chip ${v}">${g}</span>`; }
+function ctxRow(c){ return `<div class="ctxrow"><div class="meter ${meterCls(c.ctx)}"><i style="width:${c.ctx}%"></i></div><span class="pct">${c.ctx}%</span><span>of 200k</span></div>`; }
+
+function summary(){
+  const g=Object.values(state).filter(c=>c.dest==='grid').length,
+        w=Object.values(state).filter(c=>c.dest==='win').length,
+        s=Object.values(state).filter(c=>c.dest==='skip').length;
+  return `Would restore ${g} into the cockpit + ${w} as own windows` + (s?`, skip ${s}`:'');
+}
+
+// ── generic card (A + C) ──
+function peekHtml(c){
+  if (!c.peek) return '';
+  return `<div class="peek"><div class="pk-h">last prompts</div>${c.prompts.map(p=>`<div class="pk-p">› ${esc(p)}</div>`).join('')}</div>`;
+}
+function cardHtml(c, withCheckbox){
+  const skip = c.dest==='skip';
+  return `<div class="card ${skip?'skip':''}" draggable="true" data-id="${c.id}">
+    <div class="t">${withCheckbox?`<input type="checkbox" ${skip?'':'checked'} data-ck="${c.id}" title="Keep / skip">`:''}
+      <span class="title">${esc(c.title)}</span><span class="when">${c.when}</span></div>
+    <div class="t"><span class="proj">${esc(c.proj)}</span>${chip(c.vendor)}${c.dest==='win'?'<span class="chip win">⧉ window</span>':''}</div>
+    <div class="sum" title="${esc(c.summary)}">${esc(c.summary)}</div>
+    ${peekHtml(c)}
+    <div class="ctxpk">${ctxRow(c)}<button class="pkbtn ${c.peek?'on':''}" data-peek="${c.id}" title="Show the last prompts sent to this conversation">${c.peek?'▴':'▾'}</button></div>
+  </div>`;
+}
+
+// ── VARIANT A: spatial map ──
+function renderA(root){
+  const cs = Object.values(state);
+  root.innerHTML = `<div class="mback vA"><div class="modal">
+    <div class="mhead"><h2>Restore your workspace</h2><span class="sub">drag a conversation between zones · uncheck to skip it</span></div>
+    <div class="mbody"><div class="zones">
+      <div class="zone cockpit" data-zone="grid"><h3>▦ Cockpit <span class="cnt">(${cs.filter(c=>c.dest==='grid').length})</span></h3>
+        <div class="cards">${cs.filter(c=>c.dest==='grid').map(c=>cardHtml(c,true)).join('')}</div></div>
+      <div class="zone ext" data-zone="win"><h3>⧉ Own windows <span class="cnt">(${cs.filter(c=>c.dest==='win').length})</span></h3>
+        <div class="cards">${cs.filter(c=>c.dest==='win').map(c=>cardHtml(c,true)).join('')}</div></div>
+      <div class="zone skipzone" data-zone="skip"><h3>✕ Don't restore <span class="cnt">(${cs.filter(c=>c.dest==='skip').length})</span></h3>
+        <div class="cards">${cs.filter(c=>c.dest==='skip').map(c=>cardHtml(c,true)).join('')}
+        <div class="hint" style="padding:6px">drop here to leave a conversation behind — it stays in the sidebar list</div></div></div>
+    </div></div>
+    <div class="mfoot"><span class="hint">${summary()}</span><span class="sp"></span>
+      <button class="btn ghost" onclick="closeModal();toast('Start fresh — nothing restored, saved layout cleared')">Start fresh</button>
+      <button class="btn primary" onclick="closeModal();toast(summary())">Restore</button></div>
+  </div></div>`;
+  wireDrag(root); wireChecks(root, ()=>renderA(root));
+}
+
+// ── VARIANT B: list curator ──
+function renderB(root){
+  const grp = (label, list) => !list.length ? '' : `<div class="grp"><h3>${label}</h3><table>${list.map(c=>{
+    const skip=c.dest==='skip';
+    return `<tr class="${skip?'skip':''}" data-id="${c.id}">
+      <td class="ck"><input type="checkbox" ${skip?'':'checked'} data-ck="${c.id}"></td>
+      <td><div class="title">${esc(c.title)} <button class="pkbtn ${c.peek?'on':''}" data-peek="${c.id}" title="Show the last prompts">${c.peek?'▴':'▾'}</button></div>
+        <div class="proj">${esc(c.proj)} ${chip(c.vendor)}</div>
+        <div class="sum" style="max-width:340px">${esc(c.summary)}</div></td>
+      <td class="ctx">${ctxRow(c)}</td>
+      <td class="dest"><span class="seg">
+        <button data-dest="grid" data-id="${c.id}" class="${c.dest==='grid'?'on':''}" title="Open as cockpit tile">▦ tile</button>
+        <button data-dest="win"  data-id="${c.id}" class="${c.dest==='win'?'on':''}"  title="Open as its own window">⧉ win</button>
+      </span></td>
+      <td class="when">${c.when}</td></tr>` +
+      (c.peek ? `<tr class="${skip?'skip':''}"><td></td><td colspan="4">${peekHtml(c)}</td></tr>` : '');
+  }).join('')}</table></div>`;
+  root.innerHTML = `<div class="mback vB"><div class="modal">
+    <div class="mhead"><h2>Restore your workspace</h2><span class="sub">uncheck to skip · pick where each one opens</span></div>
+    <div class="mbody">
+      ${grp('Was in the cockpit', Object.values(state).filter(c=>!c._originWin))}
+      ${grp('Was its own window', Object.values(state).filter(c=>c._originWin))}
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="setAll(true);render()">Select all</button>
+      <button class="btn ghost" onclick="setAll(false);render()">None</button>
+      <span class="hint" style="margin-left:8px">${summary()}</span><span class="sp"></span>
+      <button class="btn ghost" onclick="closeModal();toast('Start fresh — nothing restored')">Start fresh</button>
+      <button class="btn primary" onclick="closeModal();toast(summary())">Restore selected</button></div>
+  </div></div>`;
+  root.querySelectorAll('[data-dest]').forEach(b=>b.addEventListener('click',()=>{ const c=state[b.dataset.id]; c.dest=b.dataset.dest; render(); }));
+  wireChecks(root, render);
+}
+
+// ── VARIANT C: three-lane kanban ──
+function renderC(root){
+  const lane=(key,label,hint)=>{ const list=Object.values(state).filter(c=>c.dest===key);
+    return `<div class="lane ${key==='skip'?'skiplane':''}" data-zone="${key}">
+      <h3>${label}<span class="cnt">${list.length}</span></h3>
+      <div class="cards">${list.map(c=>cardHtml(c,false)).join('')||`<div class="hint" style="padding:8px">${hint}</div>`}</div></div>`; };
+  root.innerHTML = `<div class="mback vC"><div class="modal">
+    <div class="mhead"><h2>Restore your workspace</h2><span class="sub">drag each conversation into the lane where it should reopen</span></div>
+    <div class="mbody"><div class="lanes">
+      ${lane('grid','▦ Into the cockpit','drop here for grid tiles')}
+      ${lane('win','⧉ As its own window','drop here for chromeless windows')}
+      ${lane('skip','✕ Don’t restore','drop here to leave behind')}
+    </div></div>
+    <div class="mfoot"><span class="hint">${summary()}</span><span class="sp"></span>
+      <button class="btn ghost" onclick="closeModal();toast('Start fresh — nothing restored')">Start fresh</button>
+      <button class="btn primary" onclick="closeModal();toast(summary())">Restore</button></div>
+  </div></div>`;
+  wireDrag(root);
+}
+
+// ── shared wiring ──
+function wireDrag(root){
+  root.querySelectorAll('.card').forEach(el=>{
+    el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',el.dataset.id); el.classList.add('dragging'); });
+    el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+  });
+  root.querySelectorAll('[data-zone]').forEach(z=>{
+    z.addEventListener('dragover',e=>{ e.preventDefault(); z.classList.add('dropover'); });
+    z.addEventListener('dragleave',()=>z.classList.remove('dropover'));
+    z.addEventListener('drop',e=>{ e.preventDefault(); z.classList.remove('dropover');
+      const id=e.dataTransfer.getData('text/plain'); if(state[id]){ state[id].dest=z.dataset.zone; render(); } });
+  });
+}
+function wireChecks(root, rerender){
+  root.querySelectorAll('[data-ck]').forEach(ck=>ck.addEventListener('change',()=>{
+    const c=state[ck.dataset.ck];
+    if (ck.checked) c.dest = c._originWin ? 'win' : 'grid'; else c.dest='skip';
+    rerender();
+  }));
+}
+function setAll(on){ Object.values(state).forEach(c=>{ c.dest = on ? (c._originWin?'win':'grid') : 'skip'; }); }
+CONVOS.forEach(c=>{ state[c.id]._originWin = c.dest==='win'; });
+
+let modalOpen = true; // open by default so the prototype shows the interesting part
+function openModal(){ modalOpen=true; render(); }
+function closeModal(){ modalOpen=false; render(); }
+
+function render(){
+  $('#pv').textContent = variant; $('#pn').textContent = VARIANTS[variant];
+  const root = $('#modal-root');
+  if (!modalOpen){ root.innerHTML=''; return; }
+  ({A:renderA,B:renderB,C:renderC})[variant](root);
+  const back = root.querySelector('.mback');
+  back.addEventListener('mousedown', e=>{ if(e.target===back) closeModal(); });
+}
+function cycle(d){
+  const keys=Object.keys(VARIANTS); variant = keys[(keys.indexOf(variant)+d+keys.length)%keys.length];
+  history.replaceState(null,'','?variant='+variant); modalOpen=true; render();
+}
+document.addEventListener('click',e=>{
+  const b = e.target.closest && e.target.closest('[data-peek]');
+  if (b && state[b.dataset.peek]) { state[b.dataset.peek].peek = !state[b.dataset.peek].peek; render(); }
+});
+document.addEventListener('keydown',e=>{
+  if (/INPUT|TEXTAREA/.test(document.activeElement?.tagName)||document.activeElement?.isContentEditable) return;
+  if (e.key==='ArrowLeft') cycle(-1); else if (e.key==='ArrowRight') cycle(1); else if (e.key==='Escape') closeModal();
+});
+render();
+</script>
+</body>
+</html>

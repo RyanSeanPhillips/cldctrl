@@ -77,7 +77,14 @@ export function buildDemoOverview(now: number): OverviewPayload {
   return {
     product: 'cldctrl',
     version: VERSION,
-    updateAvailable: null,
+    // Demo mode exists to make the UI screenshot-able, but these two states only
+    // arise when a genuinely newer version/build exists — so the sidebar's notice
+    // rows were the one piece of chrome `--demo` could never show. Synthesize
+    // them. Both are inert here: /api/restart is refused in demo, and the update
+    // notice only copies a command to the clipboard.
+    updateAvailable: '0.4.2',
+    buildUpdateReady: true,
+    telemetry: { enabled: true, envLocked: false }, // mirror the real default (on) so the About toggle demos correctly
     generatedAt: new Date(now).toISOString(),
     tier: 'MAX 5x',
     features: {

@@ -9,13 +9,20 @@ import {
   fetchProjectSessions, fetchProjectCommits, fetchProjectIssues, fetchProjectFiles, fetchProjectActivity, fetchSearch, postBridge, postScreenshot, postReveal, postPopout, postHandoffBrief, fetchNotes, postRestart, postShutdown,
 } from './api.js';
 import { initRouter, writeHash } from './router.js';
-import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone, queueTilePrefill } from './cockpit.js';
+import { syncCockpit, restartTile, toggleTileNote, injectIntoTile, docToggle, docSave, docSpeak, focusWaitingTile, clearTileAttn, openAgentScratchpad, activeTileInfo, dockNoteInActiveTile, openControlTile, mountTileStandalone, queueTilePrefill, minimizeTile, restoreTile } from './cockpit.js';
 import { syncStats } from './stats.js';
 import { toast } from './toast.js';
 import { readSession, autoRead, onSpeechState, isSpeaking, isHandsFree, enableHandsFree, disableHandsFree } from './speech.js';
 import { initTheme, applyTheme } from './theme.js';
 import type { ThemeId } from './theme.js';
-import { onOverview, onOverviewError, announceRestarting, announceStopping } from './lifecycle.js';
+import * as lifecycle from './lifecycle.js';
+import { onOverview, onOverviewError, announceRestarting, announceRestartAborted, announceStopping } from './lifecycle.js';
+
+// Test seam: the app ships as one bundle, so an e2e can't `import()` a module by
+// URL to drive the restart/reconnect state machine against the REAL shipped code.
+// Exposing it costs nothing (this dashboard is localhost-only) and keeps the
+// lifecycle tests honest instead of re-implementing the logic in the test.
+(window as unknown as { cldctrlLifecycle?: typeof lifecycle }).cldctrlLifecycle = lifecycle;
 
 const appRoot = document.getElementById('app')!;
 
@@ -156,10 +163,19 @@ function latestActiveSession() {
 }
 function latestActiveSessionId(): string | null { return latestActiveSession()?.id ?? null; }
 
-// Reflect play/stop on every read-aloud button while speaking.
+// Reflect play/stop on every read-aloud control while speaking. Read-aloud now
+// lives as a labelled row in the tile's ⋯ menu, so swap the icon + label in place
+// — replacing the button's whole innerHTML would wipe that structure out.
 onSpeechState((on) => {
   document.querySelectorAll('[data-act="tile-readout"]').forEach((b) => {
-    b.innerHTML = on ? '&#9209;' : '&#128266;';
+    const ic = b.querySelector('.tile-mi-ic');
+    const lbl = b.querySelector('.tile-mi-lbl');
+    if (ic) {
+      ic.innerHTML = on ? '&#9209;' : '&#128266;';
+      if (lbl) lbl.textContent = on ? 'Stop reading' : 'Read the latest reply aloud';
+    } else {
+      b.innerHTML = on ? '&#9209;' : '&#128266;'; // bare icon button (widget window)
+    }
     (b as HTMLElement).classList.toggle('on', on);
   });
 });
@@ -174,21 +190,35 @@ async function reveal(projectPath: string, target: 'explorer' | 'code'): Promise
 }
 
 // ── cockpit tile helpers ─────────────────────────────────────
+// One-shot: explain where a minimized conversation went, the first time per load.
+let minimizeExplained = false;
+
 function addResumeTile(sessionId: string, projectPath: string, title: string, openNow: boolean, vendor: 'claude' | 'codex' | 'antigravity' = 'claude'): void {
   const id = 'resume:' + sessionId;
   const cp = getState().ui.cockpit;
-  const already = cp.tiles.some((t) => t.id === id);
-  const suffix = ' · ' + vendor;
-  const label = vendor !== 'claude' && !title.endsWith(suffix) ? title + suffix : title; // idempotent (dock-back reuses the tagged title)
-  const tiles = already
-    ? cp.tiles
-    : [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title: label, vendor }];
+  // Match by sessionId, not just tile id: a 'new' tile that has since discovered
+  // this session IS this conversation. Without that, clicking its sidebar row
+  // would spawn a second `--resume` PTY alongside the one already running.
+  const existing = cp.tiles.find((t) => t.id === id
+    || ((t.kind === 'new' || t.kind === 'resume') && (t.sessionId === sessionId || t.discoveredSessionId === sessionId)));
   // Opening always reveals the conversation: unmute its project (focus chips) so
   // re-opening an already-open chat doesn't silently appear to do nothing.
   const hiddenProjects = cp.hiddenProjects.filter((p) => p !== projectPath);
+  if (existing) {
+    // Already here — reveal it (un-park it if minimized) rather than duplicating it.
+    setCockpit({ hiddenProjects, open: openNow ? true : cp.open, maximized: null });
+    if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
+    // restoreTile re-reads the store, so it must run after the patch above; it
+    // no-ops (and we just say "focused it") when the tile is already on screen.
+    if (existing.minimized) restoreTile(existing.id);
+    else toast('Already open — focused it');
+    return;
+  }
+  const suffix = ' · ' + vendor;
+  const label = vendor !== 'claude' && !title.endsWith(suffix) ? title + suffix : title; // idempotent (dock-back reuses the tagged title)
+  const tiles = [...cp.tiles, { id, kind: 'resume' as const, sessionId, projectPath, title: label, vendor }];
   setCockpit({ tiles, hiddenProjects, open: openNow ? true : cp.open, maximized: null });
   if (openNow) { setUi({ selectedProject: null }); setSearch({ query: '', results: [] }); writeHash(); }
-  if (already) toast('Already open — focused it');
 }
 
 function addDocTile(filePath: string, projectPath: string, openNow: boolean, scratch = false): void {
@@ -203,13 +233,16 @@ function addDocTile(filePath: string, projectPath: string, openNow: boolean, scr
 }
 
 
-/** Open a new agent session as a cockpit tile (CTRL launched it from the web). */
-function addLaunchTile(projectPath: string, projectName: string | undefined, prompt?: string): void {
+/** Open a new agent session as a cockpit tile (CTRL launched it from the web, or
+ *  the project detail's "New here" split button). `agent` picks the CLI — the
+ *  title carries it so a Codex/Antigravity tile is identifiable in the grid. */
+function addLaunchTile(projectPath: string, projectName: string | undefined, prompt?: string, agent = 'claude'): void {
   const cp = getState().ui.cockpit;
   const id = 'new:' + projectPath + ':' + Date.now();
   const short = projectName || projectPath.split(/[/\\]/).pop() || projectPath;
+  const title = short + ' · new' + (agent !== 'claude' ? ' · ' + agent : '');
   setCockpit({
-    tiles: [...cp.tiles, { id, kind: 'new' as const, projectPath, title: short + ' · new', agent: 'claude', prompt }],
+    tiles: [...cp.tiles, { id, kind: 'new' as const, projectPath, title, agent, prompt }],
     open: true, maximized: null, addOpen: false,
   });
   setUi({ selectedProject: null });
@@ -411,11 +444,111 @@ function closePowerMenu(): void { document.getElementById('power-menu')?.remove(
  *  detector. Shared by the ⏻ menu's Restart and the "restart to load" pill. */
 function triggerRestart(): void {
   closePowerMenu();
+  doRestart();
+}
+/** The actual bounce, with no questions asked (confirmRestart gates the callers). */
+function doRestart(): void {
+  cancelRestartWait();
   announceRestarting();
   postRestart()
-    .then((r) => { if (r && (r as { disabled?: boolean }).disabled) toast('Restart is unavailable in demo mode'); })
+    .then((r) => {
+      // Refused outright (demo mode) — nothing is bouncing, so take the overlay
+      // down now rather than leaving a spinner for the timeout to clear.
+      if (r?.disabled) { announceRestartAborted(); toast('Restart is unavailable in demo mode'); return; }
+      // The server couldn't even start its restart helper. Say so immediately
+      // instead of spinning for the 15s "didn't take" timeout to notice.
+      if (r && r.ok === false) {
+        announceRestartAborted();
+        toast('✗ ' + (r.error || 'Restart failed — run `cc restart` in a terminal'));
+      }
+    })
     .catch(() => { /* the server is bouncing — the reconnect overlay handles it */ });
 }
+// ── restart safety gate ──────────────────────────────────────
+// A restart HARD-KILLS every agent PTY (serve.ts shutdownTerminals → term.kill()).
+// The conversation survives — it's on disk and the tile re-spawns `--resume` — but
+// an in-flight turn does not: a partial reply or a half-finished tool call is lost.
+// The ⏻ menu warned about open sessions; the "restart to load" notice didn't, and
+// that's the one people click casually the moment a build lands. So both now go
+// through this gate whenever a conversation is mid-turn.
+
+/** Conversations that are WORKING right now, i.e. would lose an in-flight turn.
+ *  A tile flagged "waiting" has finished its turn and is safe to interrupt; one
+ *  that's live but not waiting is mid-turn. */
+function busyTiles(): { busy: string[]; total: number } {
+  const cp = getState().ui.cockpit;
+  const attn = new Set(cp.attnTiles ?? []);
+  const sessions = getState().data?.sessions ?? [];
+  const working = new Set(sessions.filter((s) => s.status === 'active' && s.id).map((s) => s.id!));
+  const discovered = getState().data?.terminalSessions ?? {};
+  const tiles = cp.tiles.filter((t) => t.kind === 'new' || t.kind === 'resume' || t.kind === 'control');
+  const busy: string[] = [];
+  for (const t of tiles) {
+    if (attn.has(t.id)) continue; // finished its turn — safe
+    const sid = t.kind === 'new' ? (discovered[t.id] ?? t.discoveredSessionId) : t.sessionId;
+    // No session id yet = just launched and still starting: treat as busy, since
+    // that's the case that can't resume at all.
+    if (!sid || working.has(sid)) busy.push(t.title || t.id);
+  }
+  return { busy, total: tiles.length };
+}
+
+let restartWaitTimer: ReturnType<typeof setInterval> | null = null;
+function cancelRestartWait(): void {
+  if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null; }
+  document.getElementById('restart-confirm')?.remove();
+}
+
+/** Gate a restart on live work. Goes straight through when nothing is mid-turn. */
+function confirmRestart(): void {
+  closePowerMenu();
+  const { busy, total } = busyTiles();
+  if (!busy.length) { doRestart(); return; } // nothing in flight — just go
+  cancelRestartWait();
+
+  const wrap = document.createElement('div');
+  wrap.id = 'restart-confirm';
+  wrap.className = 'confirm-backdrop';
+  const names = busy.slice(0, 3).map((n) => '<li>' + n.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)) + '</li>').join('');
+  wrap.innerHTML = `
+    <div class="confirm-box" role="dialog" aria-modal="true" aria-labelledby="rc-t">
+      <h3 id="rc-t">Restart while ${busy.length === 1 ? 'a conversation is' : busy.length + ' conversations are'} working?</h3>
+      <p>Restarting interrupts ${busy.length === 1 ? 'its current turn' : 'their current turns'}. The
+         ${total === 1 ? 'conversation reopens' : 'conversations reopen'} afterwards and the history is kept —
+         but whatever ${busy.length === 1 ? 'it is' : 'they are'} part-way through right now is lost.</p>
+      <ul class="confirm-list">${names}${busy.length > 3 ? `<li>+${busy.length - 3} more</li>` : ''}</ul>
+      <div class="confirm-actions">
+        <button class="btn primary" data-rc="wait">Wait until idle, then restart</button>
+        <button class="btn danger" data-rc="force">Restart now</button>
+        <button class="btn" data-rc="cancel">Cancel</button>
+      </div>
+      <div class="confirm-status" data-rc-status></div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  const status = wrap.querySelector('[data-rc-status]') as HTMLElement;
+  wrap.addEventListener('click', (ev) => {
+    const t = ev.target as HTMLElement;
+    if (t === wrap) { cancelRestartWait(); return; } // backdrop click = cancel
+    const act = t.closest('[data-rc]')?.getAttribute('data-rc');
+    if (act === 'cancel') { cancelRestartWait(); return; }
+    if (act === 'force') { cancelRestartWait(); doRestart(); return; }
+    if (act === 'wait') {
+      // Poll until every conversation has finished its turn, then bounce. The
+      // dialog stays up (showing what it's waiting on) so it's always cancellable
+      // — an agent can run for a long time, and this must never become a trap.
+      (wrap.querySelector('[data-rc="wait"]') as HTMLButtonElement).disabled = true;
+      const tick = () => {
+        const now = busyTiles().busy;
+        if (!now.length) { cancelRestartWait(); doRestart(); return; }
+        status.textContent = `Waiting for ${now.length} conversation${now.length === 1 ? '' : 's'} to finish… (Cancel or Restart now still work)`;
+      };
+      tick();
+      if (!restartWaitTimer) restartWaitTimer = setInterval(tick, 1500);
+    }
+  });
+}
+
 /** Count the OPEN conversation tiles a restart/stop would close, and how many
  *  can auto-resume. Doc tiles aren't sessions; the CTRL dock reopens from the
  *  sidebar (and continues via --continue), so it's not counted as "at risk". */
@@ -457,6 +590,64 @@ function openPowerMenu(btn: HTMLElement): void {
   menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
 }
 
+function closeAboutMenu(): void { document.getElementById('about-menu')?.remove(); }
+/** About / help popover — app version, a plain anonymous-usage disclosure line, and
+ *  a couple of links. Opens ABOVE its sidebar-bottom button, same as the power menu.
+ *  There is no in-app opt-out toggle (the tracking is a basic, content-free head
+ *  count); the disclosure just states plainly what the update ping records. */
+function openAboutMenu(btn: HTMLElement): void {
+  closeAboutMenu();
+  const d = getState().data;
+  const envLocked = !!d?.telemetry?.envLocked;
+  const menu = document.createElement('div');
+  menu.className = 'power-menu about-menu'; menu.id = 'about-menu';
+
+  const hd = document.createElement('div'); hd.className = 'power-menu-hd';
+  hd.textContent = 'CLD CTRL' + (d?.version ? '  ·  v' + d.version : '');
+  menu.appendChild(hd);
+
+  // A disclosure, not a control. Reflects DO_NOT_TRACK if it happens to be set
+  // (we still honor that env standard silently) so the line stays truthful.
+  const note = document.createElement('div'); note.className = 'about-note';
+  note.textContent = envLocked
+    ? 'Anonymous usage is off — DO_NOT_TRACK is set in your environment.'
+    : 'Anonymous usage: the update check keeps a basic, anonymous head count — app version + a coarse region only. Never your code, file names, or conversations.';
+  menu.appendChild(note);
+
+  const link = (label: string, href: string) => {
+    const a = document.createElement('button'); a.className = 'power-opt about-link';
+    a.dataset.act = 'about-link'; a.dataset.href = href;
+    const l2 = document.createElement('span'); l2.className = 'power-opt-label'; l2.textContent = label;
+    a.appendChild(l2); return a;
+  };
+  menu.appendChild(link('↗ Project on GitHub', 'https://github.com/RyanSeanPhillips/cldctrl'));
+  menu.appendChild(link('↗ cld-ctrl.com', 'https://cld-ctrl.com'));
+
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  menu.style.top = Math.max(8, r.top - 6 - menu.offsetHeight) + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+}
+
+// ── per-tile ⋯ overflow menu ─────────────────────────────────
+// The rows live INSIDE the tile header (hidden), not in a body-level popup, so
+// every existing querySelector-based handler and the reveal-when-ready wiring in
+// syncCockpit/setReadSession keeps working on the same nodes. `.tile` clips
+// overflow, so the tile gets `menu-open` to un-clip only while a menu is showing.
+function closeTileMenus(): void {
+  document.querySelectorAll('.tile-menu').forEach((m) => { (m as HTMLElement).style.display = 'none'; });
+  document.querySelectorAll('.tile.menu-open').forEach((t) => t.classList.remove('menu-open'));
+}
+function toggleTileMenu(btn: HTMLElement): void {
+  const menu = btn.parentElement?.querySelector('.tile-menu') as HTMLElement | null;
+  if (!menu) return;
+  const wasOpen = menu.style.display !== 'none';
+  closeTileMenus();
+  if (wasOpen) return;
+  menu.style.display = '';
+  btn.closest('.tile')?.classList.add('menu-open');
+}
+
 // ── event delegation ─────────────────────────────────────────
 document.addEventListener('click', async (ev) => {
   // Close an open handoff menu on any outside click (option clicks are inside it).
@@ -465,6 +656,14 @@ document.addEventListener('click', async (ev) => {
   // Same for the power menu.
   const pm = document.getElementById('power-menu');
   if (pm && !pm.contains(ev.target as Node) && !(ev.target as HTMLElement).closest('[data-act="power-menu"]')) closePowerMenu();
+  // ...and the About menu (but keep it open when the telemetry toggle is clicked,
+  // so you see the checkbox flip in place instead of the menu vanishing).
+  const am = document.getElementById('about-menu');
+  if (am && !am.contains(ev.target as Node) && !(ev.target as HTMLElement).closest('[data-act="about-menu"]')) closeAboutMenu();
+  // Per-tile ⋯ overflow menus: close on any click that isn't the ⋯ button itself.
+  // Clicking a row inside one runs its action AND dismisses the menu, which is
+  // what you want — every row is a one-shot command.
+  if (!(ev.target as HTMLElement).closest('[data-act="tile-more"]')) closeTileMenus();
   // Click on a picker backdrop (but not its panel) closes it. Notes first — its
   // backdrop also carries cp-add-backdrop for styling, so check the specific class.
   if ((ev.target as HTMLElement).classList?.contains('notes-backdrop')) { setCockpit({ notesOpen: false }); return; }
@@ -483,7 +682,9 @@ document.addEventListener('click', async (ev) => {
     // restart doesn't offer to resurrect a window the user chose to close.
     if (act === 'tile-close') { if (widgetTile) removePopout(widgetTile.id); window.close(); return; }
     if (act === 'tile-dock') { requestDockBack(); return; }
-    if (act === 'tile-max' || act === 'tile-popout') return;
+    // Minimize parks a tile in the MAIN window's sidebar — a pop-out has no
+    // sidebar to park into, so it's hidden by CSS there (dock back first).
+    if (act === 'tile-max' || act === 'tile-popout' || act === 'tile-min') return;
   }
 
   if (act === 'theme') { applyTheme(el.dataset.theme as ThemeId); renderApp(); }
@@ -494,15 +695,26 @@ document.addEventListener('click', async (ev) => {
   } else if (act === 'update-dismiss') {
     try { localStorage.setItem('cldctrl-dismissed-update', el.dataset.ver || ''); } catch { /* ignore */ }
     renderApp();
+  } else if (act === 'privacy-ack') {
+    // First-run telemetry disclosure acknowledged — never show it again.
+    try { localStorage.setItem('cldctrl-privacy-ack', '1'); } catch { /* ignore */ }
+    renderApp();
   } else if (act === 'restart-open' || act === 'power-restart') {
-    // The "restart to load" pill and the ⏻ menu's Restart share one path.
-    triggerRestart();
+    // The "restart to load" notice and the ⏻ menu's Restart share one path — and
+    // both now check for mid-turn work first (confirmRestart no-ops when idle).
+    confirmRestart();
   } else if (act === 'power-menu') {
     if (document.getElementById('power-menu')) closePowerMenu(); else openPowerMenu(el);
   } else if (act === 'power-stop') {
     closePowerMenu();
     announceStopping();
     postShutdown().catch(() => { /* the server is going down — a failed fetch is expected */ });
+  } else if (act === 'about-menu') {
+    if (document.getElementById('about-menu')) closeAboutMenu(); else openAboutMenu(el);
+  } else if (act === 'about-link') {
+    const href = el.closest('[data-act="about-link"]')?.getAttribute('data-href');
+    if (href) { try { window.open(href, '_blank', 'noopener'); } catch { /* ignore */ } }
+    closeAboutMenu();
   }
   else if (act === 'openincockpit') {
     const v = el.dataset.vendor;
@@ -550,6 +762,19 @@ document.addEventListener('click', async (ev) => {
     // Cockpit is the always-open home surface — closing the last tile leaves an
     // empty cockpit (with its "+ Add" prompt), it never flips the view off.
     setCockpit({ tiles, open: true, maximized: cp.maximized === el.dataset.id ? null : cp.maximized });
+  } else if (act === 'tile-more') {
+    toggleTileMenu(el);
+  } else if (act === 'tile-min') {
+    minimizeTile(el.dataset.id!);
+    // Say where it went — the tile vanishing from the grid otherwise reads as a
+    // close, which is exactly the confusion minimize exists to remove.
+    if (!minimizeExplained) { minimizeExplained = true; toast('Minimized — still running. Click it in the sidebar list to bring it back.'); }
+  } else if (act === 'tile-restore') {
+    restoreTile(el.dataset.id!);
+    setUi({ selectedProject: null });
+    setSearch({ query: '', results: [] });
+    setCockpit({ open: true, tab: 'grid' });
+    writeHash();
   } else if (act === 'tile-max') {
     const cp = getState().ui.cockpit;
     const id = el.dataset.id!;
@@ -702,9 +927,12 @@ document.addEventListener('click', async (ev) => {
     loadDetailIfNeeded();
   } else if (act === 'newcockpit') {
     // Start a fresh parallel conversation from this project as a cockpit tile
-    // (distinct from "New in terminal" which opens a separate window).
-    addLaunchTile(el.dataset.path!, el.dataset.name || undefined);
-    toast('Opening a new conversation…');
+    // (distinct from "New in terminal" which opens a separate window). The agent
+    // comes from the split button / its ⌄ menu — Claude unless another is picked.
+    const agent = el.dataset.agent || 'claude';
+    addLaunchTile(el.dataset.path!, el.dataset.name || undefined, undefined, agent);
+    const label = getState().data?.features.agents.find((a) => a.id === agent)?.label;
+    toast('Opening a new ' + (agent === 'claude' ? '' : (label || agent) + ' ') + 'conversation…');
   } else if (act === 'newsession') {
     setUi({ newSessionOpen: !ui.newSessionOpen, newSessionDraft: '' });
   } else if (act === 'newlaunch') {
@@ -999,7 +1227,7 @@ function restoreSession(): void {
       // Carry the docked notepad across the id change (new:… → resume:<sid>) so the
       // draft reopens instead of being orphaned + re-minted empty.
       return { id: 'resume:' + t.discoveredSessionId, kind: 'resume', sessionId: t.discoveredSessionId, projectPath: t.projectPath, title: t.title,
-        noteOpen: t.noteOpen, notePath: t.notePath, noteAnnounced: t.noteAnnounced };
+        noteOpen: t.noteOpen, notePath: t.notePath };
     }
     return (t.kind === 'new' && t.prompt) ? { ...t, prompt: undefined } : t;
   });

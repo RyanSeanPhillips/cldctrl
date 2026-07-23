@@ -13,6 +13,8 @@ const svgWrap = (path: Tpl) => svg`<svg viewBox="0 0 24 24" width="14" height="1
   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
 const iPlay = () => svgWrap(svg`<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"></polygon>`);
 const iTerminal = () => svgWrap(svg`<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>`);
+// dropdown affordance — matches the tile header's ⌄ overflow
+const iCaretDown = () => svgWrap(svg`<polyline points="6 9 12 15 18 9"></polyline>`);
 const iBranch = () => svgWrap(svg`<circle cx="6" cy="6" r="2.4"></circle><circle cx="6" cy="18" r="2.4"></circle><circle cx="18" cy="7" r="2.4"></circle><path d="M6 8.4v7.2M8.4 6.4H14a3 3 0 0 1 3 3v0"></path>`);
 const iGrid = () => svgWrap(svg`<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect>`);
 const iSearch = () => svgWrap(svg`<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>`);
@@ -21,6 +23,12 @@ const iNote = () => svgWrap(svg`<path d="M5 3h9l5 5v13H5z"></path><polyline poin
 const iAdd = () => svgWrap(svg`<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>`);
 const iHeadphones = () => svgWrap(svg`<path d="M4 14v-2a8 8 0 0 1 16 0v2"></path><rect x="2.5" y="14" width="5" height="7" rx="1.5"></rect><rect x="16.5" y="14" width="5" height="7" rx="1.5"></rect>`);
 const iUp = () => svgWrap(svg`<line x1="12" y1="19" x2="12" y2="5"></line><polyline points="6 11 12 5 18 11"></polyline>`);
+// circular arrow — "restart to load a newer build" (distinct from iUp's "update available")
+const iRestart = () => svgWrap(svg`<polyline points="20 5 20 11 14 11"></polyline><path d="M18.5 15a7 7 0 1 1-1.6-7.3L20 11"></path>`);
+// shield + check — the first-run privacy disclosure
+const iShield = () => svgWrap(svg`<path d="M12 3l7 2.7v5.1c0 4.3-3 6.9-7 8.2-4-1.3-7-3.9-7-8.2V5.7z"></path><polyline points="9 12 11.2 14.2 15 10"></polyline>`);
+// circled "i" — About / help
+const iInfo = () => svgWrap(svg`<circle cx="12" cy="12" r="9"></circle><line x1="12" y1="11" x2="12" y2="16"></line><circle cx="12" cy="8" r="0.6" fill="currentColor" stroke="none"></circle>`);
 const iCols1 = () => svgWrap(svg`<rect x="4" y="4" width="16" height="16" rx="1"></rect>`);
 const iCols2 = () => svgWrap(svg`<rect x="4" y="4" width="7" height="16" rx="1"></rect><rect x="13" y="4" width="7" height="16" rx="1"></rect>`);
 
@@ -81,6 +89,7 @@ function sideControls(): Tpl {
       ${THEMES.map((t) => html`<option value=${t.id} ?selected=${cur === t.id}>${t.label}</option>`)}
     </select>
     <button class="btn icon hands-free" data-act="handsfree-toggle" title="Listen mode — auto-read new replies aloud; Bluetooth/media buttons play/stop/replay">${iHeadphones()}</button>
+    <button class="btn icon about-btn" data-act="about-menu" title="About cldctrl · privacy / anonymous-usage toggle">${iInfo()}</button>
     <button class="btn icon power-btn" data-act="power-menu" title="Restart or stop the dashboard server">⏻</button>
   </div>`;
 }
@@ -103,10 +112,10 @@ function updatePill(d: OverviewPayload): Tpl | string {
   // attribute string (text before AND after ${...}) mis-parses and leaks into
   // visible content; a whole-value hole (title=${str}) is required.
   const tip = `A newer cldctrl (v${v}) is available — click to copy the update command`;
-  return html`<span class="update-pill" data-act="update-open" title=${tip}>
-    ${iUp()}<span class="up-ver">v${v}</span>
-    <button class="update-x" data-act="update-dismiss" data-ver=${v} title="Dismiss until the next release" aria-label="Dismiss">✕</button>
-  </span>`;
+  return html`<div class="side-notice update" data-act="update-open" title=${tip}>
+    ${iUp()}<span class="notice-t">Update available <b>v${v}</b></span>
+    <button class="notice-x" data-act="update-dismiss" data-ver=${v} title="Dismiss until the next release" aria-label="Dismiss">✕</button>
+  </div>`;
 }
 
 // "Restart to load" pill — a NEWER LOCAL BUILD is on disk than the one this
@@ -116,10 +125,29 @@ function updatePill(d: OverviewPayload): Tpl | string {
 // restart (the new server's buildId matches disk again).
 function restartPill(d: OverviewPayload): Tpl | string {
   if (!d.buildUpdateReady) return '';
-  return html`<span class="update-pill restart-pill" data-act="restart-open"
+  // A full-width strip, not a pill squeezed between the tier chip and the Stats
+  // button — it's a call to action, and the usage line had no room for it.
+  return html`<div class="side-notice restart" data-act="restart-open"
     title="A newer build is on disk — click to restart the dashboard and load it">
-    ${iUp()}<span class="up-ver">restart to load</span>
-  </span>`;
+    ${iRestart()}<span class="notice-t">New build ready</span><span class="notice-cta">Restart</span>
+  </div>`;
+}
+
+// First-run privacy disclosure — telemetry is opt-OUT (on by default, the owner's
+// call), so it MUST be disclosed plainly the first time you open the dashboard.
+// One quiet strip, shown until acknowledged; the ack persists in localStorage (the
+// 3s re-render would otherwise resurrect it, same lesson as update-dismiss). The
+// full statement — what's sent, what never is, and how to turn it off — lives in
+// the tooltip so the strip itself stays a "little note".
+function privacyNotice(): Tpl | string {
+  let ack = '';
+  try { ack = localStorage.getItem('cldctrl-privacy-ack') || ''; } catch { /* ignore */ }
+  if (ack) return '';
+  const tip = 'On launch, cldctrl checks for a newer version — that request also provides a basic, anonymous user head count: app version + a coarse region derived edge-side. It never includes your code, file names, or conversations. (More in the ⓘ About panel, bottom of the sidebar.)';
+  return html`<div class="side-notice privacy" title=${tip}>
+    ${iShield()}<span class="notice-t">The update check also keeps a basic <b>anonymous</b> user head count — app version + coarse region only, never your code or chats.</span>
+    <button class="notice-x" data-act="privacy-ack" title="Got it — hide this note" aria-label="Acknowledge">✕</button>
+  </div>`;
 }
 
 
@@ -186,7 +214,7 @@ function vendorMark(vendor?: string): Tpl {
 // One row in the sidebar Conversations list (Live, then dimmed Recent). Clickable
 // rows (with an id) resume the conversation as a cockpit tile. Layout left→right:
 // [status dot] [vendor badge] [name + current-action] [when].
-function sideConvItem(s: SessionInfo): Tpl {
+function sideConvItem(s: SessionInfo, parked?: ParkedTile): Tpl {
   const cls = s.status === 'active' ? 'active' : 'idle';
   const act = s.currentAction || (s.status === 'active' ? 'working…' : 'idle');
   const inner = html`
@@ -196,7 +224,15 @@ function sideConvItem(s: SessionInfo): Tpl {
       <div class="side-conv-nm">${s.project}</div>
       <div class="side-conv-act">${act}</div>
     </div>
+    ${parked ? html`<span class=${'side-parked' + (parked.waiting ? ' waiting' : '')}
+      >${parked.waiting ? '⚠ waiting' : 'minimized'}</span>` : ''}
     <span class="side-conv-when">${ago(s.lastActivity)}</span>`;
+  // A minimized conversation is still mounted and running — clicking its row puts
+  // the SAME tile back in the grid (never a second PTY for the same session).
+  if (parked) {
+    return html`<div class=${'side-conv parked ' + cls} data-act="tile-restore" data-id=${parked.id}
+      title="Minimized — still running. Click to bring it back into the grid.">${inner}</div>`;
+  }
   return s.id
     ? html`<div class=${'side-conv ' + cls} data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project} data-vendor=${s.vendor || 'claude'}
         title="Resume this conversation">${inner}</div>`
@@ -210,55 +246,105 @@ function sideConvItem(s: SessionInfo): Tpl {
 function ctrlRow(d: OverviewPayload, state: State): Tpl | string {
   if (!d.features.agentTerminal) return '';
   const cp = state.ui.cockpit;
-  const open = cp.tiles.some((t) => t.kind === 'control');
+  const tile = cp.tiles.find((t) => t.kind === 'control');
+  const open = !!tile;
+  const parked = !!tile?.minimized; // minimized → still running, just not in the grid
   const waiting = (cp.attnTiles ?? []).includes('control');
-  return html`<div class=${'side-ctrl-row' + (open || waiting ? ' active' : '')} data-act="open-control"
-    title="CTRL — mission-control agent (opens as a tile)">
+  return html`<div class=${'side-ctrl-row' + (open || waiting ? ' active' : '') + (parked ? ' parked' : '')} data-act="open-control"
+    title=${parked ? 'CTRL — minimized, still running. Click to bring it back.' : 'CTRL — mission-control agent (opens as a tile)'}>
     <span class="side-vmark v-ctrl">◆</span>
     <span class="side-ctrl-nm">CTRL</span>
     <span class=${'side-ctrl-tag' + (waiting ? ' waiting' : '')}>${
-      waiting ? '⚠ waiting' : open ? 'open' : 'mission control'}</span>
+      waiting ? '⚠ waiting' : parked ? 'minimized' : open ? 'open' : 'mission control'}</span>
   </div>`;
 }
 
 // A COMPACT recent (idle) row: vendor mark + name + when only — no status dot
 // and no current-action subtitle (those are reserved for LIVE rows). Single line.
-function sideRecentItem(s: SessionInfo): Tpl {
+function sideRecentItem(s: SessionInfo, parked?: ParkedTile): Tpl {
   const inner = html`${vendorMark(s.vendor)}
     <span class="side-recent-nm">${s.project}</span>
+    ${parked ? html`<span class=${'side-parked' + (parked.waiting ? ' waiting' : '')}
+      >${parked.waiting ? '⚠ waiting' : 'minimized'}</span>` : ''}
     <span class="side-recent-when">${ago(s.lastActivity)}</span>`;
+  if (parked) {
+    return html`<div class="side-recent-row parked" data-act="tile-restore" data-id=${parked.id}
+      title="Minimized — still running. Click to bring it back into the grid.">${inner}</div>`;
+  }
   return s.id
     ? html`<div class="side-recent-row" data-act="openincockpit" data-id=${s.id} data-path=${s.path} data-title=${s.project} data-vendor=${s.vendor || 'claude'}
         title="Resume this conversation">${inner}</div>`
     : html`<div class="side-recent-row">${inner}</div>`;
 }
 
+// ── minimized ("parked") conversations ───────────────────────
+// Minimize keeps the tile mounted and its PTY alive; the sidebar list is where it
+// lives meanwhile. Most parked tiles map onto a session row we already render, so
+// we just tag that row. A parked tile whose session the server hasn't listed yet
+// (a fresh 'new:' tile that hasn't written its first JSONL) has no row to tag —
+// it gets its own, or minimizing it would strand it with no way back.
+interface ParkedTile { id: string; waiting: boolean }
+
+function parkedIndex(state: State): { bySession: Map<string, ParkedTile>; orphans: Array<ParkedTile & { title: string }> } {
+  const cp = state.ui.cockpit;
+  const attn = new Set(cp.attnTiles ?? []);
+  const bySession = new Map<string, ParkedTile>();
+  const orphans: Array<ParkedTile & { title: string }> = [];
+  for (const t of cp.tiles) {
+    if (!t.minimized || t.kind === 'doc' || t.kind === 'control') continue; // control has its own row
+    const sid = t.sessionId ?? t.discoveredSessionId;
+    const entry = { id: t.id, waiting: attn.has(t.id) };
+    if (sid) bySession.set(sid, entry);
+    else orphans.push({ ...entry, title: t.title });
+  }
+  return { bySession, orphans };
+}
+
+function sideParkedOrphan(p: ParkedTile & { title: string }): Tpl {
+  return html`<div class="side-conv parked active" data-act="tile-restore" data-id=${p.id}
+    title="Minimized — still running. Click to bring it back into the grid.">
+    <span class="dot active"></span>
+    ${vendorMark('claude')}
+    <div class="side-conv-main">
+      <div class="side-conv-nm">${p.title}</div>
+      <div class="side-conv-act">starting…</div>
+    </div>
+    <span class=${'side-parked' + (p.waiting ? ' waiting' : '')}>${p.waiting ? '⚠ waiting' : 'minimized'}</span>
+  </div>`;
+}
+
 function sideConversations(d: OverviewPayload, state: State): Tpl {
   const liveS = d.sessions.filter((s) => s.status === 'active');
   const recent = d.sessions.filter((s) => s.status !== 'active');
   const recentCollapsed = state.ui.recentCollapsed;
+  const { bySession, orphans } = parkedIndex(state);
+  const parkedOf = (s: SessionInfo) => (s.id ? bySession.get(s.id) : undefined);
   return html`${ctrlRow(d, state)}
     <div class="side-live-list">
+      ${orphans.map(sideParkedOrphan)}
       ${d.sessions.length
-        ? html`${liveS.map(sideConvItem)}${recent.length ? html`
+        ? html`${liveS.map((s) => sideConvItem(s, parkedOf(s)))}${recent.length ? html`
             <div class="side-sub-lbl side-recent-lbl" data-act="toggle-recent" title="Show/hide recent conversations">
               <span class="side-recent-caret">${recentCollapsed ? '▸' : '▾'}</span><span>Recent</span><span class="side-recent-n num">${recent.length}</span>
-            </div>${recentCollapsed ? '' : recent.map(sideRecentItem)}` : ''}`
-        : html`<div class="empty">No sessions in the last 5h.</div>`}
+            </div>${recentCollapsed ? '' : recent.map((s) => sideRecentItem(s, parkedOf(s)))}` : ''}`
+        : orphans.length ? '' : html`<div class="empty">No sessions in the last 5h.</div>`}
     </div>`;
 }
 
 // Compact usage telemetry — replaces the old topbar bars and the idea of a
 // full-width bottom status bar. Pinned to the sidebar's fixed-bottom zone.
 function sideUsage(d: OverviewPayload, statsActive: boolean): Tpl {
+  // Notices get their OWN full-width rows above the usage readout — squeezed into
+  // the tier/version line they had nowhere to sit and read as debris.
   return html`<div class="side-usage">
+    ${privacyNotice()}
+    ${restartPill(d)}
+    ${updatePill(d)}
     <div class="side-usage-line">
       <span class="side-usage-tierwrap">
         ${d.tier ? html`<span class="side-usage-tier">◆ ${d.tier}</span>` : ''}
         ${d.version ? html`<span class="side-usage-ver num" title=${'cldctrl v' + d.version + ' · updated ' + new Date(d.generatedAt).toLocaleTimeString()}>v${d.version}</span>` : ''}
       </span>
-      ${updatePill(d)}
-      ${restartPill(d)}
       <span class="sp"></span>
       <button class=${'side-usage-stats' + (statsActive ? ' nav-on' : '')} data-act="nav-stats" title="Open usage & stats">${iStats()} Stats</button>
     </div>
@@ -463,6 +549,30 @@ function detailTabBody(state: State, projectPath: string): Tpl {
   }
 }
 
+// "New here" as a SPLIT control: the button starts a Claude conversation (the
+// common case, one click), the ⌄ opens the other installed agents. Previously a
+// project could only ever be opened with Claude from here — Codex/Antigravity
+// were reachable only through the cockpit's "+ Add → new" form, which doesn't
+// know which project you're looking at.
+function newHereSplit(d: OverviewPayload, projPath: string, name: string): Tpl {
+  const agents = (d.features.agents ?? []).filter((a) => a.id !== 'claude');
+  return html`<span class="split-btn">
+    <button class="btn primary split-main" data-act="newcockpit" data-path=${projPath} data-name=${name}
+      data-agent="claude" title="Start a new Claude conversation here (open several at once)">${iGrid()} New here</button>
+    ${agents.length ? html`<span class="tile-more-wrap">
+      <button class="btn primary split-caret" data-act="tile-more" title="Start here with another agent" aria-haspopup="true">${iCaretDown()}</button>
+      <div class="tile-menu" style="display:none">
+        ${agents.map((a) => html`<button class=${'tile-mi' + (a.available ? '' : ' off')}
+          data-act=${a.available ? 'newcockpit' : 'noop'} data-path=${projPath} data-name=${name} data-agent=${a.id}
+          title=${a.available ? 'Start a new ' + a.label + ' conversation in this project' : a.label + ' CLI not installed'}>
+          <span class="tile-mi-ic">${vendorMark(a.id)}</span>
+          <span class="tile-mi-lbl">New ${a.label} conversation${a.available ? '' : ' (not installed)'}</span>
+        </button>`)}
+      </div>
+    </span>` : ''}
+  </span>`;
+}
+
 function projectDetail(d: OverviewPayload, state: State): Tpl {
   const projPath = state.ui.selectedProject!;
   const p = d.projects.find((x) => x.path === projPath);
@@ -474,7 +584,7 @@ function projectDetail(d: OverviewPayload, state: State): Tpl {
       <h2 class="detail-name">${name}</h2>
       ${p ? gitBadge(p) : ''}
       <span class="sp"></span>
-      <button class="btn primary" data-act="newcockpit" data-path=${projPath} data-name=${name} title="Start a new conversation here (open several at once)">${iGrid()} New here</button>
+      ${newHereSplit(d, projPath, name)}
       <button class="btn" data-act="newsession" data-path=${projPath} title="Start a new conversation in a separate terminal window">${iTerminal()} New in terminal</button>
     </div>
     ${ui.newSessionOpen ? html`<div class="launch-form detail-launch">

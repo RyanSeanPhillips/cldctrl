@@ -196,10 +196,27 @@ function dominantModel(models: Record<string, number>): string | null {
  *  beta (e.g. `claude-opus-4-8` runs either 200k or 1M), so we infer it: any turn
  *  that exceeded 200k can ONLY exist on the 1M window — that's proof, not a guess.
  *  Falls back to the model-name "1m" tag, else 200k. */
-function contextWindowFor(model: string | null, peak?: number): number {
+function contextWindowFor(model: string | null, peak?: number, provenWide?: Set<string>): number {
   if ((peak ?? 0) > 200_000) return 1_000_000;
   if (model && /\b1m\b|1m]|-1m/i.test(model)) return 1_000_000;
+  // A session only PROVES its window once it exceeds 200k, so a freshly-launched
+  // one was pinned at 200k and its meter read ~5x too high — a brand-new session
+  // showing "51% full" before you've typed anything. If another session on the
+  // SAME model has been observed above 200k, that model runs the 1M window here,
+  // so carry that evidence across instead of making every new session re-earn it.
+  if (model && provenWide?.has(model)) return 1_000_000;
   return 200_000;
+}
+/** Model ids observed above 200k anywhere in this batch — proof of a 1M window. */
+function provenWideModels(list: Array<{ stats: { models?: unknown; maxContextSize?: number } }>): Set<string> {
+  const wide = new Set<string>();
+  for (const s of list) {
+    if ((s.stats.maxContextSize ?? 0) > 200_000) {
+      const m = dominantModel(s.stats.models as Parameters<typeof dominantModel>[0]);
+      if (m) wide.add(m);
+    }
+  }
+  return wide;
 }
 
 // ── Session file map (server-side only — clients never send paths) ──
@@ -291,10 +308,22 @@ async function buildOverview(): Promise<unknown> {
     } catch { return []; }
   })();
 
+  // Evidence that a model runs the 1M window, pooled across every live session so
+  // a just-launched one doesn't have to re-earn it (see contextWindowFor).
+  const wideModels = provenWideModels(sessions as Parameters<typeof provenWideModels>[0]);
+
+  // Anonymous-usage state for the About panel's toggle. `envLocked` = a kill switch
+  // in the environment forces it off regardless of config (so the toggle is inert).
+  const telemetryEnvLocked = (() => {
+    const dnt = process.env.DO_NOT_TRACK;
+    return (!!dnt && dnt !== '0' && dnt.toLowerCase() !== 'false') || !!process.env.CLDCTRL_NO_TELEMETRY;
+  })();
+
   return {
     ...serverIdentity(),
     updateAvailable: latestUpdate,
     buildUpdateReady,
+    telemetry: { enabled: !telemetryEnvLocked && config.error_reporting?.enabled !== false, envLocked: telemetryEnvLocked },
     generatedAt: new Date().toISOString(),
     tier: getTierLabel(tier),
     features: {
@@ -356,7 +385,7 @@ async function buildOverview(): Promise<unknown> {
       assistantTurns: s.stats.assistantTurns,
       toolCalls: s.stats.toolCalls.reads + s.stats.toolCalls.writes + s.stats.toolCalls.bash + s.stats.toolCalls.other,
       contextSize: s.stats.lastContextSize,
-      contextWindow: contextWindowFor(dominantModel(s.stats.models), s.stats.maxContextSize),
+      contextWindow: contextWindowFor(dominantModel(s.stats.models), s.stats.maxContextSize, wideModels),
       durationMs: s.stats.duration,
       model: dominantModel(s.stats.models),
       files: (s.stats.touchedFiles ?? []).slice(0, 60).map(f => ({
@@ -1012,10 +1041,12 @@ function termCommand(meta: TermMeta): { cwd: string; cmd: string } | null {
   }
   if (meta.kind === 'new' && meta.projectPath) {
     const bin = agentCommand(meta.agent);
-    // Seed an initial prompt the same way the terminal launcher does — claude
-    // takes it as a positional arg (only claude; other agents launch bare).
-    const seed = meta.prompt && (!meta.agent || meta.agent === 'claude') ? ' ' + shellQuoteArg(meta.prompt) : '';
-    return { cwd: meta.projectPath, cmd: bin + seed };
+    // The seed prompt is NOT passed on the command line — see seedPromptInto().
+    // It used to go through a temp .bat, which mangled it twice: cmd.exe reads
+    // .bat files in the OEM codepage, so UTF-8 punctuation arrived as mojibake
+    // ("—" → "ΓÇö"), and every newline had to be flattened to a space to keep the
+    // command on one line, destroying any structure in the prompt.
+    return { cwd: meta.projectPath, cmd: bin };
   }
   return null;
 }
@@ -1107,7 +1138,48 @@ function spawnTerm(id: string, meta: TermMeta): TermSession | null {
     log('serve_term', { event: 'exit', id });
   });
   terminals.set(id, session);
+  if (meta.prompt && (!meta.agent || meta.agent === 'claude')) seedPromptInto(session, meta.prompt);
   return session;
+}
+
+/**
+ * Type a seed prompt into a freshly-spawned agent, instead of passing it as a
+ * command-line argument.
+ *
+ * Writing it into the PTY sends raw UTF-8 straight to the process, so it never
+ * passes through cmd.exe's OEM codepage (which turned "—" into "ΓÇö"), and
+ * newlines survive — bracketed paste (DEC 2004) marks the whole block as pasted
+ * text, so the agent's TUI treats embedded newlines as content rather than as
+ * "submit". A structured prompt now arrives with its structure intact.
+ *
+ * Timing: the TUI has to be up before it can accept input. Rather than a fixed
+ * delay, wait for the process to produce output and then go quiet — that's the
+ * TUI finishing its first paint — with a hard cap so a silent agent can't hang
+ * the seed forever.
+ */
+function seedPromptInto(session: TermSession, prompt: string): void {
+  const QUIET_MS = 700;        // stillness that means "done painting"
+  const MAX_WAIT_MS = 20_000;  // never wait forever on a silent/broken agent
+  let quiet: NodeJS.Timeout | null = null;
+  let sent = false;
+  const disposable = session.term.onData(() => {
+    if (sent) return;
+    if (quiet) clearTimeout(quiet);
+    quiet = setTimeout(fire, QUIET_MS);
+  });
+  const hardStop = setTimeout(fire, MAX_WAIT_MS);
+  function fire(): void {
+    if (sent) return;
+    sent = true;
+    if (quiet) clearTimeout(quiet);
+    clearTimeout(hardStop);
+    try { disposable?.dispose?.(); } catch { /* older node-pty returns void */ }
+    try {
+      // \x1b[200~ … \x1b[201~ = bracketed paste; the trailing \r submits it.
+      session.term.write('\x1b[200~' + prompt.replace(/\r\n?/g, '\n') + '\x1b[201~');
+      setTimeout(() => { try { session.term.write('\r'); } catch { /* gone */ } }, 150);
+    } catch (e) { log('error', { function: 'seedPromptInto', message: String(e) }); }
+  }
 }
 
 function killTerm(id: string): void {
@@ -1474,15 +1546,30 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
         if (DEMO) { sendJson(res, 200, { ok: false, disabled: true }); return; }
         log('serve', { event: 'restart_requested', terminals: terminals.size });
+        // Resolve the supervisor's entry BEFORE answering. This import used to run
+        // 150ms later, inside a fire-and-forget timer, so a failure (see the
+        // chunk-warming note in startServeServer) was logged and otherwise
+        // invisible: the client sat on "Updating…" while nothing happened. Now a
+        // failure is reported in the response and surfaced at once.
+        let entry: string | null = null;
+        let entryErr = '';
+        try {
+          // resolveEntry() existsSync-guards + falls back to argv[1] instead of
+          // assuming index.js sits next to this bundle.
+          entry = (await import('./core/app-launch.js')).resolveEntry();
+        } catch (e) { entryErr = String(e); log('error', { function: 'api_restart', message: entryErr }); }
+        if (!entry) {
+          sendJson(res, 500, { ok: false, error: 'Could not start the restart helper — restart from a terminal with `cc restart`.', detail: entryErr.slice(0, 300) });
+          return;
+        }
         sendJson(res, 200, { ok: true, instanceId: INSTANCE_ID, terminals: terminals.size });
-        setTimeout(async () => {
+        // Spawn AFTER the response has been handed to the socket, so the
+        // supervisor's shutdown call can't race this reply.
+        setTimeout(() => {
           try {
-            // resolveEntry() existsSync-guards + falls back to argv[1] instead of
-            // assuming index.js sits next to this bundle.
-            const { resolveEntry } = await import('./core/app-launch.js');
-            spawn(process.execPath, [resolveEntry(), 'restart', '--port', String(dashboardPort || port), '--no-window'],
+            spawn(process.execPath, [entry!, 'restart', '--port', String(dashboardPort || port), '--no-window'],
               { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-          } catch (e) { log('error', { function: 'api_restart', message: String(e) }); }
+          } catch (e) { log('error', { function: 'api_restart_spawn', message: String(e) }); }
         }, 150);
       } else if (req.method === 'POST' && url.pathname === '/api/screenshot') {
         if (req.headers['x-cldctrl'] !== '1') { sendJson(res, 403, { error: 'Missing X-CLDCTRL header' }); return; }
@@ -1765,6 +1852,33 @@ export function startServeServer(port: number, opts: { open?: boolean; demo?: bo
     }, Math.max(1000, BUILD_CHECK_MS));
     buildTick.unref?.();
   }
+
+  // ── warm the lazily-imported chunks ──────────────────────────
+  // This process outlives its own build. `tsup` emits CONTENT-HASHED chunks
+  // (dist/app-launch-<hash>.js) and deletes the previous ones, so every
+  // `await import('./core/x.js')` in a running server starts throwing
+  // ERR_MODULE_NOT_FOUND the moment someone rebuilds — the file it resolves to is
+  // gone. That broke /api/restart in the cruellest possible way: the "restart to
+  // load" button only appears BECAUSE a new build landed, and that same build
+  // deleted the chunk the restart handler needs, so the one feature whose entire
+  // purpose is "load the new build" could never work.
+  //
+  // Importing each module once at startup puts it in Node's ESM registry, keyed by
+  // resolved URL. Later `import()` calls of the same specifier are served from
+  // that registry without touching the filesystem, so a deleted chunk is
+  // irrelevant. Fire-and-forget: failures here are non-fatal (the call sites keep
+  // their own error handling), and it keeps these modules off the CLI/TUI startup
+  // path, which is why they were lazy in the first place.
+  for (const load of DEMO
+    ? [() => import('./core/serve-demo.js')]     // demo re-imports this on EVERY request
+    : [
+      () => import('./core/app-launch.js'),      // restart supervisor + pop-out windows
+      () => import('./core/handoff.js'),         // agent handoff briefs
+      () => import('./core/stats.js'),           // Stats tab
+      () => import('./core/semantic-rerank.js'), // conversation search
+      () => import('./core/latex.js'),           // notepad → LaTeX
+      () => import('./core/codex-stats.js'),     // Codex usage row
+    ]) load().catch(() => { /* stays lazy at the call site */ });
 
   // Localhost ONLY — transcripts, terminal, and launch must not reach the network.
   server.listen(port, '127.0.0.1', () => {

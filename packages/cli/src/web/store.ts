@@ -22,9 +22,9 @@ export interface CockpitTile {
   filePath?: string;          // doc tiles: absolute path to the markdown file
   prompt?: string;            // new sessions: seed prompt typed into the agent
   scratch?: boolean;          // doc tiles: a scratchpad (opens in edit mode, focused)
+  minimized?: boolean;        // parked: the tile keeps its PTY/WebSocket but leaves the grid — it lives in the sidebar conversation list until restored
   noteOpen?: boolean;         // term tiles: the docked notepad panel is open (persists with the conversation)
   notePath?: string;          // term tiles: resolved docked-notepad file — persisted so resume reopens the SAME draft (not a fresh empty one)
-  noteAnnounced?: boolean;    // term tiles: the one-time "a notepad is linked" notice has been sent to the agent
   handoffFrom?: { sessionId: string; vendor: string }; // this tile continues another conversation's work (backlink)
   discoveredSessionId?: string; // 'new' tiles: the sessionId claude created → resume it (not re-spawn) on restore
 }

@@ -39,7 +39,7 @@ await w.waitForTimeout(900);
 const widget = {
   title: await w.title(),
   tiles: await w.$$eval('.widget-root .tile', (e) => e.length),
-  noteBtn: await w.$$eval('.widget-root [data-act="tile-note"]', (e) => e.length),
+  noteBtn: await w.$$eval('.widget-root .note-rail', (e) => e.length),
   maxHidden: await w.$eval('[data-act="tile-max"]', (e) => getComputedStyle(e).display === 'none').catch(() => 'absent'),
   sidebar: await w.$$eval('.side', (e) => e.length),
   persisted: await w.evaluate(() => localStorage.getItem('cldctrl.session.v1')),
